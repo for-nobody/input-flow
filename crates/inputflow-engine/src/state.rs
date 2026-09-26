@@ -63,6 +63,17 @@ impl KeyState {
         self.consumed.remove(&key);
     }
 
+    /// Keys whose down was consumed (not delivered to the target) but are still
+    /// physically held. On pause these downs must be replayed so the later
+    /// physical release is not an orphan (NFR-04).
+    pub fn consumed_and_held(&self) -> Vec<Key> {
+        self.consumed
+            .iter()
+            .copied()
+            .filter(|key| self.physically_held.contains(key))
+            .collect()
+    }
+
     /// Clear all tracking (used when pausing / entering bypass).
     pub fn clear(&mut self) {
         self.physically_held.clear();
@@ -123,6 +134,17 @@ impl MouseState {
 
     pub fn clear_consumed(&mut self, button: MouseButton) {
         self.consumed.remove(&button);
+    }
+
+    /// Buttons whose down was consumed (not delivered) but are still physically
+    /// held. On pause these downs must be replayed so the later release is not
+    /// an orphan (NFR-04).
+    pub fn consumed_and_held(&self) -> Vec<MouseButton> {
+        self.consumed
+            .iter()
+            .copied()
+            .filter(|button| self.physically_held.contains(button))
+            .collect()
     }
 
     /// Clear all tracking (used when pausing / entering bypass).

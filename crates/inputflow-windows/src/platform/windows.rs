@@ -21,8 +21,9 @@
 //! events are recognized and never re-trigger matching. A thread timer
 //! (`SetTimer`) drives `Hold` / `Hold+MouseButton` deadlines via `WM_TIMER`.
 
+use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{SyncSender, TrySendError};
+use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
@@ -35,15 +36,16 @@ use windows_sys::Win32::Foundation::{GetLastError, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::GetCurrentThreadId;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    INPUT, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP, MOUSEEVENTF_LEFTDOWN,
-    MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN,
-    MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_XDOWN, MOUSEEVENTF_XUP, MOUSEINPUT, SendInput,
+    INPUT, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP,
+    MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP,
+    MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_XDOWN, MOUSEEVENTF_XUP, MOUSEINPUT,
+    SendInput,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DispatchMessageW, GetMessageW, HC_ACTION, KBDLLHOOKSTRUCT, KF_EXTENDED,
-    KF_REPEAT, KF_UP, KillTimer, LLKHF_INJECTED, LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT, PM_NOREMOVE,
-    PeekMessageW, PostThreadMessageW, SetTimer, SetWindowsHookExW, TranslateMessage,
-    UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_QUIT, WM_TIMER,
+    CallNextHookEx, DispatchMessageW, GetMessageW, HC_ACTION, KBDLLHOOKSTRUCT, KillTimer,
+    LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT, PM_NOREMOVE, PeekMessageW, PostThreadMessageW, SetTimer,
+    SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_QUIT,
+    WM_TIMER,
 };
 
 use crate::keymap;
@@ -88,6 +90,13 @@ static CALLBACK_LATENCY: OnceLock<Mutex<PercentileTracker>> = OnceLock::new();
 static HOLD_DELAY: OnceLock<Mutex<PercentileTracker>> = OnceLock::new();
 /// Start instant of the current hold window, if one is in progress.
 static HOLD_START: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
+/// Physical held-key set used to detect auto-repeat downs (low-level hooks have
+/// no repeat bit). Only ever touched from the hook thread.
+static HELD_KEYS: OnceLock<Mutex<BTreeSet<Key>>> = OnceLock::new();
+/// Receiver for output-completion acknowledgements sent by the output worker.
+/// The hook thread waits on this to establish an ordering barrier so a
+/// subsequent pass-through event cannot overtake a just-dispatched replay.
+static OUTPUT_ACK_RX: OnceLock<Mutex<Receiver<()>>> = OnceLock::new();
 
 /// Install the matcher used by the hook callbacks. Call before the hook thread.
 pub fn install_matcher(matcher: Matcher) {
@@ -103,6 +112,13 @@ pub fn install_output_sender(tx: SyncSender<Command>) {
 /// Install the diagnostic-log sender. Call before the hook thread.
 pub fn install_log_sender(tx: SyncSender<String>) {
     let _ = LOG_TX.set(tx);
+}
+
+/// Install the receiver the hook thread uses to wait for output completion.
+/// The output worker sends one `()` after each `execute()` call; see
+/// [`wait_output_ack`]. Call before the hook thread starts.
+pub fn install_output_ack_receiver(rx: Receiver<()>) {
+    let _ = OUTPUT_ACK_RX.set(Mutex::new(rx));
 }
 
 /// Install the emergency bypass key. Call before the hook thread starts.
@@ -128,6 +144,41 @@ fn emergency_key() -> Key {
 /// Whether per-event debug logging is enabled.
 fn debug_log_enabled() -> bool {
     DEBUG_LOG.load(Ordering::Relaxed)
+}
+
+fn held_keys() -> &'static Mutex<BTreeSet<Key>> {
+    HELD_KEYS.get_or_init(|| Mutex::new(BTreeSet::new()))
+}
+
+/// Update the physical held-key set for a keyboard event and report whether a
+/// key-down is an auto-repeat (the key was already held). A key-up removes the
+/// key and is never a repeat. On a poisoned lock we fail safe (non-repeat).
+fn track_held_key(key: Key, up: bool) -> bool {
+    let Ok(mut held) = held_keys().lock() else {
+        return false;
+    };
+    if up {
+        held.remove(&key);
+        false
+    } else {
+        let repeat = held.contains(&key);
+        held.insert(key);
+        repeat
+    }
+}
+
+/// Wait (bounded) for the output worker to finish executing the previously
+/// dispatched command. This is the ordering barrier that keeps a subsequent
+/// pass-through event from overtaking a just-dispatched replay/action. The wait
+/// is bounded so a wedged worker cannot block the hook callback forever.
+fn wait_output_ack() {
+    let Some(rx) = OUTPUT_ACK_RX.get() else {
+        return;
+    };
+    let Ok(rx) = rx.lock() else {
+        return;
+    };
+    let _ = rx.recv_timeout(std::time::Duration::from_millis(50));
 }
 
 /// Best-effort flush any held events: pause the matcher (which returns the held
@@ -295,11 +346,16 @@ fn send_output(command: Command) {
     let Some(tx) = OUTPUT_TX.get() else {
         return;
     };
-    match tx.try_send(command) {
-        Ok(()) => {}
-        Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
-            OUTPUT_DROPPED.fetch_add(1, Ordering::Relaxed);
-        }
+    // Blocking send provides backpressure instead of silently dropping an
+    // already-suppressed event: if the worker is briefly behind, the hook
+    // waits (bounded by the worker's drain rate) rather than losing the replay.
+    // `SendError` only occurs when the worker has gone away entirely.
+    if tx.send(command).is_err() {
+        // The output worker is gone: stop intercepting so no further input is
+        // withheld (its replay can no longer be delivered).
+        OUTPUT_DROPPED.fetch_add(1, Ordering::Relaxed);
+        BYPASS.store(true, Ordering::Relaxed);
+        send_log("output_disconnected: entering bypass".to_string());
     }
 }
 
@@ -361,6 +417,10 @@ fn dispatch_command(command: Command) {
     }
     record_hold_delay();
     send_output(command);
+    // Ordering barrier: wait until the worker has actually inserted the
+    // command before returning to the hook, so a subsequent pass-through event
+    // cannot be delivered ahead of this replay/action (M6 P1 #4).
+    wait_output_ack();
 }
 
 /// Drive any elapsed matcher deadline (Hold / Hold+MouseButton). Called from the
@@ -390,10 +450,10 @@ fn build_inputs(command: &Command) -> Vec<INPUT> {
             Action::KeyChord(keys) => {
                 let mut inputs = Vec::with_capacity(keys.len() * 2);
                 for &key in keys {
-                    inputs.push(make_key_input(key, 0, false));
+                    inputs.push(make_key_input(key, 0, false, false));
                 }
                 for &key in keys.iter().rev() {
-                    inputs.push(make_key_input(key, 0, true));
+                    inputs.push(make_key_input(key, 0, false, true));
                 }
                 inputs
             }
@@ -407,9 +467,10 @@ fn event_to_input(event: &InputEvent) -> Option<INPUT> {
         InputSource::Keyboard {
             key,
             scan_code,
+            extended,
             down,
             ..
-        } => Some(make_key_input(key, scan_code, down)),
+        } => Some(make_key_input(key, scan_code, extended, down)),
         InputSource::Mouse {
             kind: MouseKind::ButtonDown(button),
             ..
@@ -422,17 +483,33 @@ fn event_to_input(event: &InputEvent) -> Option<INPUT> {
     }
 }
 
+/// Build the `KEYBDINPUT.dwFlags` value for a synthesized key event. Replay is
+/// VK-based (`wVk` set, `KEYEVENTF_SCANCODE` not set): left/right modifiers are
+/// distinguished by their distinct VKs (`VK_LCONTROL` vs `VK_RCONTROL`, …), and
+/// the extended-key bit is preserved for replayed physical events so extended
+/// keys keep their identity. Pure so it can be unit-tested.
+fn keybd_flags(up: bool, extended: bool) -> u32 {
+    let mut flags = 0u32;
+    if up {
+        flags |= KEYEVENTF_KEYUP;
+    }
+    if extended {
+        flags |= KEYEVENTF_EXTENDEDKEY;
+    }
+    flags
+}
+
 /// Build one keyboard `INPUT` from an engine key.
 // `INPUT` holds a union (`Anonymous`), so `Default` + field assignment is the
 // clearest way to set it; the lint is a false positive here.
 #[allow(clippy::field_reassign_with_default)]
-fn make_key_input(key: Key, scan_code: u16, up: bool) -> INPUT {
+fn make_key_input(key: Key, scan_code: u16, extended: bool, up: bool) -> INPUT {
     let mut input = INPUT::default();
     input.r#type = INPUT_KEYBOARD;
     input.Anonymous.ki = KEYBDINPUT {
         wVk: keymap::key_to_vk(key),
         wScan: scan_code,
-        dwFlags: if up { KEYEVENTF_KEYUP } else { 0 },
+        dwFlags: keybd_flags(up, extended),
         time: 0,
         dwExtraInfo: SELF_EXTRA_INFO_TAG,
     };
@@ -618,35 +695,39 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
     if code == HC_ACTION as i32 {
         // SAFETY: `code >= HC_ACTION` guarantees a valid KBDLLHOOKSTRUCT.
         let info = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
-        let up = (info.flags & KF_UP) != 0;
-        let repeat = (info.flags & KF_REPEAT) != 0;
-        let vk = info.vkCode as u16;
-        let key = keymap::vk_to_key(vk);
+        let (up, extended, injected) = keymap::keyboard_flags(info.flags);
+        let key = keymap::vk_to_key(info.vkCode as u16);
+
+        // Our own synthesized events pass through, so replay never recurses. Do
+        // this before the held-key bookkeeping so replayed events do not affect
+        // auto-repeat detection.
+        if is_own_event(info.dwExtraInfo) {
+            // SAFETY: `hhk` is ignored for low-level hooks.
+            return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
+        }
+
+        // Low-level hooks expose no repeat bit; derive auto-repeat from the
+        // maintained physical held-key set (M6 P0 #2).
+        let repeat = track_held_key(key, up);
+
         let event = InputEvent {
             seq: next_seq(),
             time_ms: info.time as u64,
-            injected: (info.flags & LLKHF_INJECTED) != 0,
+            injected,
             source: InputSource::Keyboard {
                 key,
                 scan_code: info.scanCode as u16,
-                extended: (info.flags & KF_EXTENDED) != 0,
+                extended,
                 down: !up,
                 repeat,
             },
         };
         if debug_log_enabled() {
             send_log(format!(
-                "[seq={:06}] kbd {} {key:?} injected={}",
+                "[seq={:06}] kbd {} {key:?} injected={injected} repeat={repeat}",
                 event.seq,
                 if up { "Up" } else { "Down" },
-                event.injected
             ));
-        }
-
-        // Our own synthesized events pass through, so replay never recurses.
-        if is_own_event(info.dwExtraInfo) {
-            // SAFETY: `hhk` is ignored for low-level hooks.
-            return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
         }
 
         // The emergency key toggles suspension on its first (non-repeat) down and
@@ -736,3 +817,17 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
         unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keybd_flags_sets_up_and_extended_bits() {
+        assert_eq!(keybd_flags(false, false), 0);
+        assert_eq!(keybd_flags(true, false), KEYEVENTF_KEYUP);
+        assert_eq!(keybd_flags(false, true), KEYEVENTF_EXTENDEDKEY);
+        assert_eq!(keybd_flags(true, true), KEYEVENTF_KEYUP | KEYEVENTF_EXTENDEDKEY);
+    }
+}
+

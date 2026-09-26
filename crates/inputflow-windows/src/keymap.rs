@@ -204,6 +204,22 @@ pub fn wheel_delta(value: u32) -> i32 {
     (high_word(value) as i16) as i32
 }
 
+/// Decode a `KBDLLHOOKSTRUCT.flags` value into the `(up, extended, injected)`
+/// triple used to build an engine [`inputflow_engine::InputEvent`].
+///
+/// Low-level keyboard hooks use the `LLKHF_*` bit positions (`LLKHF_UP = 0x80`,
+/// `LLKHF_EXTENDED = 0x01`, `LLKHF_INJECTED = 0x10`), *not* the `KF_*` masks
+/// (`KF_UP = 0x8000`, `KF_EXTENDED = 0x0100`) that `GetKeyState` / the
+/// `WM_KEYDOWN` `lParam` use. Mixing the two families up makes every key event
+/// look like a key-down (M6 P0).
+pub fn keyboard_flags(flags: u32) -> (bool, bool, bool) {
+    (
+        (flags & wm::LLKHF_UP) != 0,
+        (flags & wm::LLKHF_EXTENDED) != 0,
+        (flags & wm::LLKHF_INJECTED) != 0,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,5 +277,21 @@ mod tests {
             Some((MouseButton::XButton1, true))
         );
         assert_eq!(mouse_wparam(wm::WM_MOUSEWHEEL, 0), None);
+    }
+
+    #[test]
+    fn keyboard_flags_decodes_low_level_hook_bits() {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            LLKHF_EXTENDED, LLKHF_INJECTED, LLKHF_UP,
+        };
+
+        assert_eq!(keyboard_flags(0), (false, false, false));
+        assert_eq!(keyboard_flags(LLKHF_UP), (true, false, false));
+        assert_eq!(keyboard_flags(LLKHF_EXTENDED), (false, true, false));
+        assert_eq!(keyboard_flags(LLKHF_INJECTED), (false, false, true));
+        assert_eq!(
+            keyboard_flags(LLKHF_UP | LLKHF_EXTENDED | LLKHF_INJECTED),
+            (true, true, true)
+        );
     }
 }

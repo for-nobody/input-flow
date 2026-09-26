@@ -295,11 +295,20 @@ impl Matcher {
     pub fn set_paused(&mut self, paused: bool) -> Vec<InputEvent> {
         self.paused = paused;
         if paused {
-            let held = self.pending.take_replay();
+            let mut replay = self.pending.take_replay();
             self.active = None;
+            // Replay the downs of consumed-but-still-held keys/buttons so the
+            // target sees a matching down before the later physical release
+            // arrives (NFR-04: no orphan up after bypass).
+            for key in self.keys.consumed_and_held() {
+                replay.push(synthetic_key_down(key));
+            }
+            for button in self.buttons.consumed_and_held() {
+                replay.push(synthetic_button_down(button));
+            }
             self.keys.clear();
             self.buttons.clear();
-            held
+            replay
         } else {
             Vec::new()
         }
@@ -333,7 +342,18 @@ impl Matcher {
 
         match active_first {
             Some(first) if first == key => self.on_first_key_event(key, event),
-            Some(_) if is_hold_like => self.pass_through(event),
+            Some(_) if is_hold_like => {
+                // A non-matching key during a hold-like prefix fails the hold so
+                // the held key and this key are replayed in their original order
+                // (preserving combinations such as Ctrl+A while a Hold or
+                // Hold+MouseButton prefix is pending). Releases still pass
+                // through, as do auto-repeat downs of an already-passed key.
+                if event.is_key_down() && !event.is_repeat() {
+                    self.fail_active(event)
+                } else {
+                    self.pass_through(event)
+                }
+            }
             Some(first) => self.on_chord_second_key(first, key, event),
             None => self.on_idle_key(key, event),
         }
@@ -461,7 +481,20 @@ impl Matcher {
             );
         }
 
-        // Repeat (or stray) down while the prefix is active: keep holding. The
+        // Auto-repeat down while the prefix is active: absorb it. The original
+        // down is already held in `pending`; re-adding repeats would only burn
+        // queue capacity (and eventually overflow) and must not reset the timer
+        // (M5/M6 semantics).
+        if event.is_repeat() {
+            return (
+                Decision::Suppress {
+                    event_id: event.seq,
+                },
+                Resolution::Pending,
+            );
+        }
+
+        // Stray (non-repeat) down while the prefix is active: keep holding. The
         // timer is NOT reset (M5 semantics).
         if self.pending.push(event).is_err() {
             return self.overflow_flush();
@@ -533,6 +566,8 @@ impl Matcher {
         self.pending.take_replay();
         self.keys.mark_consumed(active.key);
         self.buttons.mark_consumed(active.button);
+        // The completing button is physically down too (NFR-04/pause replay).
+        self.buttons.mark_physical_down(active.button);
         self.active = None;
         (
             Decision::Suppress {
@@ -578,9 +613,13 @@ impl Matcher {
         self.keys.mark_consumed(first);
         if let Some(key) = second_key {
             self.keys.mark_consumed(key);
+            // The completing key is physically down too, so its consumed down is
+            // visible to `consumed_and_held` (pause replays it before an up).
+            self.keys.mark_physical_down(key);
         }
         if let Some(button) = second_button {
             self.buttons.mark_consumed(button);
+            self.buttons.mark_physical_down(button);
         }
         self.active = None;
         (
@@ -693,6 +732,38 @@ impl Matcher {
                 InputSource::Mouse { .. } => {}
             }
         }
+    }
+}
+
+/// A synthesized key-down used to make a consumed-but-still-held key visible to
+/// the target again (see [`Matcher::set_paused`]). Replay ignores `seq`, so a
+/// sentinel value is safe.
+fn synthetic_key_down(key: Key) -> InputEvent {
+    InputEvent {
+        seq: u64::MAX,
+        time_ms: 0,
+        injected: true,
+        source: InputSource::Keyboard {
+            key,
+            scan_code: 0,
+            extended: false,
+            down: true,
+            repeat: false,
+        },
+    }
+}
+
+/// A synthesized button-down, mirroring [`synthetic_key_down`].
+fn synthetic_button_down(button: MouseButton) -> InputEvent {
+    InputEvent {
+        seq: u64::MAX,
+        time_ms: 0,
+        injected: true,
+        source: InputSource::Mouse {
+            kind: MouseKind::ButtonDown(button),
+            x: 0,
+            y: 0,
+        },
     }
 }
 
@@ -822,6 +893,75 @@ mod tests {
                 rule_id: "hold".to_string(),
                 action: Action::KeyChord(vec![Key::C]),
             }]
+        );
+    }
+
+    #[test]
+    fn hold_fails_on_other_key_down_preserving_chord() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(clock.clone(), vec![hold_rule(Key::LeftCtrl, 250)], 8);
+
+        let ctrl = down(0, 0, Key::LeftCtrl);
+        m.on_event(ctrl);
+
+        // While the hold prefix is pending, a non-matching key down fails the
+        // hold and replays [Ctrl, A] in order, preserving Ctrl+A (M6 P1 #3).
+        let a = down(1, 10, Key::A);
+        let (decision, resolution) = m.on_event(a);
+        assert_eq!(decision, Decision::Suppress { event_id: 1 });
+        assert_eq!(resolution, Resolution::Failed { replay: vec![ctrl, a] });
+        assert_eq!(m.next_deadline(), None);
+    }
+
+    #[test]
+    fn hold_button_fails_on_other_key_down_preserving_chord() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(
+            clock.clone(),
+            vec![hold_button_rule(Key::LeftCtrl, 250, MouseButton::Right)],
+            8,
+        );
+
+        let ctrl = down(0, 0, Key::LeftCtrl);
+        m.on_event(ctrl);
+
+        // Same as the single-key Hold case: a non-matching key must fail the
+        // hold-like prefix and replay in order (preserve Ctrl+A).
+        let a = down(1, 10, Key::A);
+        let (decision, resolution) = m.on_event(a);
+        assert_eq!(decision, Decision::Suppress { event_id: 1 });
+        assert_eq!(resolution, Resolution::Failed { replay: vec![ctrl, a] });
+    }
+
+    #[test]
+    fn pause_replays_consumed_held_keys_and_buttons() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(
+            clock.clone(),
+            vec![hold_button_rule(Key::LeftCtrl, 250, MouseButton::Right)],
+            8,
+        );
+
+        // Complete a Hold+MouseButton match: Ctrl held to threshold, then the
+        // right button completes it. Both downs are consumed (not delivered).
+        m.on_event(down(0, 0, Key::LeftCtrl));
+        clock.advance(250);
+        m.on_timeout(); // arm the rule (Ctrl still held)
+        let (_, resolution) = m.on_event(button(1, 250, MouseButton::Right, true));
+        assert!(matches!(
+            resolution,
+            Resolution::Matched { ref rule_id, .. } if rule_id == "hold-click"
+        ));
+
+        // Pausing while Ctrl and Right are still physically held must replay
+        // their downs so the later physical ups are not orphaned (M6 P2 #6).
+        let replay = m.set_paused(true);
+        assert_eq!(
+            replay,
+            vec![
+                synthetic_key_down(Key::LeftCtrl),
+                synthetic_button_down(MouseButton::Right),
+            ]
         );
     }
 
