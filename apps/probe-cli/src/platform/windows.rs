@@ -1,28 +1,35 @@
-//! Windows platform layer: low-level keyboard/mouse hooks and the message loop.
+//! Windows platform layer: low-level keyboard/mouse hooks, the message loop, and
+//! `SendInput` replay.
 //!
 //! # Safety invariants
 //!
 //! - All `unsafe` Win32 calls and thread lifecycle are confined to this module.
 //! - Hook callbacks dereference `lparam` only when `code >= HC_ACTION`, where the
 //!   OS guarantees it points to a valid `KBDLLHOOKSTRUCT` / `MSLLHOOKSTRUCT`.
-//! - Callbacks only read `Copy` fields, then perform a single non-blocking
-//!   `try_send` and return `CallNextHookEx` immediately. They never allocate,
-//!   block, wait on a worker, or touch the filesystem/GUI.
+//! - Callbacks only read `Copy` fields, perform lightweight atomic/state checks,
+//!   and non-blocking `try_send` requests; they never allocate, block, wait on a
+//!   worker, do I/O, or touch the GUI. Replay runs on a worker thread.
 //! - Hook handles are owned by the hook thread and are uninstalled before that
 //!   thread returns. The hook thread creates its message queue (via `PeekMessageW`)
 //!   before reporting its thread id, so `PostThreadMessageW(WM_QUIT)` cannot race
 //!   the queue creation.
 //!
-//! This probe is read-only: callbacks always pass events through (return the
-//! value of `CallNextHookEx`) and never suppress input.
+//! M2 behavior: physical F8 down/up is suppressed (the callback returns non-zero);
+//! a delayed, tag-marked F8 down+up pair is synthesized with `SendInput` on a
+//! worker thread. The `dwExtraInfo` tag lets the callback recognize its own
+//! injected events and pass them through, preventing recursion. F12 toggles a
+//! bypass flag that stops all interception; `SendInput` failures set bypass.
 
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{SyncSender, TrySendError};
 
 use windows_sys::Win32::Foundation::{GetLastError, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, HC_ACTION, KBDLLHOOKSTRUCT, KF_EXTENDED,
     KF_REPEAT, KF_UP, LLKHF_INJECTED, LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT, PM_NOREMOVE,
@@ -32,25 +39,51 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WM_XBUTTONDOWN, WM_XBUTTONUP,
 };
 
-use crate::event::{InputEvent, MouseKind};
+use crate::event::{
+    EMERGENCY_KEY_VK, HELD_KEY_VK, HookMessage, InputEvent, MouseKind, SELF_EXTRA_INFO_TAG,
+    is_own_event,
+};
 
 /// X-button identifiers carried in the high word of `MSLLHOOKSTRUCT.mouseData`.
 const XBUTTON1: u16 = 1;
 const XBUTTON2: u16 = 2;
 
+/// A request to synthesize one held-key press after a short delay.
+#[derive(Debug, Clone, Copy)]
+pub struct ReplayRequest {
+    /// Sequence number of the suppressed physical down event this replay belongs to.
+    pub seq: u64,
+}
+
 /// Sender shared with the hook callbacks. Set once by `install_event_sender`
-/// before the hook thread is spawned.
-static EVENT_TX: OnceLock<SyncSender<InputEvent>> = OnceLock::new();
+/// before the hook thread is spawned. Carries both normalized events and
+/// lightweight control notes (bypass toggles) for the logger thread.
+static EVENT_TX: OnceLock<SyncSender<HookMessage>> = OnceLock::new();
+/// Sender for delayed replay requests, set once by `install_replay_sender`.
+static REPLAY_TX: OnceLock<SyncSender<ReplayRequest>> = OnceLock::new();
 /// Monotonic sequence number assigned to every normalized event, preserving
 /// cross-device ordering as observed by the hook thread.
 static SEQ: AtomicU64 = AtomicU64::new(0);
-/// Number of events dropped because the bounded queue was full.
+/// Number of messages dropped because the bounded queue was full.
 static DROPPED: AtomicU64 = AtomicU64::new(0);
+/// When `true`, no input is intercepted; F8 passes through unchanged.
+static BYPASS: AtomicBool = AtomicBool::new(false);
+/// Successful replays (SendInput inserted the full down+up pair).
+static REPLAY_SENT: AtomicU64 = AtomicU64::new(0);
+/// Failed replays (SendInput inserted fewer events than requested).
+static REPLAY_FAILED: AtomicU64 = AtomicU64::new(0);
+/// Replay requests dropped because the bounded replay queue was full.
+static REPLAY_DROPPED: AtomicU64 = AtomicU64::new(0);
 
 /// Install the shared event sender. Must be called before spawning the hook thread.
-pub fn install_event_sender(tx: SyncSender<InputEvent>) {
+pub fn install_event_sender(tx: SyncSender<HookMessage>) {
     // Only the first call wins; main installs it exactly once.
     let _ = EVENT_TX.set(tx);
+}
+
+/// Install the shared replay sender. Must be called before spawning the hook thread.
+pub fn install_replay_sender(tx: SyncSender<ReplayRequest>) {
+    let _ = REPLAY_TX.set(tx);
 }
 
 /// Number of events that were normalized (assigned a sequence number).
@@ -61,6 +94,76 @@ pub fn seq_count() -> u64 {
 /// Number of events dropped because the bounded queue was full.
 pub fn dropped_count() -> u64 {
     DROPPED.load(Ordering::Relaxed)
+}
+
+/// Whether interception is currently stopped (bypass is active).
+pub fn is_bypassed() -> bool {
+    BYPASS.load(Ordering::Relaxed)
+}
+
+/// Number of successful replays.
+pub fn replay_sent() -> u64 {
+    REPLAY_SENT.load(Ordering::Relaxed)
+}
+
+/// Number of failed replays (SendInput inserted fewer events than requested).
+pub fn replay_failed() -> u64 {
+    REPLAY_FAILED.load(Ordering::Relaxed)
+}
+
+/// Number of replay requests dropped because the bounded queue was full.
+pub fn replay_dropped() -> u64 {
+    REPLAY_DROPPED.load(Ordering::Relaxed)
+}
+
+/// Replay the held key via `SendInput` and update counters/bypass based on the
+/// result. Returns the number of events `SendInput` reported as inserted.
+pub fn replay_held_key() -> u32 {
+    let inserted = send_f8_press();
+    if inserted == 2 {
+        REPLAY_SENT.fetch_add(1, Ordering::Relaxed);
+    } else {
+        REPLAY_FAILED.fetch_add(1, Ordering::Relaxed);
+        // Stop intercepting further input when synthesis fails.
+        BYPASS.store(true, Ordering::Relaxed);
+    }
+    inserted
+}
+
+/// Toggle the bypass flag and return the new value (`true` = interception stopped).
+fn toggle_bypass() -> bool {
+    let prev = BYPASS.fetch_xor(true, Ordering::Relaxed);
+    !prev
+}
+
+/// Synthesize one held-key press (down followed immediately by up) via `SendInput`,
+/// tagged with `SELF_EXTRA_INFO_TAG` so the hook can recognize it as our own.
+/// Returns the number of events `SendInput` reported as inserted.
+fn send_f8_press() -> u32 {
+    // SAFETY: the INPUT array is fully initialized; `pinputs` points to `cinputs`
+    // valid elements; `cbsize` is `size_of::<INPUT>()`.
+    unsafe {
+        let inputs = [make_f8_input(false), make_f8_input(true)];
+        SendInput(
+            inputs.len() as u32,
+            inputs.as_ptr(),
+            core::mem::size_of::<INPUT>() as i32,
+        )
+    }
+}
+
+/// Build one keyboard `INPUT` for F8, either a down or an up event.
+fn make_f8_input(up: bool) -> INPUT {
+    let mut input = INPUT::default();
+    input.r#type = INPUT_KEYBOARD;
+    input.Anonymous.ki = KEYBDINPUT {
+        wVk: HELD_KEY_VK,
+        wScan: 0,
+        dwFlags: if up { KEYEVENTF_KEYUP } else { 0 },
+        time: 0,
+        dwExtraInfo: SELF_EXTRA_INFO_TAG,
+    };
+    input
 }
 
 /// Post `WM_QUIT` to the hook thread. Returns `false` if the call failed.
@@ -188,12 +291,22 @@ fn next_seq() -> u64 {
     SEQ.fetch_add(1, Ordering::Relaxed)
 }
 
-/// Non-blocking enqueue. Drops the event and counts it if the queue is full.
+/// Non-blocking enqueue of a normalized input event for the logger.
 fn enqueue(event: InputEvent) {
+    send_message(HookMessage::Input(event));
+}
+
+/// Non-blocking send of a bypass-state note to the logger.
+fn send_bypass_note(bypass: bool) {
+    send_message(HookMessage::Bypass(bypass));
+}
+
+/// Non-blocking send on the shared message channel, counting drops when full.
+fn send_message(message: HookMessage) {
     let Some(tx) = EVENT_TX.get() else {
         return;
     };
-    match tx.try_send(event) {
+    match tx.try_send(message) {
         Ok(()) => {}
         Err(TrySendError::Full(_)) => {
             DROPPED.fetch_add(1, Ordering::Relaxed);
@@ -202,24 +315,74 @@ fn enqueue(event: InputEvent) {
     }
 }
 
-/// `WH_KEYBOARD_LL` callback: normalize and enqueue, then pass the event through.
+/// Non-blocking enqueue of a delayed replay request for the replay worker.
+fn send_replay_request(req: ReplayRequest) {
+    let Some(tx) = REPLAY_TX.get() else {
+        return;
+    };
+    match tx.try_send(req) {
+        Ok(()) => {}
+        Err(TrySendError::Full(_)) => {
+            REPLAY_DROPPED.fetch_add(1, Ordering::Relaxed);
+        }
+        Err(TrySendError::Disconnected(_)) => {}
+    }
+}
+
+/// `WH_KEYBOARD_LL` callback: normalize, log, then decide suppression/replay.
 unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == HC_ACTION as i32 {
         // SAFETY: `code >= HC_ACTION` guarantees `lparam` points to a valid
         // KBDLLHOOKSTRUCT for the duration of the call.
         let info = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
-        let event = InputEvent::Keyboard {
-            seq: next_seq(),
+        let seq = next_seq();
+        let up = (info.flags & KF_UP) != 0;
+        let repeat = (info.flags & KF_REPEAT) != 0;
+        let vk = info.vkCode as u16;
+        let extra_info = info.dwExtraInfo;
+
+        enqueue(InputEvent::Keyboard {
+            seq,
             time_ms: info.time,
-            up: (info.flags & KF_UP) != 0,
-            vk: info.vkCode as u16,
+            up,
+            vk,
             scan: info.scanCode as u16,
             extended: (info.flags & KF_EXTENDED) != 0,
-            repeat: (info.flags & KF_REPEAT) != 0,
+            repeat,
             injected: (info.flags & LLKHF_INJECTED) != 0,
-            extra_info: info.dwExtraInfo,
-        };
-        enqueue(event);
+            extra_info,
+        });
+
+        // Our own synthesized events pass through (recognized by the
+        // `dwExtraInfo` tag) so replay never re-triggers suppression.
+        if is_own_event(extra_info) {
+            // SAFETY: `hhk` is ignored for low-level hooks; pass the event down.
+            return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
+        }
+
+        // The emergency key toggles bypass on its first (non-repeat) down and is
+        // itself never intercepted.
+        if !up && !repeat && vk == EMERGENCY_KEY_VK {
+            let bypass = toggle_bypass();
+            send_bypass_note(bypass);
+            // SAFETY: `hhk` is ignored for low-level hooks; pass the event down.
+            return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
+        }
+
+        // While bypassed, no input is intercepted.
+        if is_bypassed() {
+            // SAFETY: `hhk` is ignored for low-level hooks; pass the event down.
+            return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
+        }
+
+        // Suppress the held key: the down schedules a delayed replay, the up is
+        // swallowed so the target never sees an orphan release.
+        if vk == HELD_KEY_VK {
+            if !up && !repeat {
+                send_replay_request(ReplayRequest { seq });
+            }
+            return 1; // non-zero suppresses the event
+        }
     }
     // SAFETY: `hhk` is ignored for low-level hooks; pass the event down the chain.
     unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }

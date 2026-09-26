@@ -14,6 +14,31 @@ use std::fmt;
 
 use windows_sys::Win32::UI::Input::KeyboardAndMouse as kb;
 
+/// Unique `dwExtraInfo` tag written into input synthesized by this program, so
+/// the low-level hook can recognize its own injected events and pass them
+/// through without re-suppressing them (avoiding self-triggered recursion).
+pub const SELF_EXTRA_INFO_TAG: usize = 0x494E_5055; // ASCII "INPU"
+
+/// Virtual-key code of the key this probe holds and replays (F8).
+pub const HELD_KEY_VK: u16 = kb::VK_F8;
+
+/// Virtual-key code of the emergency bypass toggle (F12).
+pub const EMERGENCY_KEY_VK: u16 = kb::VK_F12;
+
+/// True when `extra_info` carries this program's own `dwExtraInfo` tag.
+pub fn is_own_event(extra_info: usize) -> bool {
+    extra_info == SELF_EXTRA_INFO_TAG
+}
+
+/// A message passed from the hook callbacks to the logger thread.
+#[derive(Debug, Clone, Copy)]
+pub enum HookMessage {
+    /// A normalized input event to be logged.
+    Input(InputEvent),
+    /// The bypass state changed to the enclosed value.
+    Bypass(bool),
+}
+
 /// One observed input event, normalized from the hook structures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputEvent {
@@ -177,4 +202,21 @@ pub fn key_name(vk: u16) -> Cow<'static, str> {
     };
 
     Cow::Borrowed(name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn own_event_tag_is_recognized() {
+        assert!(is_own_event(SELF_EXTRA_INFO_TAG));
+        assert!(!is_own_event(0));
+        assert!(!is_own_event(0x1234_5678));
+    }
+
+    #[test]
+    fn held_and_emergency_keys_are_distinct() {
+        assert_ne!(HELD_KEY_VK, EMERGENCY_KEY_VK);
+    }
 }

@@ -6,8 +6,8 @@ Windows 全局键盘与鼠标输入组合引擎：观察键鼠事件，暂扣可
 
 ## 当前状态
 
-- 里程碑：Step 1（M1）—— 只读输入探针（已完成）。
-- 下一步：Step 2（M2）—— 抑制与回放探针。
+- 里程碑：Step 2（M2）—— 抑制与回放探针（代码完成，交互实机验证待做）。
+- 下一步：Step 3（M3）—— 核心状态模型。
 
 ## 开发环境（首次实现时固定，满足 NFR-06）
 
@@ -40,14 +40,17 @@ cargo run
 
 ```text
 probe-cli: low-level hooks installed on message-loop thread 12345.
-probe-cli: read-only keyboard/mouse probe running.
-probe-cli: type `quit` and press Enter to exit cleanly.
-[seq=000000] t=8461500ms kbd Down LeftCtrl vk=0xA2 scan=0x1D ext=true repeat=false injected=false extra=0x0
-[seq=000001] t=8461600ms mouse Wheel -120 (307,968) injected=false extra=0x0
-probe-cli: shut down cleanly. observed 2 events, dropped 0 (queue full).
+probe-cli: F8 is held ~300ms then replayed once; all other keys pass through.
+probe-cli: F12 toggles bypass (stop intercepting); type `quit` and press Enter to exit.
+[seq=000000] t=8461500ms kbd Down F8 vk=0x77 scan=0x42 ext=false repeat=false injected=false extra=0x0
+probe-cli: replayed F8 (seq=000000); SendInput inserted 2/2 events.
+[seq=000001] t=8461600ms kbd Down F8 vk=0x77 scan=0x42 ext=false repeat=false injected=true extra=0x494E5055
+[seq=000002] t=8461600ms kbd Up F8 vk=0x77 scan=0x42 ext=false repeat=false injected=true extra=0x494E5055
+probe-cli: bypass ON (interception stopped).
+probe-cli: shut down cleanly. observed 3 events, dropped 0 (queue full); replayed 1 F8, 0 failed, 0 replay requests dropped.
 ```
 
-在控制台输入 `quit`（或 `exit`/`q`）并回车即干净退出（退出码 0）。探针只观察、不拦截、不回放。
+在控制台输入 `quit`（或 `exit`/`q`）并回车即干净退出（退出码 0）。M2 只暂扣 F8：物理 F8 down/up 被抑制，约 300ms 后经 `SendInput` 回放一次 down+up 对；注入事件带 `dwExtraInfo=0x494E5055` 标记，不递归；F12 切换旁路，`SendInput` 失败也会进入旁路。
 
 ## 仓库结构
 
@@ -69,14 +72,16 @@ inputflow/
         ├── Cargo.toml
         ├── Cargo.lock
         └── src/
-            ├── main.rs              # 线程编排、退出、logger
+            ├── main.rs              # 线程编排、退出、logger、replay worker
             ├── event.rs             # 归一化 InputEvent + 按键名映射（无 unsafe）
             └── platform/
                 ├── mod.rs
-                └── windows.rs       # 全部 unsafe Win32：Hook 安装/卸载、消息循环、回调
+                └── windows.rs       # 全部 unsafe Win32：Hook 安装/卸载、消息循环、回调、SendInput 回放
 ```
 
 ## 已知限制 / 备注
 
 - 当前无需安装完整 MSVC C++ 构建工具即可构建（Rust 自包含链接）；若后续里程碑（如 Tauri 2 或原生依赖）需要完整 MSVC 工具链，再安装 VS 2022 Build Tools 的「使用 C++ 的桌面开发」工作负载并回写版本号。
+- M2 回放为固定延迟成对回放（约 300ms 后注入 F8 down+up），不保留实际按住时长；退出时未处理的暂扣回放请求会被丢弃。
+- `SendInput` 受 UIPI 完整性级别限制：聚焦提升权限（管理员）窗口时注入可能被拒绝或忽略；失败时程序进入旁路状态并记录。
 - 语言约定：文档 / ADR / 研究日志用中文；代码注释、标识符、提交信息、测试名用英文。
