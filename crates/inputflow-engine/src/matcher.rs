@@ -295,20 +295,16 @@ impl Matcher {
     pub fn set_paused(&mut self, paused: bool) -> Vec<InputEvent> {
         self.paused = paused;
         if paused {
-            let mut replay = self.pending.take_replay();
+            let held = self.pending.take_replay();
             self.active = None;
-            // Replay the downs of consumed-but-still-held keys/buttons so the
-            // target sees a matching down before the later physical release
-            // arrives (NFR-04: no orphan up after bypass).
-            for key in self.keys.consumed_and_held() {
-                replay.push(synthetic_key_down(key));
-            }
-            for button in self.buttons.consumed_and_held() {
-                replay.push(synthetic_button_down(button));
-            }
+            // Clear all tracking. A consumed key/button released after pause then
+            // passes through as an orphan up, which is harmless (applications
+            // ignore an up without a prior down and no click/character is
+            // generated). Replaying a synthetic *down* instead would re-trigger
+            // clicks/keystrokes, so it is deliberately not done (M6 P2 #6).
             self.keys.clear();
             self.buttons.clear();
-            replay
+            held
         } else {
             Vec::new()
         }
@@ -566,8 +562,6 @@ impl Matcher {
         self.pending.take_replay();
         self.keys.mark_consumed(active.key);
         self.buttons.mark_consumed(active.button);
-        // The completing button is physically down too (NFR-04/pause replay).
-        self.buttons.mark_physical_down(active.button);
         self.active = None;
         (
             Decision::Suppress {
@@ -613,13 +607,9 @@ impl Matcher {
         self.keys.mark_consumed(first);
         if let Some(key) = second_key {
             self.keys.mark_consumed(key);
-            // The completing key is physically down too, so its consumed down is
-            // visible to `consumed_and_held` (pause replays it before an up).
-            self.keys.mark_physical_down(key);
         }
         if let Some(button) = second_button {
             self.buttons.mark_consumed(button);
-            self.buttons.mark_physical_down(button);
         }
         self.active = None;
         (
@@ -732,38 +722,6 @@ impl Matcher {
                 InputSource::Mouse { .. } => {}
             }
         }
-    }
-}
-
-/// A synthesized key-down used to make a consumed-but-still-held key visible to
-/// the target again (see [`Matcher::set_paused`]). Replay ignores `seq`, so a
-/// sentinel value is safe.
-fn synthetic_key_down(key: Key) -> InputEvent {
-    InputEvent {
-        seq: u64::MAX,
-        time_ms: 0,
-        injected: true,
-        source: InputSource::Keyboard {
-            key,
-            scan_code: 0,
-            extended: false,
-            down: true,
-            repeat: false,
-        },
-    }
-}
-
-/// A synthesized button-down, mirroring [`synthetic_key_down`].
-fn synthetic_button_down(button: MouseButton) -> InputEvent {
-    InputEvent {
-        seq: u64::MAX,
-        time_ms: 0,
-        injected: true,
-        source: InputSource::Mouse {
-            kind: MouseKind::ButtonDown(button),
-            x: 0,
-            y: 0,
-        },
     }
 }
 
@@ -934,7 +892,7 @@ mod tests {
     }
 
     #[test]
-    fn pause_replays_consumed_held_keys_and_buttons() {
+    fn pause_does_not_replay_consumed_inputs() {
         let clock = ManualClock::new(0);
         let mut m = matcher_with(
             clock.clone(),
@@ -953,15 +911,19 @@ mod tests {
             Resolution::Matched { ref rule_id, .. } if rule_id == "hold-click"
         ));
 
-        // Pausing while Ctrl and Right are still physically held must replay
-        // their downs so the later physical ups are not orphaned (M6 P2 #6).
-        let replay = m.set_paused(true);
+        // Pausing must NOT replay synthetic downs (which would re-trigger a click
+        // or keystroke); it clears state so the later releases are harmless
+        // orphan ups (M6 P2 #6 / round-2 C).
+        assert!(m.set_paused(true).is_empty());
+
+        // Releases now pass through (harmless orphan ups), never suppressed.
         assert_eq!(
-            replay,
-            vec![
-                synthetic_key_down(Key::LeftCtrl),
-                synthetic_button_down(MouseButton::Right),
-            ]
+            m.on_event(button(2, 260, MouseButton::Right, false)).0,
+            Decision::PassThrough
+        );
+        assert_eq!(
+            m.on_event(up(3, 261, Key::LeftCtrl)).0,
+            Decision::PassThrough
         );
     }
 

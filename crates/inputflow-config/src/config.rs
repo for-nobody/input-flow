@@ -247,19 +247,27 @@ fn resolve_rule(rule: &RuleConfig) -> Result<Rule, String> {
             key: parse_key(key)?,
             button: parse_button(button)?,
         },
-        TriggerConfig::Hold { key, timeout_ms } => Trigger::Hold {
-            key: parse_key(key)?,
-            timeout_ms: check_timeout(*timeout_ms)?,
-        },
+        TriggerConfig::Hold { key, timeout_ms } => {
+            let key = parse_key(key)?;
+            check_hold_prefix_key(&key)?;
+            Trigger::Hold {
+                key,
+                timeout_ms: check_timeout(*timeout_ms)?,
+            }
+        }
         TriggerConfig::HoldMouseButton {
             key,
             timeout_ms,
             button,
-        } => Trigger::HoldMouseButton {
-            key: parse_key(key)?,
-            timeout_ms: check_timeout(*timeout_ms)?,
-            button: parse_button(button)?,
-        },
+        } => {
+            let key = parse_key(key)?;
+            check_hold_prefix_key(&key)?;
+            Trigger::HoldMouseButton {
+                key,
+                timeout_ms: check_timeout(*timeout_ms)?,
+                button: parse_button(button)?,
+            }
+        }
     };
 
     let action = match &rule.action {
@@ -286,6 +294,19 @@ fn parse_key(name: &str) -> Result<Key, String> {
     Key::from_name(name).ok_or_else(|| format!("unknown key `{name}`"))
 }
 
+/// Reject `Hold`/`Hold+MouseButton` prefixes whose key auto-repeats: the matcher
+/// absorbs auto-repeat downs, so holding such a key as a prefix would silently
+/// drop its repeats on failure (M6 round-2 D).
+fn check_hold_prefix_key(key: &Key) -> Result<(), String> {
+    if key.auto_repeats() {
+        Err(format!(
+            "hold prefix key `{key}` auto-repeats; auto-repeating keys are not supported as Hold/Hold+MouseButton prefixes"
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 fn parse_button(name: &str) -> Result<MouseButton, String> {
     MouseButton::from_name(name).ok_or_else(|| format!("unknown mouse button `{name}`"))
 }
@@ -299,8 +320,10 @@ fn check_timeout(timeout_ms: u64) -> Result<u64, String> {
         ))
     }
 }
-/// Atomically (best-effort) write `config` to `path`: write a temp file, flush
-/// and sync it, then rename it over the target. Creates parent directories.
+/// Write `config` to `path` as safely as possible using only `std::fs`: write a
+/// unique temp file, flush and sync it, then replace the target via a
+/// backup/restore dance that never leaves the old config deleted if the final
+/// rename fails. Creates parent directories.
 pub fn save(path: &Path, config: &Config) -> Result<(), String> {
     let text = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
 
@@ -310,27 +333,47 @@ pub fn save(path: &Path, config: &Config) -> Result<(), String> {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
 
-    let tmp = PathBuf::from(format!("{}.tmp", path.display()));
+    // Unique sibling paths avoid clobbering across concurrent/failed saves.
+    let tmp = temp_sibling(path, "tmp");
+    let backup = temp_sibling(path, "bak");
+
     let mut file = fs::File::create(&tmp).map_err(|e| e.to_string())?;
     file.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
     file.flush().map_err(|e| e.to_string())?;
     file.sync_all().map_err(|e| e.to_string())?;
     drop(file);
 
-    match fs::rename(&tmp, path) {
-        Ok(()) => Ok(()),
-        Err(rename_err) => {
-            // On Windows `rename` may not overwrite an existing target; fall back
-            // to remove-then-rename (best-effort atomicity).
-            if path.exists() {
-                fs::remove_file(path).map_err(|e| e.to_string())?;
-                fs::rename(&tmp, path).map_err(|e| e.to_string())?;
-                Ok(())
-            } else {
-                Err(format!("failed to move config into place: {rename_err}"))
-            }
-        }
+    // Move the old config aside first (Windows `rename` cannot overwrite an
+    // existing target). If the final rename fails, restore the old config from
+    // backup instead of leaving it deleted.
+    let had_old = path.exists();
+    if had_old {
+        let _ = fs::remove_file(&backup);
+        fs::rename(path, &backup).map_err(|e| e.to_string())?;
     }
+
+    if let Err(err) = fs::rename(&tmp, path) {
+        if had_old {
+            let _ = fs::rename(&backup, path);
+        }
+        let _ = fs::remove_file(&tmp);
+        return Err(format!("failed to move config into place: {err}"));
+    }
+
+    if had_old {
+        let _ = fs::remove_file(&backup);
+    }
+    Ok(())
+}
+
+/// A sibling path with a unique `.{ext}.{pid}` suffix, used for temp/backup files.
+fn temp_sibling(path: &Path, ext: &str) -> PathBuf {
+    let mut name = path
+        .file_name()
+        .map(|s| s.to_os_string())
+        .unwrap_or_else(|| "config".into());
+    name.push(format!(".{ext}.{}", std::process::id()));
+    path.with_file_name(name)
 }
 
 /// A default config: schema version 1, default emergency key, no rules.
@@ -417,6 +460,17 @@ mod tests {
     }
 
     #[test]
+    fn auto_repeating_hold_key_is_rejected() {
+        let mut config = sample_config();
+        config.rules[0].trigger = TriggerConfig::Hold {
+            key: "A".to_string(),
+            timeout_ms: 250,
+        };
+        let problems = validate(&config).unwrap_err();
+        assert!(problems.iter().any(|e| e.0.contains("auto-repeats")));
+    }
+
+    #[test]
     fn duplicate_ids_are_rejected() {
         let mut config = sample_config();
         config.rules.push(RuleConfig {
@@ -472,6 +526,34 @@ mod tests {
         assert!(loaded.problems.is_empty());
         assert_eq!(loaded.emergency_key, Key::F12);
         assert_eq!(loaded.rules, validate(&config).unwrap().rules);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn save_overwrites_existing_config() {
+        let dir = std::env::temp_dir().join(format!("inputflow-config-ow-{}", std::process::id()));
+        let path = dir.join("config.json");
+
+        let mut first = sample_config();
+        first.rules.clear();
+        save(&path, &first).expect("first save should succeed");
+
+        let second = sample_config();
+        save(&path, &second).expect("overwrite save should succeed");
+
+        let loaded = load(&path);
+        assert!(loaded.problems.is_empty());
+        assert_eq!(loaded.rules, validate(&second).unwrap().rules);
+
+        // No leftover temp/backup files after a successful overwrite.
+        let leftovers: Vec<String> = fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.contains(".tmp.") || n.contains(".bak."))
+            .collect();
+        assert!(leftovers.is_empty(), "leftover files: {leftovers:?}");
 
         let _ = fs::remove_dir_all(&dir);
     }

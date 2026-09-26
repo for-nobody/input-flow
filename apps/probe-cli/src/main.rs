@@ -16,13 +16,11 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Duration;
 
 use inputflow_config::{default_config, load as load_config, to_json_pretty};
-use inputflow_engine::{Command, Matcher, RuleIndex, SystemClock};
+use inputflow_engine::{Matcher, RuleIndex, SystemClock};
 use inputflow_windows::platform::windows;
 
 /// Bounded capacity for the diagnostic-log channel.
 const LOG_QUEUE_CAPACITY: usize = 1024;
-/// Bounded capacity for the output-command channel (replay / action).
-const OUTPUT_QUEUE_CAPACITY: usize = 8;
 
 fn main() {
     let (config_path, debug) = parse_args();
@@ -53,27 +51,18 @@ fn main() {
     let matcher = Matcher::new(Box::new(SystemClock::new()), index, 16);
 
     let (log_tx, log_rx) = mpsc::sync_channel::<String>(LOG_QUEUE_CAPACITY);
-    let (output_tx, output_rx) = mpsc::sync_channel::<Command>(OUTPUT_QUEUE_CAPACITY);
-    // Unbounded acknowledgement channel: the output worker sends one `()` after
-    // each executed command, and the hook thread waits on it as an ordering
-    // barrier so a pass-through event cannot overtake a just-dispatched replay.
-    let (ack_tx, ack_rx) = mpsc::channel::<()>();
 
-    // Make the matcher and senders visible to the hook callbacks before any
-    // hook is installed.
+    // Make the matcher and sender visible to the hook callbacks before any
+    // hook is installed. Output (replay/action) is executed synchronously by the
+    // hook thread via `SendInput`, so there is no output worker or queue.
     windows::install_matcher(matcher);
-    windows::install_output_sender(output_tx);
     windows::install_log_sender(log_tx);
     windows::install_emergency_key(emergency_key);
-    windows::install_output_ack_receiver(ack_rx);
 
     let shutdown = Arc::new(AtomicBool::new(false));
 
     let logger_shutdown = Arc::clone(&shutdown);
     let logger = std::thread::spawn(move || logger_loop(log_rx, logger_shutdown));
-
-    let output_shutdown = Arc::clone(&shutdown);
-    let output_worker = std::thread::spawn(move || output_loop(output_rx, ack_tx, output_shutdown));
 
     let (ready_tx, ready_rx) = mpsc::channel::<Result<u32, String>>();
     let hook = std::thread::spawn(move || windows::run_hook_thread(ready_tx));
@@ -95,7 +84,6 @@ fn main() {
             shutdown.store(true, Ordering::Relaxed);
             let _ = hook.join();
             let _ = logger.join();
-            let _ = output_worker.join();
             marker.clear();
             std::process::exit(1);
         }
@@ -104,7 +92,6 @@ fn main() {
             shutdown.store(true, Ordering::Relaxed);
             let _ = hook.join();
             let _ = logger.join();
-            let _ = output_worker.join();
             marker.clear();
             std::process::exit(1);
         }
@@ -120,13 +107,10 @@ fn main() {
         eprintln!("probe-cli: hook thread panicked.");
     }
 
-    // Stop the logger and output worker only after the hook thread has exited.
+    // Stop the logger only after the hook thread has exited.
     shutdown.store(true, Ordering::Relaxed);
     if logger.join().is_err() {
         eprintln!("probe-cli: logger thread panicked.");
-    }
-    if output_worker.join().is_err() {
-        eprintln!("probe-cli: output worker thread panicked.");
     }
 
     marker.clear();
@@ -312,36 +296,6 @@ fn logger_loop(rx: mpsc::Receiver<String>, shutdown: Arc<AtomicBool>) {
                 if shutdown.load(Ordering::Relaxed) {
                     while let Ok(line) = rx.try_recv() {
                         print_line(&format!("probe-cli: {line}"));
-                    }
-                    break;
-                }
-            }
-            Err(RecvTimeoutError::Disconnected) => break,
-        }
-    }
-}
-
-/// Output worker: execute each replay/action command via `SendInput` and then
-/// acknowledge completion so the hook thread's ordering barrier can proceed.
-/// Drains remaining commands on shutdown so a clean-exit flush is not dropped.
-fn output_loop(
-    rx: mpsc::Receiver<Command>,
-    ack_tx: mpsc::Sender<()>,
-    shutdown: Arc<AtomicBool>,
-) {
-    loop {
-        match rx.recv_timeout(Duration::from_millis(50)) {
-            Ok(command) => {
-                let inserted = windows::execute(&command);
-                print_line(&format!("probe-cli: output: {inserted} event(s) inserted"));
-                let _ = ack_tx.send(());
-            }
-            Err(RecvTimeoutError::Timeout) => {
-                if shutdown.load(Ordering::Relaxed) {
-                    while let Ok(command) = rx.try_recv() {
-                        let inserted = windows::execute(&command);
-                        print_line(&format!("probe-cli: output: {inserted} event(s) inserted"));
-                        let _ = ack_tx.send(());
                     }
                     break;
                 }

@@ -7,8 +7,9 @@
 //! - Hook callbacks dereference `lparam` only when `code >= HC_ACTION`, where the
 //!   OS guarantees it points to a valid `KBDLLHOOKSTRUCT` / `MSLLHOOKSTRUCT`.
 //! - Callbacks only normalize the event, take a short lock on the matcher, and
-//!   non-blocking `try_send` any output; they never allocate unbounded memory,
-//!   block on a worker, do I/O, or touch the GUI. `SendInput` runs on a worker.
+//!   perform a bounded, tagged `SendInput` for any resolved replay/action. They
+//!   never allocate unbounded memory or touch the GUI. `SendInput` is bounded: it
+//!   inserts the events and returns, and failure (e.g. UIPI) enters bypass.
 //! - Hook handles are owned by the hook thread and are uninstalled before that
 //!   thread returns. The hook thread creates its message queue (via
 //!   `PeekMessageW`) before reporting its thread id, so `PostThreadMessageW`
@@ -17,13 +18,14 @@
 //! M5 behavior: the matcher runs synchronously in the callback; a suppressed
 //! event returns non-zero, a passed-through event is forwarded down the chain.
 //! Matches emit an action and failures replay the held events, both via
-//! `SendInput` on a worker thread with a `dwExtraInfo` tag so our own injected
-//! events are recognized and never re-trigger matching. A thread timer
+//! synchronous `SendInput` (with a `dwExtraInfo` tag so our own injected events
+//! are recognized and never re-trigger matching). Doing so in the callback keeps
+//! replay/action ordered before any subsequent pass-through event. A thread timer
 //! (`SetTimer`) drives `Hold` / `Hold+MouseButton` deadlines via `WM_TIMER`.
 
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, SyncSender};
+use std::sync::mpsc::SyncSender;
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
@@ -66,8 +68,6 @@ const TIMEOUT_TIMER_INTERVAL_MS: u32 = 5;
 /// The matcher, shared with the hook thread and driven synchronously from the
 /// callbacks. Installed once before the hook thread starts.
 static MATCHER: OnceLock<Mutex<Matcher>> = OnceLock::new();
-/// Sender for output commands (replay / action) consumed by a worker thread.
-static OUTPUT_TX: OnceLock<SyncSender<Command>> = OnceLock::new();
 /// Sender for human-readable diagnostics consumed by the logger thread.
 static LOG_TX: OnceLock<SyncSender<String>> = OnceLock::new();
 /// When `true`, no input is intercepted (emergency bypass / output failure).
@@ -78,7 +78,8 @@ static SEQ: AtomicU64 = AtomicU64::new(0);
 static OUTPUT_SENT: AtomicU64 = AtomicU64::new(0);
 /// Failed `SendInput` output batches (inserted fewer events than requested).
 static OUTPUT_FAILED: AtomicU64 = AtomicU64::new(0);
-/// Output commands dropped because the bounded channel was full.
+/// Output commands dropped (retained for API compatibility; synchronous output
+/// no longer drops commands — failures instead enter bypass).
 static OUTPUT_DROPPED: AtomicU64 = AtomicU64::new(0);
 /// The emergency bypass key (default `F12`), set once before the hook thread.
 static EMERGENCY_KEY: OnceLock<Key> = OnceLock::new();
@@ -93,10 +94,6 @@ static HOLD_START: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
 /// Physical held-key set used to detect auto-repeat downs (low-level hooks have
 /// no repeat bit). Only ever touched from the hook thread.
 static HELD_KEYS: OnceLock<Mutex<BTreeSet<Key>>> = OnceLock::new();
-/// Receiver for output-completion acknowledgements sent by the output worker.
-/// The hook thread waits on this to establish an ordering barrier so a
-/// subsequent pass-through event cannot overtake a just-dispatched replay.
-static OUTPUT_ACK_RX: OnceLock<Mutex<Receiver<()>>> = OnceLock::new();
 
 /// Install the matcher used by the hook callbacks. Call before the hook thread.
 pub fn install_matcher(matcher: Matcher) {
@@ -104,21 +101,9 @@ pub fn install_matcher(matcher: Matcher) {
     let _ = MATCHER.set(Mutex::new(matcher));
 }
 
-/// Install the output-command sender. Call before the hook thread.
-pub fn install_output_sender(tx: SyncSender<Command>) {
-    let _ = OUTPUT_TX.set(tx);
-}
-
 /// Install the diagnostic-log sender. Call before the hook thread.
 pub fn install_log_sender(tx: SyncSender<String>) {
     let _ = LOG_TX.set(tx);
-}
-
-/// Install the receiver the hook thread uses to wait for output completion.
-/// The output worker sends one `()` after each `execute()` call; see
-/// [`wait_output_ack`]. Call before the hook thread starts.
-pub fn install_output_ack_receiver(rx: Receiver<()>) {
-    let _ = OUTPUT_ACK_RX.set(Mutex::new(rx));
 }
 
 /// Install the emergency bypass key. Call before the hook thread starts.
@@ -165,20 +150,6 @@ fn track_held_key(key: Key, up: bool) -> bool {
         held.insert(key);
         repeat
     }
-}
-
-/// Wait (bounded) for the output worker to finish executing the previously
-/// dispatched command. This is the ordering barrier that keeps a subsequent
-/// pass-through event from overtaking a just-dispatched replay/action. The wait
-/// is bounded so a wedged worker cannot block the hook callback forever.
-fn wait_output_ack() {
-    let Some(rx) = OUTPUT_ACK_RX.get() else {
-        return;
-    };
-    let Ok(rx) = rx.lock() else {
-        return;
-    };
-    let _ = rx.recv_timeout(std::time::Duration::from_millis(50));
 }
 
 /// Best-effort flush any held events: pause the matcher (which returns the held
@@ -301,8 +272,10 @@ pub fn output_dropped() -> u64 {
     OUTPUT_DROPPED.load(Ordering::Relaxed)
 }
 
-/// Execute one output command via `SendInput` and update counters. Must be
-/// called from the output worker thread (never from the hook callback).
+/// Execute one output command via `SendInput` and update counters. Called
+/// synchronously from the dispatching thread (the hook callback, the timeout
+/// timer, or a suspend flush). `SendInput` is bounded and tagged, so this never
+/// recurses into matching; on partial insertion (UIPI) it enters bypass.
 pub fn execute(command: &Command) -> u32 {
     let inputs = build_inputs(command);
     // SAFETY: `inputs` is fully initialized; `pinputs` points to `len` valid
@@ -342,26 +315,9 @@ fn send_log(line: String) {
     }
 }
 
-fn send_output(command: Command) {
-    let Some(tx) = OUTPUT_TX.get() else {
-        return;
-    };
-    // Blocking send provides backpressure instead of silently dropping an
-    // already-suppressed event: if the worker is briefly behind, the hook
-    // waits (bounded by the worker's drain rate) rather than losing the replay.
-    // `SendError` only occurs when the worker has gone away entirely.
-    if tx.send(command).is_err() {
-        // The output worker is gone: stop intercepting so no further input is
-        // withheld (its replay can no longer be delivered).
-        OUTPUT_DROPPED.fetch_add(1, Ordering::Relaxed);
-        BYPASS.store(true, Ordering::Relaxed);
-        send_log("output_disconnected: entering bypass".to_string());
-    }
-}
-
 /// Feed one normalized event to the matcher and return the decision. Any
-/// resulting replay / action command is forwarded to the output worker. The
-/// matcher decision is timed for the performance baseline.
+/// resulting replay / action command is executed synchronously via `SendInput`.
+/// The full callback (match decision + output) is timed for the baseline.
 fn process(event: InputEvent) -> Decision {
     let start = Instant::now();
     let Some(matcher) = MATCHER.get() else {
@@ -372,8 +328,6 @@ fn process(event: InputEvent) -> Decision {
         return Decision::PassThrough;
     };
     let (decision, resolution) = guard.on_event(event);
-
-    record_callback_latency(start.elapsed().as_micros() as u64);
 
     // A suppressed down starts (or continues) a hold-delay window.
     if matches!(decision, Decision::Suppress { .. })
@@ -401,11 +355,18 @@ fn process(event: InputEvent) -> Decision {
         }
         Resolution::Pending => {}
     }
+
+    // Includes any synchronous `SendInput` performed above, so the latency stat
+    // reflects the real cost a user observes in the hook callback.
+    record_callback_latency(start.elapsed().as_micros() as u64);
     decision
 }
 
-/// Log and forward one output command to the worker thread. Ends the current
-/// hold-delay window so the hold total delay can be sampled.
+/// Log and synchronously execute one output command via `SendInput`. Ends the
+/// current hold-delay window so the hold total delay can be sampled. Running
+/// `SendInput` here (rather than on a worker) guarantees the replay/action is
+/// inserted before the hook returns, so a subsequent pass-through event cannot
+/// overtake it (M6 P1 #4), and there is no queue to drop or block on (#5).
 fn dispatch_command(command: Command) {
     match &command {
         Command::Emit { rule_id, action } => {
@@ -416,11 +377,8 @@ fn dispatch_command(command: Command) {
         }
     }
     record_hold_delay();
-    send_output(command);
-    // Ordering barrier: wait until the worker has actually inserted the
-    // command before returning to the hook, so a subsequent pass-through event
-    // cannot be delivered ahead of this replay/action (M6 P1 #4).
-    wait_output_ack();
+    let inserted = execute(&command);
+    send_log(format!("output: {inserted} event(s) inserted"));
 }
 
 /// Drive any elapsed matcher deadline (Hold / Hold+MouseButton). Called from the
@@ -462,6 +420,11 @@ fn build_inputs(command: &Command) -> Vec<INPUT> {
 }
 
 /// Convert one engine event into a Win32 `INPUT`, or `None` for wheel/move.
+///
+/// Note: mouse button events are replayed at the *current* cursor position; the
+/// `x`/`y` captured at observation time are intentionally not restored (M6
+/// round-2 F). This means a replayed click after the cursor moved lands at the
+/// new position. Restoring absolute position is left as a documented limitation.
 fn event_to_input(event: &InputEvent) -> Option<INPUT> {
     match event.source {
         InputSource::Keyboard {

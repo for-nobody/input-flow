@@ -259,6 +259,56 @@ impl Key {
         };
         Some(key)
     }
+
+    /// Whether holding this key generates auto-repeat events on Windows. Such
+    /// keys cannot be used as `Hold` / `Hold+MouseButton` prefixes: the matcher
+    /// absorbs auto-repeat downs, so on failure their repeats would be silently
+    /// dropped. Config validation rejects them up front (M6 round-2 D).
+    pub fn auto_repeats(&self) -> bool {
+        matches!(
+            self,
+            Key::A
+                | Key::B
+                | Key::C
+                | Key::D
+                | Key::E
+                | Key::F
+                | Key::G
+                | Key::H
+                | Key::I
+                | Key::J
+                | Key::K
+                | Key::L
+                | Key::M
+                | Key::N
+                | Key::O
+                | Key::P
+                | Key::Q
+                | Key::R
+                | Key::S
+                | Key::T
+                | Key::U
+                | Key::V
+                | Key::W
+                | Key::X
+                | Key::Y
+                | Key::Z
+                | Key::Digit0
+                | Key::Digit1
+                | Key::Digit2
+                | Key::Digit3
+                | Key::Digit4
+                | Key::Digit5
+                | Key::Digit6
+                | Key::Digit7
+                | Key::Digit8
+                | Key::Digit9
+                | Key::Space
+                | Key::Enter
+                | Key::Tab
+                | Key::Backspace
+        )
+    }
 }
 
 /// A mouse button, distinguished by identity (not by side).
