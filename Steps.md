@@ -137,32 +137,32 @@
 **目标**：建立 `InputEvent`、物理/可见按键状态、有界暂扣队列、定时与回放计划；纯引擎可确定性测试。
 
 ### 3.1 演进为 workspace（如 M1 未建）
-- [ ] 建立 Cargo workspace：`crates/inputflow-engine`（纯逻辑）与 `crates/inputflow-windows`（平台接入）。
-- [ ] `inputflow-engine` 不依赖 Windows API，可跨平台单测。
+- [x] 建立 Cargo workspace：`crates/inputflow-engine`（纯逻辑）与 `crates/inputflow-windows`（平台接入）。
+- [x] `inputflow-engine` 不依赖 Windows API，可跨平台单测。
 
 ### 3.2 事件模型 `engine/event`
-- [ ] 定义 `InputEvent`：事件来源（键盘/鼠标）、虚拟键与扫描码、左右/扩展键标记、down/up、单调时间戳、顺序 ID、注入标记、鼠标按键/滚轮数据。
-- [ ] 不把 `physical=true/false` 简化成可信设备身份。
+- [x] 定义 `InputEvent`：事件来源（键盘/鼠标）、虚拟键与扫描码、左右/扩展键标记、down/up、单调时间戳、顺序 ID、注入标记、鼠标按键/滚轮数据。
+- [x] 不把 `physical=true/false` 简化成可信设备身份。
 
 ### 3.3 暂扣队列 `engine/pending`
-- [ ] 有界暂扣；down/up 配对；回放次序；溢出策略（到上限旁路新事件并尽力冲刷已有事件）。
+- [x] 有界暂扣；down/up 配对；回放次序；溢出策略（到上限旁路新事件并尽力冲刷已有事件）。
 
 ### 3.4 按键状态模型
-- [ ] 维护"物理按住"与"目标已看到"两套状态。
-- [ ] 保证任何已消费的 down 不会把其 up 裸露给应用（满足 NFR-04）。
+- [x] 维护"物理按住"与"目标已看到"两套状态。
+- [x] 保证任何已消费的 down 不会把其 up 裸露给应用（满足 NFR-04）。
 
 ### 3.5 匹配器与接口 `engine/matcher`
-- [ ] 纯逻辑状态机 + 可注入逻辑时钟（测试不依赖真实睡眠）。
-- [ ] 定义 `Decision`（`PassThrough` / `Suppress{event_id}`）与 `Resolution`（`Pending` / `Matched` / `Failed{replay}`）。
-- [ ] `on_event` 同步返回当前事件处理决定；`on_timeout` 在期限到达时推进状态并产出后续命令。
+- [x] 纯逻辑状态机 + 可注入逻辑时钟（测试不依赖真实睡眠）。
+- [x] 定义 `Decision`（`PassThrough` / `Suppress{event_id}`）与 `Resolution`（`Pending` / `Matched` / `Failed{replay}`）。
+- [x] `on_event` 同步返回当前事件处理决定；`on_timeout` 在期限到达时推进状态并产出后续命令。
 
 ### 3.6 单元测试
-- [ ] 覆盖按下/松开、超时、溢出、暂停/切换、回放计划事件顺序、down/up 归属。
+- [x] 覆盖按下/松开、超时、溢出、暂停/切换、回放计划事件顺序、down/up 归属。
 
 ### 验收
-- [ ] `inputflow-engine` 不依赖 Windows，纯单测全部通过。
-- [ ] 队列有界、溢出有旁路策略。
-- [ ] down/up 状态一致，无孤立释放。
+- [x] `inputflow-engine` 不依赖 Windows，纯单测全部通过。
+- [x] 队列有界、溢出有旁路策略。
+- [x] down/up 状态一致，无孤立释放。
 
 ---
 

@@ -6,8 +6,8 @@ Windows 全局键盘与鼠标输入组合引擎：观察键鼠事件，暂扣可
 
 ## 当前状态
 
-- 里程碑：Step 2（M2）—— 抑制与回放探针（代码完成，交互实机验证待做）。
-- 下一步：Step 3（M3）—— 核心状态模型。
+- 里程碑：Step 3（M3）—— 核心状态模型。
+- 下一步：Step 4（M4）—— 组合匹配。
 
 ## 开发环境（首次实现时固定，满足 NFR-06）
 
@@ -31,9 +31,12 @@ Windows 全局键盘与鼠标输入组合引擎：观察键鼠事件，暂扣可
 ## 构建与运行
 
 ```powershell
-cd apps\probe-cli
-cargo build
-cargo run
+# 全量测试（纯引擎单测 + probe-cli 回归单测）
+cargo test --workspace
+
+# 构建 / 运行 probe-cli
+cargo build -p probe-cli
+cargo run -p probe-cli
 ```
 
 预期输出形如：
@@ -60,6 +63,8 @@ inputflow/
 ├── Steps.md
 ├── InputFlow-项目规划.md
 ├── .gitignore
+├── Cargo.toml               # Cargo workspace（resolver = "3"）
+├── Cargo.lock
 ├── docs/
 │   ├── PROJECT_PLAN.md       # 项目上下文（自规划稿复制）
 │   ├── glossary.md           # 术语表
@@ -67,10 +72,18 @@ inputflow/
 │   └── decisions/
 │       ├── adr-template.md
 │       └── ADR-000-仓库结构与技术选型.md
+├── crates/
+│   ├── inputflow-engine/     # M3+ 纯逻辑引擎（无 Windows 依赖，跨平台单测）
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       ├── event.rs      # 平台无关 InputEvent / Key / MouseKind
+│   │       ├── pending.rs    # 有界暂扣队列（FIFO、溢出旁路）
+│   │       ├── state.rs      # 物理按住 / 目标已看到 / 已消费 状态
+│   │       └── matcher.rs    # 纯状态机：Decision/Resolution、可注入时钟
+│   └── inputflow-windows/    # M4 起承载平台接入（本里程碑为占位）
 └── apps/
-    └── probe-cli/            # M1-M5 原型（单包、非 workspace）
+    └── probe-cli/            # M1-M5 原型（workspace 成员）
         ├── Cargo.toml
-        ├── Cargo.lock
         └── src/
             ├── main.rs              # 线程编排、退出、logger、replay worker
             ├── event.rs             # 归一化 InputEvent + 按键名映射（无 unsafe）
@@ -85,3 +98,4 @@ inputflow/
 - M2 回放为固定延迟成对回放（约 300ms 后注入 F8 down+up），不保留实际按住时长；退出时未处理的暂扣回放请求会被丢弃。
 - `SendInput` 受 UIPI 完整性级别限制：聚焦提升权限（管理员）窗口时注入可能被拒绝或忽略；失败时程序进入旁路状态并记录。
 - 语言约定：文档 / ADR / 研究日志用中文；代码注释、标识符、提交信息、测试名用英文。
+- M3 起仓库演进为 Cargo workspace：`inputflow-engine`（纯逻辑、零依赖、跨平台单测）与 `inputflow-windows`（占位，M4 迁入平台代码）；`probe-cli` 为 workspace 成员，行为不变。

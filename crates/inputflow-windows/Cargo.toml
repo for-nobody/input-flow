@@ -1,7 +1,6 @@
 [package]
-name = "probe-cli"
+name = "inputflow-windows"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-windows-sys = { workspace = true }

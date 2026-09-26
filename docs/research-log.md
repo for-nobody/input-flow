@@ -64,8 +64,18 @@
 - 提升权限窗口聚焦时按 F8：记录 `SendInput` 返回值与实际是否送达（UIPI 限制）。
 - 每项记录：Windows 版本、规则、输入顺序、目标应用、预期/实际、是否丢键/卡键。
 
+## 7. M3 核心状态模型（2026-09-26，纯引擎，Windows 实机 N/A）
+
+- 仓库演进为 Cargo workspace（resolver 3）：`crates/inputflow-engine`（纯逻辑）+ `crates/inputflow-windows`（占位，M4 迁入平台代码）+ `apps/probe-cli`（成员，行为不变）；锁文件收敛到仓库根 `Cargo.lock`。
+- `inputflow-engine` 零依赖、无任何 Windows 符号：`event`（`Key`/`MouseButton`/`MouseKind`/`InputSource`/`InputEvent`；`Key` 为平台无关枚举，`Unknown(u16)` 兜底不丢键）、`pending`（有界 FIFO 暂扣 + 溢出标志）、`state`（物理按住 / 目标已看到 / 已消费 三集合）、`matcher`（`Decision`/`Resolution`/`Command` + 可注入 `Clock`）。
+- 匹配器把 M2 的 F8 暂扣泛化为 `Rule::Hold{key, timeout_ms, action}`，覆盖全部边界：候选 down 抑制、repeat 不重置计时、提前松开回放 `[down, up]`、超时命中消费（NFR-04：已消费 down 的 up 也被吞）、注入事件直通、溢出进入旁路并冲刷已有事件、暂停清理并停止新建暂扣。
+- `on_event` 同步返回 `(Decision, Resolution)`；`on_timeout` 由 `next_deadline()` 驱动并显式推进时间，测试不依赖真实睡眠。
+- 单测：`cargo test -p inputflow-engine` 18/18 通过；`cargo test --workspace` 20/20（含 probe-cli 回归 2 项）。`echo quit | target\debug\probe-cli.exe` 实机回归：Hook 安装、干净退出码 0。
+- 待 M4 验证：`Key+Key`/`Key+MouseButton` 组合、`Resolution::Matched`（on_event 命中路径）、多候选竞争、VK→`Key` 映射的实机行为。
+
 ## 变更记录
 
 - 2026-09-26（M0）：建立四条主线的初始调研结论，均标注“待验证”；尚未进行 Windows 实机实验。
 - 2026-09-26（M1）：完成只读探针 `apps/probe-cli`；实机验证 Hook 安装、事件捕获（injected/时间戳/顺序）与干净退出；修复 logger 持有 stdout 锁导致的死锁；确定 M2 抑制与回放方向。
 - 2026-09-26（M2）：实现 F8 抑制 + 延迟回放（`SendInput`）+ 注入标记识别（`dwExtraInfo`）+ 紧急旁路（F12）；纯逻辑辅助已单测；已实机验证 Hook 安装/干净退出，交互按键行为待实机验证。
+- 2026-09-26（M3）：演进为 Cargo workspace；新增纯逻辑 `inputflow-engine`（event/pending/state/matcher）并 18 项单测通过；`inputflow-windows` 占位；probe-cli 回归构建/退出通过。
