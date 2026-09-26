@@ -6,8 +6,8 @@ Windows 全局键盘与鼠标输入组合引擎：观察键鼠事件，暂扣可
 
 ## 当前状态
 
-- 里程碑：Step 0（M0）—— 环境与仓库准备（已完成）。
-- 下一步：Step 1（M1）—— 只读输入探针（`apps/probe-cli`）。
+- 里程碑：Step 1（M1）—— 只读输入探针（已完成）。
+- 下一步：Step 2（M2）—— 抑制与回放探针。
 
 ## 开发环境（首次实现时固定，满足 NFR-06）
 
@@ -25,7 +25,7 @@ Windows 全局键盘与鼠标输入组合引擎：观察键鼠事件，暂扣可
 
 | crate | 版本 | 说明 |
 |---|---|---|
-| `windows-sys` | 0.61.2 | windows-rs 的原始 FFI 绑定（M0/M1 用最小 API） |
+| `windows-sys` | 0.61.2 | windows-rs 的原始 FFI 绑定（M1 启用 `Win32_Foundation`、`Win32_System_LibraryLoader`、`Win32_System_Threading`、`Win32_UI_Input_KeyboardAndMouse`、`Win32_UI_WindowsAndMessaging`） |
 | `windows-link` | 0.2.1 | 传递依赖，负责解析导入库链接 |
 
 ## 构建与运行
@@ -39,8 +39,15 @@ cargo run
 预期输出形如：
 
 ```text
-probe-cli: GetTickCount() = <milliseconds> ms
+probe-cli: low-level hooks installed on message-loop thread 12345.
+probe-cli: read-only keyboard/mouse probe running.
+probe-cli: type `quit` and press Enter to exit cleanly.
+[seq=000000] t=8461500ms kbd Down LeftCtrl vk=0xA2 scan=0x1D ext=true repeat=false injected=false extra=0x0
+[seq=000001] t=8461600ms mouse Wheel -120 (307,968) injected=false extra=0x0
+probe-cli: shut down cleanly. observed 2 events, dropped 0 (queue full).
 ```
+
+在控制台输入 `quit`（或 `exit`/`q`）并回车即干净退出（退出码 0）。探针只观察、不拦截、不回放。
 
 ## 仓库结构
 
@@ -58,10 +65,15 @@ inputflow/
 │       ├── adr-template.md
 │       └── ADR-000-仓库结构与技术选型.md
 └── apps/
-    └── probe-cli/            # M1-M5 原型（M0 起的最小程序，单包、非 workspace）
+    └── probe-cli/            # M1-M5 原型（单包、非 workspace）
         ├── Cargo.toml
         ├── Cargo.lock
-        └── src/main.rs
+        └── src/
+            ├── main.rs              # 线程编排、退出、logger
+            ├── event.rs             # 归一化 InputEvent + 按键名映射（无 unsafe）
+            └── platform/
+                ├── mod.rs
+                └── windows.rs       # 全部 unsafe Win32：Hook 安装/卸载、消息循环、回调
 ```
 
 ## 已知限制 / 备注
