@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 inputflow-engine = { path = "../../crates/inputflow-engine" }
 inputflow-windows = { path = "../../crates/inputflow-windows" }
+inputflow-config = { path = "../../crates/inputflow-config" }

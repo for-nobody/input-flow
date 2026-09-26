@@ -24,10 +24,11 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{SyncSender, TrySendError};
 use std::sync::{Mutex, OnceLock};
+use std::time::Instant;
 
 use inputflow_engine::{
     Action, Command, Decision, InputEvent, InputSource, Key, Matcher, MouseButton, MouseKind,
-    Resolution,
+    PercentileTracker, Resolution,
 };
 
 use windows_sys::Win32::Foundation::{GetLastError, LPARAM, LRESULT, WPARAM};
@@ -36,7 +37,7 @@ use windows_sys::Win32::System::Threading::GetCurrentThreadId;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP, MOUSEEVENTF_LEFTDOWN,
     MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN,
-    MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_XDOWN, MOUSEEVENTF_XUP, MOUSEINPUT, SendInput, VK_F12,
+    MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_XDOWN, MOUSEEVENTF_XUP, MOUSEINPUT, SendInput,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, HC_ACTION, KBDLLHOOKSTRUCT, KF_EXTENDED,
@@ -77,6 +78,16 @@ static OUTPUT_SENT: AtomicU64 = AtomicU64::new(0);
 static OUTPUT_FAILED: AtomicU64 = AtomicU64::new(0);
 /// Output commands dropped because the bounded channel was full.
 static OUTPUT_DROPPED: AtomicU64 = AtomicU64::new(0);
+/// The emergency bypass key (default `F12`), set once before the hook thread.
+static EMERGENCY_KEY: OnceLock<Key> = OnceLock::new();
+/// Whether per-event debug logging is enabled (off by default; NFR-05).
+static DEBUG_LOG: AtomicBool = AtomicBool::new(false);
+/// Reservoir of matcher-decision latency samples, in microseconds.
+static CALLBACK_LATENCY: OnceLock<Mutex<PercentileTracker>> = OnceLock::new();
+/// Reservoir of hold-delay samples (first suppress to resolution), in microseconds.
+static HOLD_DELAY: OnceLock<Mutex<PercentileTracker>> = OnceLock::new();
+/// Start instant of the current hold window, if one is in progress.
+static HOLD_START: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
 
 /// Install the matcher used by the hook callbacks. Call before the hook thread.
 pub fn install_matcher(matcher: Matcher) {
@@ -94,9 +105,129 @@ pub fn install_log_sender(tx: SyncSender<String>) {
     let _ = LOG_TX.set(tx);
 }
 
+/// Install the emergency bypass key. Call before the hook thread starts.
+pub fn install_emergency_key(key: Key) {
+    let _ = EMERGENCY_KEY.set(key);
+}
+
+/// Enable or disable per-event debug logging (off by default).
+pub fn set_debug_log(enabled: bool) {
+    DEBUG_LOG.store(enabled, Ordering::Relaxed);
+}
+
 /// Whether interception is currently stopped (bypass is active).
 pub fn is_bypassed() -> bool {
     BYPASS.load(Ordering::Relaxed)
+}
+
+/// The configured emergency bypass key (default `F12`).
+fn emergency_key() -> Key {
+    EMERGENCY_KEY.get().copied().unwrap_or(Key::F12)
+}
+
+/// Whether per-event debug logging is enabled.
+fn debug_log_enabled() -> bool {
+    DEBUG_LOG.load(Ordering::Relaxed)
+}
+
+/// Best-effort flush any held events: pause the matcher (which returns the held
+/// events and clears its state) and dispatch them for replay.
+fn flush_held_events() {
+    let held = match MATCHER.get() {
+        Some(matcher) => match matcher.lock() {
+            Ok(mut guard) => guard.set_paused(true),
+            Err(_) => Vec::new(),
+        },
+        None => Vec::new(),
+    };
+    if !held.is_empty() {
+        dispatch_command(Command::Replay { events: held });
+    }
+}
+
+/// Suspend interception: flush held events, then stop intercepting new input.
+pub fn suspend() {
+    flush_held_events();
+    BYPASS.store(true, Ordering::Relaxed);
+    send_log("suspended: interception stopped (held input flushed)".to_string());
+}
+
+/// Resume interception after a suspension, clearing any overflow bypass too.
+pub fn resume() {
+    BYPASS.store(false, Ordering::Relaxed);
+    if let Some(matcher) = MATCHER.get()
+        && let Ok(mut guard) = matcher.lock()
+    {
+        guard.set_paused(false);
+        guard.set_bypassed(false);
+    }
+    send_log("resumed: interception active".to_string());
+}
+
+/// Toggle suspension and return the new state (`true` = interception stopped).
+pub fn toggle_suspend() -> bool {
+    if is_bypassed() {
+        resume();
+        false
+    } else {
+        suspend();
+        true
+    }
+}
+
+/// Whether interception is currently suspended (same flag as bypass).
+pub fn is_suspended() -> bool {
+    is_bypassed()
+}
+
+/// Flush any held events; used on clean shutdown before unhooking.
+pub fn flush_held() {
+    flush_held_events();
+}
+
+fn callback_latency_tracker() -> &'static Mutex<PercentileTracker> {
+    CALLBACK_LATENCY.get_or_init(|| Mutex::new(PercentileTracker::new(100_000)))
+}
+
+fn hold_delay_tracker() -> &'static Mutex<PercentileTracker> {
+    HOLD_DELAY.get_or_init(|| Mutex::new(PercentileTracker::new(100_000)))
+}
+
+fn hold_start_cell() -> &'static Mutex<Option<Instant>> {
+    HOLD_START.get_or_init(|| Mutex::new(None))
+}
+
+fn record_callback_latency(micros: u64) {
+    if let Ok(mut tracker) = callback_latency_tracker().lock() {
+        tracker.record(micros);
+    }
+}
+
+fn record_hold_delay() {
+    let start = match hold_start_cell().lock() {
+        Ok(mut cell) => cell.take(),
+        Err(_) => None,
+    };
+    if let Some(start) = start
+        && let Ok(mut tracker) = hold_delay_tracker().lock()
+    {
+        tracker.record(start.elapsed().as_micros() as u64);
+    }
+}
+
+/// A latency/delay stats summary: `(total, p50, p95, p99)` in microseconds.
+pub type Percentiles = (u64, Option<u64>, Option<u64>, Option<u64>);
+
+/// (total, p50, p95, p99) for callback latency in microseconds, if sampled.
+pub fn callback_latency_stats() -> Option<Percentiles> {
+    let tracker = callback_latency_tracker().lock().ok()?;
+    Some((tracker.total(), tracker.p50(), tracker.p95(), tracker.p99()))
+}
+
+/// (total, p50, p95, p99) for hold delay in microseconds, if sampled.
+pub fn hold_delay_stats() -> Option<Percentiles> {
+    let tracker = hold_delay_tracker().lock().ok()?;
+    Some((tracker.total(), tracker.p50(), tracker.p95(), tracker.p99()))
 }
 
 /// Number of events that were normalized (assigned a sequence number).
@@ -136,16 +267,14 @@ pub fn execute(command: &Command) -> u32 {
         OUTPUT_SENT.fetch_add(1, Ordering::Relaxed);
     } else {
         OUTPUT_FAILED.fetch_add(1, Ordering::Relaxed);
+        send_log(format!(
+            "sendinput_failed: inserted {inserted} of {} input(s); entering bypass",
+            inputs.len()
+        ));
         // Stop intercepting further input when synthesis fails (UIPI, etc.).
         BYPASS.store(true, Ordering::Relaxed);
     }
     inserted
-}
-
-/// Toggle the bypass flag and return the new value (`true` = interception stopped).
-fn toggle_bypass() -> bool {
-    let prev = BYPASS.fetch_xor(true, Ordering::Relaxed);
-    !prev
 }
 
 fn is_own_event(extra_info: usize) -> bool {
@@ -175,8 +304,10 @@ fn send_output(command: Command) {
 }
 
 /// Feed one normalized event to the matcher and return the decision. Any
-/// resulting replay / action command is forwarded to the output worker.
+/// resulting replay / action command is forwarded to the output worker. The
+/// matcher decision is timed for the performance baseline.
 fn process(event: InputEvent) -> Decision {
+    let start = Instant::now();
     let Some(matcher) = MATCHER.get() else {
         return Decision::PassThrough;
     };
@@ -185,6 +316,26 @@ fn process(event: InputEvent) -> Decision {
         return Decision::PassThrough;
     };
     let (decision, resolution) = guard.on_event(event);
+
+    record_callback_latency(start.elapsed().as_micros() as u64);
+
+    // A suppressed down starts (or continues) a hold-delay window.
+    if matches!(decision, Decision::Suppress { .. })
+        && matches!(resolution, Resolution::Pending)
+        && (event.is_key_down() || event.is_button_down())
+        && let Ok(mut cell) = hold_start_cell().lock()
+        && cell.is_none()
+    {
+        *cell = Some(start);
+    }
+
+    // A queue overflow inside the matcher also stops interception at the
+    // platform level so the hook callbacks short-circuit process().
+    if guard.is_bypassed() {
+        BYPASS.store(true, Ordering::Relaxed);
+        send_log("queue_overflow: entering bypass".to_string());
+    }
+
     match resolution {
         Resolution::Matched { rule_id, action } => {
             dispatch_command(Command::Emit { rule_id, action });
@@ -197,7 +348,8 @@ fn process(event: InputEvent) -> Decision {
     decision
 }
 
-/// Log and forward one output command to the worker thread.
+/// Log and forward one output command to the worker thread. Ends the current
+/// hold-delay window so the hold total delay can be sampled.
 fn dispatch_command(command: Command) {
     match &command {
         Command::Emit { rule_id, action } => {
@@ -207,6 +359,7 @@ fn dispatch_command(command: Command) {
             send_log(format!("replay {} held event(s)", events.len()));
         }
     }
+    record_hold_delay();
     send_output(command);
 }
 
@@ -219,8 +372,13 @@ fn drive_timeouts() {
     let Ok(mut guard) = matcher.lock() else {
         return;
     };
+    let mut resolved = 0usize;
     for command in guard.poll_timeouts() {
+        resolved += 1;
         dispatch_command(command);
+    }
+    if resolved > 0 {
+        send_log(format!("timeout: {resolved} deadline(s) resolved"));
     }
 }
 
@@ -325,10 +483,12 @@ pub fn run_hook_thread(ready: std::sync::mpsc::Sender<Result<u32, String>>) {
     let hooks = match unsafe { install_hooks() } {
         Ok(hooks) => hooks,
         Err(err) => {
+            send_log(format!("hook install failed: {err}"));
             let _ = ready.send(Err(err));
             return;
         }
     };
+    send_log("hooks installed (keyboard + mouse)".to_string());
 
     // Create this thread's message queue before signaling readiness.
     let mut msg = MSG::default();
@@ -368,6 +528,9 @@ pub fn run_hook_thread(ready: std::sync::mpsc::Sender<Result<u32, String>>) {
         // SAFETY: `timer_id` was created by this thread above.
         unsafe { KillTimer(std::ptr::null_mut(), timer_id) };
     }
+
+    // Best-effort flush any held events before removing the hooks.
+    flush_held();
 
     // SAFETY: hooks are still owned by this thread and must be removed before exit.
     unsafe { uninstall_hooks(hooks) };
@@ -471,12 +634,14 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                 repeat,
             },
         };
-        send_log(format!(
-            "[seq={:06}] kbd {} {key:?} injected={}",
-            event.seq,
-            if up { "Up" } else { "Down" },
-            event.injected
-        ));
+        if debug_log_enabled() {
+            send_log(format!(
+                "[seq={:06}] kbd {} {key:?} injected={}",
+                event.seq,
+                if up { "Up" } else { "Down" },
+                event.injected
+            ));
+        }
 
         // Our own synthesized events pass through, so replay never recurses.
         if is_own_event(info.dwExtraInfo) {
@@ -484,16 +649,16 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
             return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
         }
 
-        // The emergency key toggles bypass on its first (non-repeat) down and is
-        // itself never intercepted.
-        if !up && !repeat && vk == VK_F12 {
-            let bypass = toggle_bypass();
+        // The emergency key toggles suspension on its first (non-repeat) down and
+        // is itself never intercepted.
+        if !up && !repeat && key == emergency_key() {
+            let suspended = toggle_suspend();
             send_log(format!(
-                "bypass {}",
-                if bypass {
+                "suspended {}",
+                if suspended {
                     "ON (interception stopped)"
                 } else {
-                    "OFF"
+                    "OFF (interception active)"
                 }
             ));
             // SAFETY: `hhk` is ignored for low-level hooks.
@@ -542,11 +707,13 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
                     y: info.pt.y,
                 },
             };
-            send_log(format!(
-                "[seq={:06}] mouse {} {button:?} injected={injected}",
-                event.seq,
-                if down { "Down" } else { "Up" },
-            ));
+            if debug_log_enabled() {
+                send_log(format!(
+                    "[seq={:06}] mouse {} {button:?} injected={injected}",
+                    event.seq,
+                    if down { "Down" } else { "Up" },
+                ));
+            }
 
             if is_own_event(info.dwExtraInfo) || is_bypassed() {
                 // SAFETY: `hhk` is ignored for low-level hooks.

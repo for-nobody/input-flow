@@ -311,6 +311,17 @@ impl Matcher {
         self.bypassed
     }
 
+    /// Set or clear the internal overflow-bypass flag. Setting it true also
+    /// clears any active prefix and state; clearing it recovers after an
+    /// overflow once the caller re-arms the matcher (e.g. on resume).
+    pub fn set_bypassed(&mut self, bypassed: bool) {
+        if bypassed {
+            self.enter_bypass();
+        } else {
+            self.bypassed = false;
+        }
+    }
+
     fn on_key_event(&mut self, event: InputEvent) -> (Decision, Resolution) {
         let key = event.key().expect("keyboard event carries a key");
         let (active_first, is_hold_like) = match &self.active {

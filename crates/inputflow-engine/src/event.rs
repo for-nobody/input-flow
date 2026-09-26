@@ -7,6 +7,8 @@
 //! the raw platform key code for keys that are not modelled yet, so no
 //! information is lost during normalization.
 
+use std::fmt;
+
 /// A platform-independent key identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Key {
@@ -92,6 +94,173 @@ pub enum Key {
     Unknown(u16),
 }
 
+impl fmt::Display for Key {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self {
+            Key::LeftCtrl => "LeftCtrl",
+            Key::RightCtrl => "RightCtrl",
+            Key::LeftShift => "LeftShift",
+            Key::RightShift => "RightShift",
+            Key::LeftAlt => "LeftAlt",
+            Key::RightAlt => "RightAlt",
+            Key::LeftWin => "LeftWin",
+            Key::RightWin => "RightWin",
+            Key::A => "A",
+            Key::B => "B",
+            Key::C => "C",
+            Key::D => "D",
+            Key::E => "E",
+            Key::F => "F",
+            Key::G => "G",
+            Key::H => "H",
+            Key::I => "I",
+            Key::J => "J",
+            Key::K => "K",
+            Key::L => "L",
+            Key::M => "M",
+            Key::N => "N",
+            Key::O => "O",
+            Key::P => "P",
+            Key::Q => "Q",
+            Key::R => "R",
+            Key::S => "S",
+            Key::T => "T",
+            Key::U => "U",
+            Key::V => "V",
+            Key::W => "W",
+            Key::X => "X",
+            Key::Y => "Y",
+            Key::Z => "Z",
+            Key::Digit0 => "Digit0",
+            Key::Digit1 => "Digit1",
+            Key::Digit2 => "Digit2",
+            Key::Digit3 => "Digit3",
+            Key::Digit4 => "Digit4",
+            Key::Digit5 => "Digit5",
+            Key::Digit6 => "Digit6",
+            Key::Digit7 => "Digit7",
+            Key::Digit8 => "Digit8",
+            Key::Digit9 => "Digit9",
+            Key::F1 => "F1",
+            Key::F2 => "F2",
+            Key::F3 => "F3",
+            Key::F4 => "F4",
+            Key::F5 => "F5",
+            Key::F6 => "F6",
+            Key::F7 => "F7",
+            Key::F8 => "F8",
+            Key::F9 => "F9",
+            Key::F10 => "F10",
+            Key::F11 => "F11",
+            Key::F12 => "F12",
+            Key::F13 => "F13",
+            Key::F14 => "F14",
+            Key::F15 => "F15",
+            Key::F16 => "F16",
+            Key::F17 => "F17",
+            Key::F18 => "F18",
+            Key::F19 => "F19",
+            Key::F20 => "F20",
+            Key::F21 => "F21",
+            Key::F22 => "F22",
+            Key::F23 => "F23",
+            Key::F24 => "F24",
+            Key::Space => "Space",
+            Key::Enter => "Enter",
+            Key::Escape => "Escape",
+            Key::Tab => "Tab",
+            Key::Backspace => "Backspace",
+            Key::Unknown(vk) => return write!(f, "Unknown(0x{vk:X})"),
+        };
+        f.write_str(name)
+    }
+}
+
+impl Key {
+    /// Parse a canonical key name (the reverse of [`Key`]'s `Display`). Returns
+    /// `None` for unrecognized names, including the `Unknown(..)` fallback, so
+    /// config validation can reject unmapped keys instead of accepting them.
+    pub fn from_name(name: &str) -> Option<Key> {
+        let key = match name {
+            "LeftCtrl" => Key::LeftCtrl,
+            "RightCtrl" => Key::RightCtrl,
+            "LeftShift" => Key::LeftShift,
+            "RightShift" => Key::RightShift,
+            "LeftAlt" => Key::LeftAlt,
+            "RightAlt" => Key::RightAlt,
+            "LeftWin" => Key::LeftWin,
+            "RightWin" => Key::RightWin,
+            "A" => Key::A,
+            "B" => Key::B,
+            "C" => Key::C,
+            "D" => Key::D,
+            "E" => Key::E,
+            "F" => Key::F,
+            "G" => Key::G,
+            "H" => Key::H,
+            "I" => Key::I,
+            "J" => Key::J,
+            "K" => Key::K,
+            "L" => Key::L,
+            "M" => Key::M,
+            "N" => Key::N,
+            "O" => Key::O,
+            "P" => Key::P,
+            "Q" => Key::Q,
+            "R" => Key::R,
+            "S" => Key::S,
+            "T" => Key::T,
+            "U" => Key::U,
+            "V" => Key::V,
+            "W" => Key::W,
+            "X" => Key::X,
+            "Y" => Key::Y,
+            "Z" => Key::Z,
+            "Digit0" => Key::Digit0,
+            "Digit1" => Key::Digit1,
+            "Digit2" => Key::Digit2,
+            "Digit3" => Key::Digit3,
+            "Digit4" => Key::Digit4,
+            "Digit5" => Key::Digit5,
+            "Digit6" => Key::Digit6,
+            "Digit7" => Key::Digit7,
+            "Digit8" => Key::Digit8,
+            "Digit9" => Key::Digit9,
+            "F1" => Key::F1,
+            "F2" => Key::F2,
+            "F3" => Key::F3,
+            "F4" => Key::F4,
+            "F5" => Key::F5,
+            "F6" => Key::F6,
+            "F7" => Key::F7,
+            "F8" => Key::F8,
+            "F9" => Key::F9,
+            "F10" => Key::F10,
+            "F11" => Key::F11,
+            "F12" => Key::F12,
+            "F13" => Key::F13,
+            "F14" => Key::F14,
+            "F15" => Key::F15,
+            "F16" => Key::F16,
+            "F17" => Key::F17,
+            "F18" => Key::F18,
+            "F19" => Key::F19,
+            "F20" => Key::F20,
+            "F21" => Key::F21,
+            "F22" => Key::F22,
+            "F23" => Key::F23,
+            "F24" => Key::F24,
+            "Space" => Key::Space,
+            "Enter" => Key::Enter,
+            "Escape" => Key::Escape,
+            "Tab" => Key::Tab,
+            "Backspace" => Key::Backspace,
+            _ => return None,
+        };
+        Some(key)
+    }
+}
+
 /// A mouse button, distinguished by identity (not by side).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum MouseButton {
@@ -100,6 +269,34 @@ pub enum MouseButton {
     Middle,
     XButton1,
     XButton2,
+}
+
+impl fmt::Display for MouseButton {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            MouseButton::Left => "Left",
+            MouseButton::Right => "Right",
+            MouseButton::Middle => "Middle",
+            MouseButton::XButton1 => "XButton1",
+            MouseButton::XButton2 => "XButton2",
+        })
+    }
+}
+
+impl MouseButton {
+    /// Parse a canonical mouse-button name (the reverse of [`MouseButton`]'s
+    /// `Display`). Returns `None` for unrecognized names.
+    pub fn from_name(name: &str) -> Option<MouseButton> {
+        let button = match name {
+            "Left" => MouseButton::Left,
+            "Right" => MouseButton::Right,
+            "Middle" => MouseButton::Middle,
+            "XButton1" => MouseButton::XButton1,
+            "XButton2" => MouseButton::XButton2,
+            _ => return None,
+        };
+        Some(button)
+    }
 }
 
 /// A mouse event kind, after filtering out mouse-move noise.
@@ -272,6 +469,46 @@ mod tests {
         assert!(Key::A < Key::B);
         assert_eq!(Key::Unknown(0x77), Key::Unknown(0x77));
     }
+
+    #[test]
+    fn key_and_button_names_round_trip() {
+        for key in [
+            Key::LeftCtrl,
+            Key::RightCtrl,
+            Key::LeftShift,
+            Key::RightShift,
+            Key::LeftAlt,
+            Key::RightAlt,
+            Key::LeftWin,
+            Key::RightWin,
+            Key::A,
+            Key::Z,
+            Key::Digit0,
+            Key::Digit9,
+            Key::F1,
+            Key::F12,
+            Key::F24,
+            Key::Space,
+            Key::Enter,
+            Key::Escape,
+            Key::Tab,
+            Key::Backspace,
+        ] {
+            assert_eq!(Key::from_name(&key.to_string()), Some(key));
+        }
+        for button in [
+            MouseButton::Left,
+            MouseButton::Right,
+            MouseButton::Middle,
+            MouseButton::XButton1,
+            MouseButton::XButton2,
+        ] {
+            assert_eq!(MouseButton::from_name(&button.to_string()), Some(button));
+        }
+        assert_eq!(Key::from_name("NotAKey"), None);
+        assert_eq!(MouseButton::from_name("NotAButton"), None);
+    }
+
 
     #[test]
     fn button_accessors() {

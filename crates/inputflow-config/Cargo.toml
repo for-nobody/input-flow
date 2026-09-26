@@ -1,0 +1,9 @@
+[package]
+name = "inputflow-config"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+inputflow-engine = { path = "../inputflow-engine" }
+serde = { workspace = true }
+serde_json = { workspace = true }

@@ -101,6 +101,30 @@
 - 记事本聚焦，按住左 Ctrl <250ms 即点右键（或提前松开）：应回放 `[Ctrl, 右键]` / `[Ctrl down, Ctrl up]`，无丢键/卡键。
 - 按住左 Ctrl 期间自动重复 down 不重置计时；触发后继续按住、快速连击、普通打字/快捷键直通、F12 旁路往返、提升权限窗口下 `SendInput` 行为。
 
+## 10. M6 可靠性（2026-09-26，代码完成，交互实机验证待做）
+
+- 新增 `crates/inputflow-config`（serde + serde_json）：`Config{schema_version:1, emergency_bypass_key, rules}`；`load` 任何失败回退默认（空规则、F12）并记录问题（NFR-03）；`save` 写 `*.tmp`→flush/sync→rename（Windows 覆盖失败时 remove+rename 兜底）；默认路径 `%LOCALAPPDATA%\InputFlow\config.json`，`--config` 覆盖。
+- 校验：类型、`timeout_ms∈[1,60000]`、重复 id、未知键名、保留组合（紧急键≠任意规则前缀键）、规则冲突（复用 `RuleIndex::compile`）；只把完整有效规则集交给引擎。
+- 暂停/旁路（修复 ADR-002 缺口）：`suspend()` 先 `set_paused(true)` 取出并回放已暂扣事件再置 `BYPASS`；`resume()` 清 `BYPASS` 与 matcher overflow bypass；干净退出前 `flush_held()`。紧急键可配置（默认 F12）。
+- 诊断日志：`replay`/`matched`/`timeout`/`queue_overflow`/`sendinput_failed`/hook 状态常开、匿名化；逐键事件移到 `--debug`（NFR-05）。
+- 异常恢复：`%LOCALAPPDATA%\InputFlow\running` 启动写、干净退出删；下次启动残留则提示「上次异常终止，已暂扣输入不承诺恢复」。
+- 性能采样：engine 新增 `stats::PercentileTracker`（有界滑动窗口 + nearest-rank 分位）；平台 `Instant` 采样「回调（matcher 决策）耗时」与「暂扣总延迟（首次 suppress→解析）」；`stats`/退出时报告 p50/p95/p99。
+- 单测：`cargo test --workspace` 60/60（引擎 48 + 配置 9 + keymap 3）；`cargo clippy --workspace --all-targets` 无警告。
+- 实机（本机，exit code 0）：缺失/损坏配置回退空规则旁路；`--config` 加载 1 条演示规则；`pause`/`resume`/`stats`/`quit` 生效；崩溃标记残留时启动告警、干净退出删除；`--print-default-config` 输出模板；`echo quit | probe-cli.exe` 干净退出。
+
+### 性能基线（2026-09-26，本机 Windows 11 build 26200）
+
+- 自动回归只覆盖「安装 Hook + 干净退出」，未产生输入事件，故回调耗时与暂扣延迟样本为 0（`total=0`，分位 `-`）。基线需在人工按键实机（记事本打字、Ctrl+Q 失败回放、Hold+右键命中）中采集样本后补记。
+
+### 待实机验证（复现步骤，需人工按键）
+
+- 记事本聚焦，按 F12（紧急键）：应暂停并冲刷已暂扣输入，日志 `suspended...`；再按 F12 恢复。
+- 记事本聚焦，按住左 Ctrl ≥250ms 后点右键：`matched rule 'hold-ctrl-right-click-copy'`，无原右键菜单，`Ctrl+C` 一次；右键/Ctrl up 被消费、无孤立释放。
+- 记事本聚焦，按住左 Ctrl <250ms 即松开或点右键：按序回放，无丢键/卡键。
+- `pause` 后普通打字直通、`resume` 恢复拦截；逐键日志仅在 `--debug` 下出现，默认日志不含键名。
+- 强杀进程（任务管理器）后重启：启动提示上次异常终止。
+- 提升权限窗口聚焦时 `SendInput` 返回值（UIPI 限制）。
+
 ## 变更记录
 
 - 2026-09-26（M0）：建立四条主线的初始调研结论，均标注“待验证”；尚未进行 Windows 实机实验。
@@ -109,3 +133,4 @@
 - 2026-09-26（M3）：演进为 Cargo workspace；新增纯逻辑 `inputflow-engine`（event/pending/state/matcher）并 18 项单测通过；`inputflow-windows` 占位；probe-cli 回归构建/退出通过。
 - 2026-09-26（M4）：实现组合匹配（rules/matcher/state 扩展）、平台代码迁入 `inputflow-windows`（hooks/keymap/SendInput）、probe-cli 接入引擎；引擎 31 项 + keymap 3 项单测通过；`echo quit | probe-cli.exe` 实机回归通过；组合交互实机验证待做。
 - 2026-09-26（M5）：实现时序规则（`Hold`/`HoldMouseButton`）、跨种类冲突检测、平台 `SetTimer` 驱动 `poll_timeouts`；引擎 44 项 + keymap 3 项单测通过；`echo quit | probe-cli.exe` 实机回归通过；交互实机验证待做。
+- 2026-09-26（M6）：实现可靠性——新增 `inputflow-config`（版本化 JSON 配置、校验、原子保存、坏文件回退）、暂停/旁路（冲刷已暂扣）、可配置紧急键、匿名化诊断日志、崩溃标记、性能采样；引擎 48 + 配置 9 + keymap 3 共 60 项单测通过；`cargo clippy` 无警告；`echo quit | probe-cli.exe` 实机回归通过；交互实机验证待做。
