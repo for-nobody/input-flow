@@ -1,5 +1,5 @@
 //! probe-cli: a Windows keyboard/mouse low-level hook probe driven by the
-//! InputFlow engine (M4).
+//! InputFlow engine (M5).
 //!
 //! It installs `WH_KEYBOARD_LL` and `WH_MOUSE_LL` on a dedicated message-loop
 //! thread. Each normalized event is fed to the engine matcher synchronously in
@@ -27,11 +27,13 @@ fn main() {
     let (log_tx, log_rx) = mpsc::sync_channel::<String>(LOG_QUEUE_CAPACITY);
     let (output_tx, output_rx) = mpsc::sync_channel::<Command>(OUTPUT_QUEUE_CAPACITY);
 
-    // M4 demo rule: hold LeftCtrl and click the right mouse button to send Ctrl+C.
+    // M5 demo rule: hold LeftCtrl for 250 ms then click the right mouse button
+    // to send Ctrl+C.
     let rules = vec![Rule {
-        id: "ctrl-right-click-copy".to_string(),
-        trigger: Trigger::KeyMouseButton {
+        id: "hold-ctrl-right-click-copy".to_string(),
+        trigger: Trigger::HoldMouseButton {
             key: Key::LeftCtrl,
+            timeout_ms: 250,
             button: MouseButton::Right,
         },
         action: Action::KeyChord(vec![Key::LeftCtrl, Key::C]),
@@ -67,7 +69,7 @@ fn main() {
     let hook_thread_id = match ready_rx.recv() {
         Ok(Ok(tid)) => {
             println!("probe-cli: low-level hooks installed on message-loop thread {tid}.");
-            println!("probe-cli: hold LeftCtrl and click the right mouse button to send Ctrl+C.");
+            println!("probe-cli: hold LeftCtrl for 250 ms then right-click to send Ctrl+C.");
             println!(
                 "probe-cli: non-matching chords (e.g. Ctrl+Q) are replayed in order on failure."
             );

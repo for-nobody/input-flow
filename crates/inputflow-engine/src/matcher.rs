@@ -123,10 +123,25 @@ struct ActiveChord {
     first: Key,
 }
 
+/// A `Hold+MouseButton` rule: first wait for the key's threshold, then wait for
+/// the button to be pressed while the key is still held.
+#[derive(Clone)]
+struct ActiveHoldButton {
+    rule_id: String,
+    key: Key,
+    button: MouseButton,
+    deadline_ms: u64,
+    /// `true` once the threshold has elapsed and the key is still held; the
+    /// matcher is now waiting for the button down.
+    armed: bool,
+    action: Action,
+}
+
 /// The active prefix being matched, if any.
 enum Active {
     Holding(ActiveHold),
     Chording(ActiveChord),
+    HoldToButton(ActiveHoldButton),
 }
 
 /// The pure matching state machine.
@@ -191,34 +206,65 @@ impl Matcher {
         }
     }
 
-    /// Advance past a deadline and produce any resulting commands (Hold only).
+    /// Advance past a deadline and produce any resulting commands. Single-key
+    /// `Hold` rules emit their action (or replay if released); `Hold+MouseButton`
+    /// rules arm themselves at the deadline and then wait for the button down.
     pub fn on_timeout(&mut self) -> Vec<Command> {
-        let Some(Active::Holding(active)) = self.active.take() else {
-            return Vec::new();
-        };
-        if self.clock.now_ms() < active.deadline_ms {
-            self.active = Some(Active::Holding(active));
-            return Vec::new();
-        }
+        match self.active.take() {
+            Some(Active::Holding(active)) => {
+                if self.clock.now_ms() < active.deadline_ms {
+                    self.active = Some(Active::Holding(active));
+                    return Vec::new();
+                }
 
-        if self.keys.is_physically_held(active.key) {
-            // Held past the threshold: matched. Consume the held down (and any
-            // repeats) and emit the action once.
-            self.pending.clear();
-            self.keys.mark_consumed(active.key);
-            vec![Command::Emit {
-                rule_id: active.rule_id,
-                action: active.action,
-            }]
-        } else {
-            // Released before the deadline was processed: replay the held events.
-            let replay = self.pending.take_replay();
-            self.mark_replay_seen(&replay);
-            if replay.is_empty() {
-                Vec::new()
-            } else {
-                vec![Command::Replay { events: replay }]
+                if self.keys.is_physically_held(active.key) {
+                    // Held past the threshold: matched. Consume the held down (and
+                    // any repeats) and emit the action once.
+                    self.pending.clear();
+                    self.keys.mark_consumed(active.key);
+                    vec![Command::Emit {
+                        rule_id: active.rule_id,
+                        action: active.action,
+                    }]
+                } else {
+                    // Released before the deadline was processed: replay the held events.
+                    let replay = self.pending.take_replay();
+                    self.mark_replay_seen(&replay);
+                    if replay.is_empty() {
+                        Vec::new()
+                    } else {
+                        vec![Command::Replay { events: replay }]
+                    }
+                }
             }
+            Some(Active::HoldToButton(mut active)) => {
+                if active.armed {
+                    // Already armed and waiting for the button; no deadline to fire.
+                    self.active = Some(Active::HoldToButton(active));
+                    return Vec::new();
+                }
+                if self.clock.now_ms() < active.deadline_ms {
+                    self.active = Some(Active::HoldToButton(active));
+                    return Vec::new();
+                }
+                if self.keys.is_physically_held(active.key) {
+                    // Threshold reached and the key is still held: arm and wait for
+                    // the button down. No command yet.
+                    active.armed = true;
+                    self.active = Some(Active::HoldToButton(active));
+                    Vec::new()
+                } else {
+                    // Released before the deadline: replay the held events.
+                    let replay = self.pending.take_replay();
+                    self.mark_replay_seen(&replay);
+                    if replay.is_empty() {
+                        Vec::new()
+                    } else {
+                        vec![Command::Replay { events: replay }]
+                    }
+                }
+            }
+            _ => Vec::new(),
         }
     }
 
@@ -226,8 +272,22 @@ impl Matcher {
     pub fn next_deadline(&self) -> Option<u64> {
         match &self.active {
             Some(Active::Holding(hold)) => Some(hold.deadline_ms),
+            Some(Active::HoldToButton(hb)) if !hb.armed => Some(hb.deadline_ms),
             _ => None,
         }
+    }
+
+    /// Drive any due deadline, returning the resulting commands. Returns nothing
+    /// when there is no deadline or it has not yet elapsed. Used by the platform
+    /// timer so the hook thread does not take/reput the active state needlessly.
+    pub fn poll_timeouts(&mut self) -> Vec<Command> {
+        let Some(deadline) = self.next_deadline() else {
+            return Vec::new();
+        };
+        if self.clock.now_ms() < deadline {
+            return Vec::new();
+        }
+        self.on_timeout()
     }
 
     /// Pause or resume matching. Pausing stops new holds/chords and returns any
@@ -253,15 +313,16 @@ impl Matcher {
 
     fn on_key_event(&mut self, event: InputEvent) -> (Decision, Resolution) {
         let key = event.key().expect("keyboard event carries a key");
-        let (active_first, is_holding) = match &self.active {
+        let (active_first, is_hold_like) = match &self.active {
             Some(Active::Holding(hold)) => (Some(hold.key), true),
+            Some(Active::HoldToButton(hb)) => (Some(hb.key), true),
             Some(Active::Chording(chord)) => (Some(chord.first), false),
             None => (None, false),
         };
 
         match active_first {
             Some(first) if first == key => self.on_first_key_event(key, event),
-            Some(_) if is_holding => self.pass_through(event),
+            Some(_) if is_hold_like => self.pass_through(event),
             Some(first) => self.on_chord_second_key(first, key, event),
             None => self.on_idle_key(key, event),
         }
@@ -269,14 +330,17 @@ impl Matcher {
 
     fn on_button_event(&mut self, event: InputEvent) -> (Decision, Resolution) {
         let button = event.button().expect("button event carries a button");
-        // Mouse buttons never start a rule in M4; they only complete a chord.
-        let first = match &self.active {
-            Some(Active::Chording(chord)) => Some(chord.first),
-            _ => None,
+        let (chord_first, hold_button) = match &self.active {
+            Some(Active::Chording(chord)) => (Some(chord.first), None),
+            Some(Active::HoldToButton(hb)) => (None, Some(hb.clone())),
+            _ => (None, None),
         };
-        match first {
-            Some(first) => self.on_chord_button(first, button, event),
-            None => self.pass_through(event),
+        if let Some(first) = chord_first {
+            self.on_chord_button(first, button, event)
+        } else if let Some(hb) = hold_button {
+            self.on_hold_button(hb, button, event)
+        } else {
+            self.pass_through(event)
         }
     }
 
@@ -285,6 +349,9 @@ impl Matcher {
         if event.is_key_down() && !event.is_repeat() {
             if let Some((id, timeout_ms, action)) = self.index.hold(key).cloned() {
                 return self.start_hold(key, event, id, timeout_ms, action);
+            }
+            if let Some((id, timeout_ms, button, action)) = self.index.hold_button(key).cloned() {
+                return self.start_hold_button(key, button, event, id, timeout_ms, action);
             }
             if self.index.is_first_candidate(key) {
                 return self.start_chord(key, event);
@@ -310,6 +377,36 @@ impl Matcher {
             rule_id: id,
             key,
             deadline_ms,
+            action,
+        }));
+        (
+            Decision::Suppress {
+                event_id: event.seq,
+            },
+            Resolution::Pending,
+        )
+    }
+
+    fn start_hold_button(
+        &mut self,
+        key: Key,
+        button: MouseButton,
+        event: InputEvent,
+        id: String,
+        timeout_ms: u64,
+        action: Action,
+    ) -> (Decision, Resolution) {
+        if self.pending.push(event).is_err() {
+            return self.overflow_flush();
+        }
+        self.keys.mark_physical_down(key);
+        let deadline_ms = self.clock.now_ms() + timeout_ms;
+        self.active = Some(Active::HoldToButton(ActiveHoldButton {
+            rule_id: id,
+            key,
+            button,
+            deadline_ms,
+            armed: false,
             action,
         }));
         (
@@ -376,7 +473,7 @@ impl Matcher {
             if let Some((rule_id, action)) = self.index.second_key(first, second).cloned() {
                 return self.match_chord(rule_id, action, event, first, Some(second), None);
             }
-            return self.fail_chord(event);
+            return self.fail_active(event);
         }
         self.pass_through(event)
     }
@@ -391,14 +488,56 @@ impl Matcher {
             if let Some((rule_id, action)) = self.index.second_button(first, button).cloned() {
                 return self.match_chord(rule_id, action, event, first, None, Some(button));
             }
-            return self.fail_chord(event);
+            return self.fail_active(event);
         }
         self.pass_through(event)
     }
 
-    /// A non-matching second input arrived: replay the held first-key events
-    /// followed by this input, in order, so the target sees the original order.
-    fn fail_chord(&mut self, event: InputEvent) -> (Decision, Resolution) {
+    /// Handle a mouse-button event while a `Hold+MouseButton` rule is active.
+    /// Any button down is decisive: if the rule is armed (threshold reached with
+    /// the key still held) and it is the rule's button, match and consume;
+    /// otherwise fail and replay (an early button is not allowed in the MVP).
+    fn on_hold_button(
+        &mut self,
+        active: ActiveHoldButton,
+        button: MouseButton,
+        event: InputEvent,
+    ) -> (Decision, Resolution) {
+        if event.is_button_down() {
+            if active.armed && button == active.button {
+                return self.match_hold_button(active, event);
+            }
+            return self.fail_active(event);
+        }
+        self.pass_through(event)
+    }
+
+    /// Consume the held key and the completing button, and emit the action once.
+    fn match_hold_button(
+        &mut self,
+        active: ActiveHoldButton,
+        event: InputEvent,
+    ) -> (Decision, Resolution) {
+        // Held key downs are consumed, not replayed.
+        self.pending.take_replay();
+        self.keys.mark_consumed(active.key);
+        self.buttons.mark_consumed(active.button);
+        self.active = None;
+        (
+            Decision::Suppress {
+                event_id: event.seq,
+            },
+            Resolution::Matched {
+                rule_id: active.rule_id,
+                action: active.action,
+            },
+        )
+    }
+
+    /// A non-matching second input (or an early button) arrived: replay the held
+    /// first-key events followed by this input, in order, so the target sees the
+    /// original order.
+    fn fail_active(&mut self, event: InputEvent) -> (Decision, Resolution) {
         if self.pending.push(event).is_err() {
             return self.overflow_flush();
         }
@@ -921,6 +1060,230 @@ mod tests {
                 rule_id: "copy".to_string(),
                 action: Action::KeyChord(vec![Key::LeftCtrl, Key::C]),
             }
+        );
+    }
+
+    fn hold_button_rule(key: Key, timeout_ms: u64, button: MouseButton) -> Rule {
+        Rule {
+            id: "hold-click".to_string(),
+            trigger: Trigger::HoldMouseButton {
+                key,
+                timeout_ms,
+                button,
+            },
+            action: Action::KeyChord(vec![Key::LeftCtrl, Key::C]),
+        }
+    }
+
+    #[test]
+    fn hold_mouse_button_arms_at_threshold_then_matches() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(
+            clock.clone(),
+            vec![hold_button_rule(Key::LeftCtrl, 250, MouseButton::Right)],
+            8,
+        );
+
+        assert_eq!(
+            m.on_event(down(0, 0, Key::LeftCtrl)).0,
+            Decision::Suppress { event_id: 0 }
+        );
+        assert_eq!(m.next_deadline(), Some(250));
+
+        clock.advance(250);
+        assert!(m.on_timeout().is_empty());
+        assert_eq!(m.next_deadline(), None);
+
+        let right = button(1, 250, MouseButton::Right, true);
+        let (decision, resolution) = m.on_event(right);
+        assert_eq!(decision, Decision::Suppress { event_id: 1 });
+        assert_eq!(
+            resolution,
+            Resolution::Matched {
+                rule_id: "hold-click".to_string(),
+                action: Action::KeyChord(vec![Key::LeftCtrl, Key::C]),
+            }
+        );
+
+        assert_eq!(
+            m.on_event(button(2, 251, MouseButton::Right, false)).0,
+            Decision::Suppress { event_id: 2 }
+        );
+        assert_eq!(
+            m.on_event(up(3, 252, Key::LeftCtrl)).0,
+            Decision::Suppress { event_id: 3 }
+        );
+    }
+
+    #[test]
+    fn hold_mouse_button_fails_on_button_before_threshold() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(
+            clock.clone(),
+            vec![hold_button_rule(Key::LeftCtrl, 250, MouseButton::Right)],
+            8,
+        );
+
+        let d0 = down(0, 0, Key::LeftCtrl);
+        m.on_event(d0);
+        let early = button(1, 100, MouseButton::Right, true);
+        let (decision, resolution) = m.on_event(early);
+        assert_eq!(decision, Decision::Suppress { event_id: 1 });
+        assert_eq!(
+            resolution,
+            Resolution::Failed {
+                replay: vec![d0, early]
+            }
+        );
+
+        let (decision, _) = m.on_event(up(2, 101, Key::LeftCtrl));
+        assert_eq!(decision, Decision::PassThrough);
+    }
+
+    #[test]
+    fn hold_mouse_button_fails_on_non_matching_button_after_threshold() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(
+            clock.clone(),
+            vec![hold_button_rule(Key::LeftCtrl, 250, MouseButton::Right)],
+            8,
+        );
+
+        let d0 = down(0, 0, Key::LeftCtrl);
+        m.on_event(d0);
+        clock.advance(250);
+        m.on_timeout();
+
+        let left = button(1, 250, MouseButton::Left, true);
+        let (decision, resolution) = m.on_event(left);
+        assert_eq!(decision, Decision::Suppress { event_id: 1 });
+        assert_eq!(
+            resolution,
+            Resolution::Failed {
+                replay: vec![d0, left]
+            }
+        );
+    }
+
+    #[test]
+    fn hold_mouse_button_fails_when_key_released_before_threshold() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(
+            clock.clone(),
+            vec![hold_button_rule(Key::LeftCtrl, 250, MouseButton::Right)],
+            8,
+        );
+
+        let d0 = down(0, 0, Key::LeftCtrl);
+        m.on_event(d0);
+        let u0 = up(1, 100, Key::LeftCtrl);
+        let (decision, resolution) = m.on_event(u0);
+        assert_eq!(decision, Decision::Suppress { event_id: 1 });
+        assert_eq!(
+            resolution,
+            Resolution::Failed {
+                replay: vec![d0, u0]
+            }
+        );
+    }
+
+    #[test]
+    fn hold_mouse_button_fails_when_key_released_after_arming() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(
+            clock.clone(),
+            vec![hold_button_rule(Key::LeftCtrl, 250, MouseButton::Right)],
+            8,
+        );
+
+        let d0 = down(0, 0, Key::LeftCtrl);
+        m.on_event(d0);
+        clock.advance(250);
+        assert!(m.on_timeout().is_empty());
+
+        let u0 = up(1, 250, Key::LeftCtrl);
+        let (decision, resolution) = m.on_event(u0);
+        assert_eq!(decision, Decision::Suppress { event_id: 1 });
+        assert_eq!(
+            resolution,
+            Resolution::Failed {
+                replay: vec![d0, u0]
+            }
+        );
+    }
+
+    #[test]
+    fn hold_mouse_button_repeat_does_not_reset_timer() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(
+            clock.clone(),
+            vec![hold_button_rule(Key::LeftCtrl, 250, MouseButton::Right)],
+            8,
+        );
+
+        m.on_event(down(0, 0, Key::LeftCtrl));
+        clock.advance(240);
+        let r = repeat(1, 240, Key::LeftCtrl);
+        let (decision, _) = m.on_event(r);
+        assert_eq!(decision, Decision::Suppress { event_id: 1 });
+        assert_eq!(m.next_deadline(), Some(250));
+
+        clock.advance(10);
+        assert!(m.on_timeout().is_empty());
+        assert_eq!(m.next_deadline(), None);
+    }
+
+    #[test]
+    fn hold_exactly_at_threshold_matches() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(clock.clone(), vec![hold_rule(Key::F8, 100)], 8);
+
+        m.on_event(down(0, 0, Key::F8));
+        clock.advance(100);
+        let commands = m.on_timeout();
+        assert_eq!(
+            commands,
+            vec![Command::Emit {
+                rule_id: "hold".to_string(),
+                action: Action::KeyChord(vec![Key::C]),
+            }]
+        );
+    }
+
+    #[test]
+    fn hold_released_just_before_threshold_replays() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(clock.clone(), vec![hold_rule(Key::F8, 100)], 8);
+
+        let d0 = down(0, 0, Key::F8);
+        m.on_event(d0);
+        clock.advance(99);
+        let u0 = up(1, 99, Key::F8);
+        let (_, resolution) = m.on_event(u0);
+        assert_eq!(
+            resolution,
+            Resolution::Failed {
+                replay: vec![d0, u0]
+            }
+        );
+    }
+
+    #[test]
+    fn poll_timeouts_only_fires_when_due() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(clock.clone(), vec![hold_rule(Key::F8, 100)], 8);
+
+        m.on_event(down(0, 0, Key::F8));
+        clock.advance(50);
+        assert!(m.poll_timeouts().is_empty());
+
+        clock.advance(50);
+        assert_eq!(
+            m.poll_timeouts(),
+            vec![Command::Emit {
+                rule_id: "hold".to_string(),
+                action: Action::KeyChord(vec![Key::C]),
+            }]
         );
     }
 

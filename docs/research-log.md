@@ -87,6 +87,20 @@
 - 记事本聚焦，按住左 Ctrl 后点右键：应无原右键菜单弹出，`Ctrl+C` 动作触发一次；日志 `matched rule 'ctrl-right-click-copy'`；右键 up 与 Ctrl up 被消费、无孤立释放。
 - 触发后继续按住左 Ctrl、快速连击、普通打字/快捷键直通、F12 旁路往返、提升权限窗口下的 `SendInput` 行为。
 
+## 9. M5 时序规则（2026-09-26，代码完成，交互实机验证待做）
+
+- `inputflow-engine` 新增 `Trigger::HoldMouseButton{key, timeout_ms, button}` 与 `RuleError::Conflict`；`RuleIndex` 增加 `hold_buttons`（每键至多一条）与 `has_hold_button`/`hold_button` 查询；`compile` 增加跨种类前缀冲突检测。
+- `matcher` 新增 `Active::HoldToButton`（“等待阈值”/“已武装”两阶段）：`on_timeout` 在阈值到达且 `K` 仍按住时仅武装（不产出命令），此后 `B down` 才命中并消费；活动期间任意按钮 down 决定成败（MVP 不允许早于 `T` 的按钮）。新增 `poll_timeouts()` 供平台轮询。重复 down 不重置计时；`Hold` 阈值边界（精确 `T` 命中、`T` 前释放回放）补齐测试。
+- 关键缺口修复：`on_timeout` 此前仅在单测中由 `ManualClock` 驱动；平台层新增消息循环线程周期 `SetTimer`（约 5ms，`WM_TIMER`）驱动 `poll_timeouts()`，使 `Hold`/`Hold+Button` 在 Windows 上真正生效。
+- 冲突策略（ADR-002）：一个前缀键最多属于一种规则种类——单键 `Hold{K}` 与同前缀复合规则（含 `HoldMouseButton`）、`HoldMouseButton{K}` 与同前缀和弦、同键多条 `HoldMouseButton` 均拒绝启用。
+- 单测：`cargo test --workspace` 47/47（引擎 44 + keymap 3）；`cargo clippy --workspace --all-targets` 无警告。`echo quit | target\debug\probe-cli.exe` 实机回归：Hook 安装、M5 横幅、退出码 0。
+
+### 待实机验证（复现步骤，需人工按键）
+
+- 记事本聚焦，按住左 Ctrl ≥250ms 后点右键：应无原右键菜单，`Ctrl+C` 触发一次；日志 `matched rule 'hold-ctrl-right-click-copy'`；右键 up 与 Ctrl up 被消费、无孤立释放。
+- 记事本聚焦，按住左 Ctrl <250ms 即点右键（或提前松开）：应回放 `[Ctrl, 右键]` / `[Ctrl down, Ctrl up]`，无丢键/卡键。
+- 按住左 Ctrl 期间自动重复 down 不重置计时；触发后继续按住、快速连击、普通打字/快捷键直通、F12 旁路往返、提升权限窗口下 `SendInput` 行为。
+
 ## 变更记录
 
 - 2026-09-26（M0）：建立四条主线的初始调研结论，均标注“待验证”；尚未进行 Windows 实机实验。
@@ -94,3 +108,4 @@
 - 2026-09-26（M2）：实现 F8 抑制 + 延迟回放（`SendInput`）+ 注入标记识别（`dwExtraInfo`）+ 紧急旁路（F12）；纯逻辑辅助已单测；已实机验证 Hook 安装/干净退出，交互按键行为待实机验证。
 - 2026-09-26（M3）：演进为 Cargo workspace；新增纯逻辑 `inputflow-engine`（event/pending/state/matcher）并 18 项单测通过；`inputflow-windows` 占位；probe-cli 回归构建/退出通过。
 - 2026-09-26（M4）：实现组合匹配（rules/matcher/state 扩展）、平台代码迁入 `inputflow-windows`（hooks/keymap/SendInput）、probe-cli 接入引擎；引擎 31 项 + keymap 3 项单测通过；`echo quit | probe-cli.exe` 实机回归通过；组合交互实机验证待做。
+- 2026-09-26（M5）：实现时序规则（`Hold`/`HoldMouseButton`）、跨种类冲突检测、平台 `SetTimer` 驱动 `poll_timeouts`；引擎 44 项 + keymap 3 项单测通过；`echo quit | probe-cli.exe` 实机回归通过；交互实机验证待做。

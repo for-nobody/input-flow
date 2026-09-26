@@ -14,11 +14,12 @@
 //!   `PeekMessageW`) before reporting its thread id, so `PostThreadMessageW`
 //!   cannot race the queue creation.
 //!
-//! M4 behavior: the matcher runs synchronously in the callback; a suppressed
+//! M5 behavior: the matcher runs synchronously in the callback; a suppressed
 //! event returns non-zero, a passed-through event is forwarded down the chain.
 //! Matches emit an action and failures replay the held events, both via
 //! `SendInput` on a worker thread with a `dwExtraInfo` tag so our own injected
-//! events are recognized and never re-trigger matching.
+//! events are recognized and never re-trigger matching. A thread timer
+//! (`SetTimer`) drives `Hold` / `Hold+MouseButton` deadlines via `WM_TIMER`.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{SyncSender, TrySendError};
@@ -39,9 +40,9 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, HC_ACTION, KBDLLHOOKSTRUCT, KF_EXTENDED,
-    KF_REPEAT, KF_UP, LLKHF_INJECTED, LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT, PM_NOREMOVE,
-    PeekMessageW, PostThreadMessageW, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
-    WH_KEYBOARD_LL, WH_MOUSE_LL, WM_QUIT,
+    KF_REPEAT, KF_UP, KillTimer, LLKHF_INJECTED, LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT, PM_NOREMOVE,
+    PeekMessageW, PostThreadMessageW, SetTimer, SetWindowsHookExW, TranslateMessage,
+    UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_QUIT, WM_TIMER,
 };
 
 use crate::keymap;
@@ -52,6 +53,12 @@ pub const SELF_EXTRA_INFO_TAG: usize = 0x494E_5055; // ASCII "INPU"
 /// X-button identifiers carried in `MOUSEINPUT.mouseData`.
 const XBUTTON1: u32 = 1;
 const XBUTTON2: u32 = 2;
+
+/// Timer id for the message-loop timeout timer (drives `Matcher::poll_timeouts`).
+const TIMEOUT_TIMER_ID: usize = 1;
+/// Polling interval in milliseconds for deadline checks (MVP; M6 may switch to a
+/// precise waitable timer).
+const TIMEOUT_TIMER_INTERVAL_MS: u32 = 5;
 
 /// The matcher, shared with the hook thread and driven synchronously from the
 /// callbacks. Installed once before the hook thread starts.
@@ -180,16 +187,41 @@ fn process(event: InputEvent) -> Decision {
     let (decision, resolution) = guard.on_event(event);
     match resolution {
         Resolution::Matched { rule_id, action } => {
-            send_log(format!("matched rule `{rule_id}` with {action:?}"));
-            send_output(Command::Emit { rule_id, action });
+            dispatch_command(Command::Emit { rule_id, action });
         }
         Resolution::Failed { replay } => {
-            send_log(format!("replay {} held event(s)", replay.len()));
-            send_output(Command::Replay { events: replay });
+            dispatch_command(Command::Replay { events: replay });
         }
         Resolution::Pending => {}
     }
     decision
+}
+
+/// Log and forward one output command to the worker thread.
+fn dispatch_command(command: Command) {
+    match &command {
+        Command::Emit { rule_id, action } => {
+            send_log(format!("matched rule `{rule_id}` with {action:?}"));
+        }
+        Command::Replay { events } => {
+            send_log(format!("replay {} held event(s)", events.len()));
+        }
+    }
+    send_output(command);
+}
+
+/// Drive any elapsed matcher deadline (Hold / Hold+MouseButton). Called from the
+/// message loop on `WM_TIMER`; runs on the hook thread but outside the callback.
+fn drive_timeouts() {
+    let Some(matcher) = MATCHER.get() else {
+        return;
+    };
+    let Ok(mut guard) = matcher.lock() else {
+        return;
+    };
+    for command in guard.poll_timeouts() {
+        dispatch_command(command);
+    }
 }
 
 /// Build the `INPUT` array for an output command.
@@ -312,8 +344,30 @@ pub fn run_hook_thread(ready: std::sync::mpsc::Sender<Result<u32, String>>) {
         return;
     }
 
+    // Install a thread timer that posts WM_TIMER to this thread's queue, so the
+    // message loop can drive Hold / Hold+MouseButton deadlines. A null hwnd with
+    // no callback delivers WM_TIMER through the thread's message queue.
+    // SAFETY: null hwnd associates the timer with this thread's message queue
+    // (created above); the id is unique to this thread.
+    let timer_id = unsafe {
+        SetTimer(
+            std::ptr::null_mut(),
+            TIMEOUT_TIMER_ID,
+            TIMEOUT_TIMER_INTERVAL_MS,
+            None,
+        )
+    };
+    if timer_id == 0 {
+        send_log("failed to install timeout timer; timed rules will not arm".to_string());
+    }
+
     // SAFETY: runs the message loop until GetMessageW returns <= 0.
     unsafe { run_message_loop() };
+
+    if timer_id != 0 {
+        // SAFETY: `timer_id` was created by this thread above.
+        unsafe { KillTimer(std::ptr::null_mut(), timer_id) };
+    }
 
     // SAFETY: hooks are still owned by this thread and must be removed before exit.
     unsafe { uninstall_hooks(hooks) };
@@ -380,6 +434,12 @@ unsafe fn run_message_loop() {
         let ret = unsafe { GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) };
         if ret <= 0 {
             break;
+        }
+        if msg.message == WM_TIMER {
+            // Deadline tick: drive the matcher's Hold / Hold+MouseButton
+            // deadlines. There is no window to translate/dispatch a timer to.
+            drive_timeouts();
+            continue;
         }
         // SAFETY: `msg` was just retrieved and is valid.
         unsafe {
