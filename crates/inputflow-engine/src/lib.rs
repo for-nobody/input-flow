@@ -12,9 +12,11 @@
 pub mod event;
 pub mod matcher;
 pub mod pending;
+pub mod rules;
 pub mod state;
 
 pub use event::{InputEvent, InputSource, Key, MouseButton, MouseKind};
-pub use matcher::{Action, Clock, Command, Decision, ManualClock, Matcher, Resolution, Rule};
+pub use matcher::{Clock, Command, Decision, ManualClock, Matcher, Resolution, SystemClock};
 pub use pending::{Overflow, PendingQueue};
-pub use state::KeyState;
+pub use rules::{Action, Rule, RuleError, RuleIndex, Trigger};
+pub use state::{KeyState, MouseState};

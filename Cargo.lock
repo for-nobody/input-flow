@@ -9,12 +9,17 @@ version = "0.1.0"
 [[package]]
 name = "inputflow-windows"
 version = "0.1.0"
+dependencies = [
+ "inputflow-engine",
+ "windows-sys",
+]
 
 [[package]]
 name = "probe-cli"
 version = "0.1.0"
 dependencies = [
- "windows-sys",
+ "inputflow-engine",
+ "inputflow-windows",
 ]
 
 [[package]]

@@ -93,7 +93,7 @@ pub enum Key {
 }
 
 /// A mouse button, distinguished by identity (not by side).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum MouseButton {
     Left,
     Right,
@@ -174,6 +174,43 @@ impl InputEvent {
     pub fn is_repeat(&self) -> bool {
         matches!(self.source, InputSource::Keyboard { repeat: true, .. })
     }
+
+    /// The mouse button of this event, if it is a button press/release.
+    pub fn button(&self) -> Option<MouseButton> {
+        match self.source {
+            InputSource::Mouse {
+                kind: MouseKind::ButtonDown(button),
+                ..
+            } => Some(button),
+            InputSource::Mouse {
+                kind: MouseKind::ButtonUp(button),
+                ..
+            } => Some(button),
+            _ => None,
+        }
+    }
+
+    /// Whether this is a mouse-button-down event.
+    pub fn is_button_down(&self) -> bool {
+        matches!(
+            self.source,
+            InputSource::Mouse {
+                kind: MouseKind::ButtonDown(_),
+                ..
+            }
+        )
+    }
+
+    /// Whether this is a mouse-button-up event.
+    pub fn is_button_up(&self) -> bool {
+        matches!(
+            self.source,
+            InputSource::Mouse {
+                kind: MouseKind::ButtonUp(_),
+                ..
+            }
+        )
+    }
 }
 
 #[cfg(test)]
@@ -234,5 +271,36 @@ mod tests {
         // Ord is required for the BTreeSet-based key-state model.
         assert!(Key::A < Key::B);
         assert_eq!(Key::Unknown(0x77), Key::Unknown(0x77));
+    }
+
+    #[test]
+    fn button_accessors() {
+        let down = InputEvent {
+            seq: 2,
+            time_ms: 0,
+            injected: false,
+            source: InputSource::Mouse {
+                kind: MouseKind::ButtonDown(MouseButton::Right),
+                x: 0,
+                y: 0,
+            },
+        };
+        assert_eq!(down.button(), Some(MouseButton::Right));
+        assert!(down.is_button_down());
+        assert!(!down.is_button_up());
+
+        let up = InputEvent {
+            seq: 3,
+            time_ms: 0,
+            injected: false,
+            source: InputSource::Mouse {
+                kind: MouseKind::ButtonUp(MouseButton::Right),
+                x: 0,
+                y: 0,
+            },
+        };
+        assert!(up.is_button_up());
+        assert!(!up.is_button_down());
+        assert!(!up.is_repeat());
     }
 }

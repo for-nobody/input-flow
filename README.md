@@ -6,8 +6,8 @@ Windows 全局键盘与鼠标输入组合引擎：观察键鼠事件，暂扣可
 
 ## 当前状态
 
-- 里程碑：Step 3（M3）—— 核心状态模型。
-- 下一步：Step 4（M4）—— 组合匹配。
+- 里程碑：Step 4（M4）—— 组合匹配。
+- 下一步：Step 5（M5）—— 时序规则。
 
 ## 开发环境（首次实现时固定，满足 NFR-06）
 
@@ -42,18 +42,14 @@ cargo run -p probe-cli
 预期输出形如：
 
 ```text
-probe-cli: low-level hooks installed on message-loop thread 12345.
-probe-cli: F8 is held ~300ms then replayed once; all other keys pass through.
-probe-cli: F12 toggles bypass (stop intercepting); type `quit` and press Enter to exit.
-[seq=000000] t=8461500ms kbd Down F8 vk=0x77 scan=0x42 ext=false repeat=false injected=false extra=0x0
-probe-cli: replayed F8 (seq=000000); SendInput inserted 2/2 events.
-[seq=000001] t=8461600ms kbd Down F8 vk=0x77 scan=0x42 ext=false repeat=false injected=true extra=0x494E5055
-[seq=000002] t=8461600ms kbd Up F8 vk=0x77 scan=0x42 ext=false repeat=false injected=true extra=0x494E5055
-probe-cli: bypass ON (interception stopped).
-probe-cli: shut down cleanly. observed 3 events, dropped 0 (queue full); replayed 1 F8, 0 failed, 0 replay requests dropped.
+probe-cli: low-level hooks installed on message-loop thread 6632.
+probe-cli: hold LeftCtrl and click the right mouse button to send Ctrl+C.
+probe-cli: non-matching chords (e.g. Ctrl+Q) are replayed in order on failure.
+probe-cli: F12 toggles bypass; type `quit` and press Enter to exit.
+probe-cli: shut down cleanly. observed 0 events; 0 output batch(es) sent, 0 failed, 0 dropped.
 ```
 
-在控制台输入 `quit`（或 `exit`/`q`）并回车即干净退出（退出码 0）。M2 只暂扣 F8：物理 F8 down/up 被抑制，约 300ms 后经 `SendInput` 回放一次 down+up 对；注入事件带 `dwExtraInfo=0x494E5055` 标记，不递归；F12 切换旁路，`SendInput` 失败也会进入旁路。
+在控制台输入 `quit`（或 `exit`/`q`）并回车即干净退出（退出码 0）。M4 演示规则为 `LeftCtrl + RightButton → Ctrl+C`：按住左 Ctrl 时按下鼠标右键，命中后消费触发输入并经 `SendInput` 发送 `Ctrl+C`（无原右键菜单）；不匹配的组合（如 Ctrl+Q）按序回放 `[Ctrl, Q]`，无候选键直接放行。注入事件带 `dwExtraInfo=0x494E5055` 标记，不递归；F12 切换旁路，`SendInput` 失败也会进入旁路。
 
 ## 仓库结构
 
@@ -73,29 +69,32 @@ inputflow/
 │       ├── adr-template.md
 │       └── ADR-000-仓库结构与技术选型.md
 ├── crates/
-│   ├── inputflow-engine/     # M3+ 纯逻辑引擎（无 Windows 依赖，跨平台单测）
+│   ├── inputflow-engine/     # 纯逻辑引擎（无 Windows 依赖，跨平台单测）
 │   │   └── src/
 │   │       ├── lib.rs
-│   │       ├── event.rs      # 平台无关 InputEvent / Key / MouseKind
+│   │       ├── event.rs      # 平台无关 InputEvent / Key / MouseKind / MouseButton
 │   │       ├── pending.rs    # 有界暂扣队列（FIFO、溢出旁路）
-│   │       ├── state.rs      # 物理按住 / 目标已看到 / 已消费 状态
+│   │       ├── state.rs      # 按键/鼠标按键：物理按住 / 已见 / 已消费
+│   │       ├── rules.rs      # Trigger/Rule/RuleError/RuleIndex 预编译 + 冲突检测
 │   │       └── matcher.rs    # 纯状态机：Decision/Resolution、可注入时钟
-│   └── inputflow-windows/    # M4 起承载平台接入（本里程碑为占位）
+│   └── inputflow-windows/    # M4 起承载平台接入（全部 unsafe 集中于此）
+│       └── src/
+│           ├── lib.rs
+│           ├── keymap.rs             # VK↔Key、鼠标消息映射（纯逻辑，可单测）
+│           └── platform/
+│               ├── mod.rs
+│               └── windows.rs        # Hook 安装/卸载、消息循环、回调、SendInput
 └── apps/
     └── probe-cli/            # M1-M5 原型（workspace 成员）
         ├── Cargo.toml
         └── src/
-            ├── main.rs              # 线程编排、退出、logger、replay worker
-            ├── event.rs             # 归一化 InputEvent + 按键名映射（无 unsafe）
-            └── platform/
-                ├── mod.rs
-                └── windows.rs       # 全部 unsafe Win32：Hook 安装/卸载、消息循环、回调、SendInput 回放
+            └── main.rs               # 线程编排、规则定义、logger、输出 worker、退出
 ```
 
 ## 已知限制 / 备注
 
 - 当前无需安装完整 MSVC C++ 构建工具即可构建（Rust 自包含链接）；若后续里程碑（如 Tauri 2 或原生依赖）需要完整 MSVC 工具链，再安装 VS 2022 Build Tools 的「使用 C++ 的桌面开发」工作负载并回写版本号。
-- M2 回放为固定延迟成对回放（约 300ms 后注入 F8 down+up），不保留实际按住时长；退出时未处理的暂扣回放请求会被丢弃。
 - `SendInput` 受 UIPI 完整性级别限制：聚焦提升权限（管理员）窗口时注入可能被拒绝或忽略；失败时程序进入旁路状态并记录。
 - 语言约定：文档 / ADR / 研究日志用中文；代码注释、标识符、提交信息、测试名用英文。
-- M3 起仓库演进为 Cargo workspace：`inputflow-engine`（纯逻辑、零依赖、跨平台单测）与 `inputflow-windows`（占位，M4 迁入平台代码）；`probe-cli` 为 workspace 成员，行为不变。
+- M4 组合语义（ADR-001）：首键暂扣、第二输入完成则消费并发送动作、否则按序回放 `[首键, 第二输入]`；组合无显式超时、不支持重叠前缀，这些留给 M5/M6。`Key` 仅覆盖常用键，未建模键以 `Unknown(vk)` 兜底。
+- 自 M3 起仓库为 Cargo workspace：`inputflow-engine`（纯逻辑、零依赖、跨平台单测）、`inputflow-windows`（M4 起承载全部 `unsafe` Win32）、`probe-cli`（原型）。引擎单测（组合命中/失败/多候选/冲突/溢出/暂停等）+ keymap 单测共 34 项通过。

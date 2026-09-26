@@ -1,22 +1,24 @@
 //! Pure rule-matching state machine.
 //!
-//! The matcher decides, for each observed input event, whether to pass it
-//! through or suppress it (hold it while deciding), and — once enough events
-//! arrive or a deadline elapses — whether a rule matched (consume + emit an
-//! action) or failed (replay the held events in order).
+//! Rules are precompiled into a [`RuleIndex`]; the matcher performs only cheap
+//! lookups per event. `Key+Key` and `Key+MouseButton` chords hold the first key
+//! down and wait for a matching second input; a non-matching second input, or
+//! the first key being released, fails the chord and replays the held events in
+//! order. Single-key `Hold` rules keep a deadline resolved via
+//! [`Matcher::on_timeout`].
 //!
-//! It is fully synchronous and deterministic: [`Matcher::on_event`] returns the
-//! decision for the current event immediately, and [`Matcher::on_timeout`]
-//! advances time explicitly through an injectable [`Clock`], so tests never
-//! depend on real sleep. Callers drive time by polling [`Matcher::next_deadline`]
-//! and invoking [`Matcher::on_timeout`] once the deadline has elapsed.
+//! The matcher is synchronous and deterministic: [`Matcher::on_event`] returns
+//! the decision for the current event immediately, and [`Matcher::on_timeout`]
+//! advances time explicitly through an injectable [`Clock`].
 
-use std::cell::Cell;
-use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 
-use crate::event::{InputEvent, Key};
+use crate::event::{InputEvent, InputSource, Key, MouseButton, MouseKind};
 use crate::pending::PendingQueue;
-use crate::state::KeyState;
+use crate::rules::{Action, RuleIndex};
+use crate::state::{KeyState, MouseState};
 
 /// How to handle the current event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,12 +49,6 @@ pub enum Command {
     Emit { rule_id: String, action: Action },
 }
 
-/// Output action carried by a matched rule. Minimal in M3; expanded in M4.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Action {
-    KeyChord(Vec<Key>),
-}
-
 /// Logical clock used for timing decisions; injectable for deterministic tests.
 pub trait Clock {
     fn now_ms(&self) -> u64;
@@ -61,23 +57,23 @@ pub trait Clock {
 /// A manually advanced clock sharing its current time via interior mutability,
 /// so a test can keep one handle while the matcher holds another.
 #[derive(Clone)]
-pub struct ManualClock(Rc<Cell<u64>>);
+pub struct ManualClock(Arc<AtomicU64>);
 
 impl ManualClock {
     pub fn new(now_ms: u64) -> Self {
-        Self(Rc::new(Cell::new(now_ms)))
+        Self(Arc::new(AtomicU64::new(now_ms)))
     }
 
     pub fn now_ms(&self) -> u64 {
-        self.0.get()
+        self.0.load(Ordering::Relaxed)
     }
 
     pub fn set(&self, now_ms: u64) {
-        self.0.set(now_ms);
+        self.0.store(now_ms, Ordering::Relaxed);
     }
 
     pub fn advance(&self, by_ms: u64) {
-        self.0.set(self.0.get() + by_ms);
+        self.0.fetch_add(by_ms, Ordering::Relaxed);
     }
 }
 
@@ -87,18 +83,34 @@ impl Clock for ManualClock {
     }
 }
 
-/// A single enabled rule. M3 supports only `Hold`; combo rules arrive in M4.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Rule {
-    Hold {
-        id: String,
-        key: Key,
-        timeout_ms: u64,
-        action: Action,
-    },
+/// A clock backed by the system monotonic clock. `Send` so a [`Matcher`] can be
+/// shared with a hook thread.
+#[derive(Debug, Clone)]
+pub struct SystemClock {
+    start: Instant,
 }
 
-/// A candidate key being held while its timeout runs.
+impl Default for SystemClock {
+    fn default() -> Self {
+        Self {
+            start: Instant::now(),
+        }
+    }
+}
+
+impl SystemClock {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl Clock for SystemClock {
+    fn now_ms(&self) -> u64 {
+        self.start.elapsed().as_millis() as u64
+    }
+}
+
+/// A single-key `Hold` rule currently running its timeout.
 struct ActiveHold {
     rule_id: String,
     key: Key,
@@ -106,24 +118,38 @@ struct ActiveHold {
     action: Action,
 }
 
+/// A `Key+Key` / `Key+MouseButton` chord awaiting its second input.
+struct ActiveChord {
+    first: Key,
+}
+
+/// The active prefix being matched, if any.
+enum Active {
+    Holding(ActiveHold),
+    Chording(ActiveChord),
+}
+
 /// The pure matching state machine.
 pub struct Matcher {
-    clock: Box<dyn Clock>,
+    clock: Box<dyn Clock + Send>,
     pending: PendingQueue,
-    state: KeyState,
-    rules: Vec<Rule>,
-    active: Option<ActiveHold>,
+    keys: KeyState,
+    buttons: MouseState,
+    index: RuleIndex,
+    active: Option<Active>,
     paused: bool,
     bypassed: bool,
 }
 
 impl Matcher {
-    pub fn new(clock: Box<dyn Clock>, rules: Vec<Rule>, pending_capacity: usize) -> Self {
+    /// Create a matcher over a precompiled rule index.
+    pub fn new(clock: Box<dyn Clock + Send>, index: RuleIndex, pending_capacity: usize) -> Self {
         Self {
             clock,
             pending: PendingQueue::new(pending_capacity),
-            state: KeyState::new(),
-            rules,
+            keys: KeyState::new(),
+            buttons: MouseState::new(),
+            index,
             active: None,
             paused: false,
             bypassed: false,
@@ -134,55 +160,52 @@ impl Matcher {
     pub fn on_event(&mut self, event: InputEvent) -> (Decision, Resolution) {
         // Synthesized events never participate in matching (FR-06).
         if event.injected || self.paused || self.bypassed {
-            return (Decision::PassThrough, Resolution::Pending);
+            return self.pass_through(event);
         }
 
-        let Some(key) = event.key() else {
-            // Mouse events are not candidates in M3.
-            return (Decision::PassThrough, Resolution::Pending);
-        };
-
-        // A key whose down was consumed must have its up consumed too (NFR-04),
-        // and repeat downs must not re-trigger a match.
-        if self.state.is_consumed(key) {
-            if event.is_key_up() {
-                self.state.clear_consumed(key);
-                self.state.mark_physical_up(key);
-            }
-            return (
-                Decision::Suppress {
-                    event_id: event.seq,
-                },
-                Resolution::Pending,
-            );
+        // A key/button whose down was consumed must have its up consumed too
+        // (NFR-04), and repeat downs must not re-trigger a match.
+        if let Some(key) = event.key()
+            && self.keys.is_consumed(key)
+        {
+            return self.consume_key(key, event);
+        }
+        if let Some(button) = event.button()
+            && self.buttons.is_consumed(button)
+        {
+            return self.consume_button(button, event);
         }
 
-        match self.active.as_ref().map(|a| a.key) {
-            Some(active_key) if active_key == key => self.on_active_key_event(key, event),
-            Some(_) => self.pass_through(key, event),
-            None => self.on_new_event(key, event),
+        // No enabled rules: nothing is a candidate, everything passes through.
+        if self.index.is_empty() {
+            return self.pass_through(event);
+        }
+
+        match event.source {
+            InputSource::Keyboard { .. } => self.on_key_event(event),
+            InputSource::Mouse {
+                kind: MouseKind::ButtonDown(_) | MouseKind::ButtonUp(_),
+                ..
+            } => self.on_button_event(event),
+            InputSource::Mouse { .. } => self.pass_through(event),
         }
     }
 
-    /// Advance past a deadline and produce any resulting commands.
-    ///
-    /// Should only be called once the time reported by [`Matcher::next_deadline`]
-    /// has been reached or passed; this method no-ops if the deadline is still
-    /// in the future.
+    /// Advance past a deadline and produce any resulting commands (Hold only).
     pub fn on_timeout(&mut self) -> Vec<Command> {
-        let Some(active) = self.active.take() else {
+        let Some(Active::Holding(active)) = self.active.take() else {
             return Vec::new();
         };
         if self.clock.now_ms() < active.deadline_ms {
-            self.active = Some(active);
+            self.active = Some(Active::Holding(active));
             return Vec::new();
         }
 
-        if self.state.is_physically_held(active.key) {
+        if self.keys.is_physically_held(active.key) {
             // Held past the threshold: matched. Consume the held down (and any
             // repeats) and emit the action once.
             self.pending.clear();
-            self.state.mark_consumed(active.key);
+            self.keys.mark_consumed(active.key);
             vec![Command::Emit {
                 rule_id: active.rule_id,
                 action: active.action,
@@ -201,17 +224,21 @@ impl Matcher {
 
     /// The next deadline that should trigger [`Matcher::on_timeout`], if any.
     pub fn next_deadline(&self) -> Option<u64> {
-        self.active.as_ref().map(|a| a.deadline_ms)
+        match &self.active {
+            Some(Active::Holding(hold)) => Some(hold.deadline_ms),
+            _ => None,
+        }
     }
 
-    /// Pause or resume matching. Pausing stops new holds and returns any held
-    /// events so the caller can flush them before switching to pass-through.
+    /// Pause or resume matching. Pausing stops new holds/chords and returns any
+    /// held events so the caller can flush them before switching to pass-through.
     pub fn set_paused(&mut self, paused: bool) -> Vec<InputEvent> {
         self.paused = paused;
         if paused {
             let held = self.pending.take_replay();
             self.active = None;
-            self.state.clear();
+            self.keys.clear();
+            self.buttons.clear();
             held
         } else {
             Vec::new()
@@ -224,28 +251,46 @@ impl Matcher {
         self.bypassed
     }
 
-    fn rule_for_key(&self, key: Key) -> Option<&Rule> {
-        self.rules
-            .iter()
-            .find(|r| matches!(r, Rule::Hold { key: k, .. } if *k == key))
+    fn on_key_event(&mut self, event: InputEvent) -> (Decision, Resolution) {
+        let key = event.key().expect("keyboard event carries a key");
+        let (active_first, is_holding) = match &self.active {
+            Some(Active::Holding(hold)) => (Some(hold.key), true),
+            Some(Active::Chording(chord)) => (Some(chord.first), false),
+            None => (None, false),
+        };
+
+        match active_first {
+            Some(first) if first == key => self.on_first_key_event(key, event),
+            Some(_) if is_holding => self.pass_through(event),
+            Some(first) => self.on_chord_second_key(first, key, event),
+            None => self.on_idle_key(key, event),
+        }
     }
 
-    fn on_new_event(&mut self, key: Key, event: InputEvent) -> (Decision, Resolution) {
-        // Only a non-repeat key-down can start a candidate hold.
+    fn on_button_event(&mut self, event: InputEvent) -> (Decision, Resolution) {
+        let button = event.button().expect("button event carries a button");
+        // Mouse buttons never start a rule in M4; they only complete a chord.
+        let first = match &self.active {
+            Some(Active::Chording(chord)) => Some(chord.first),
+            _ => None,
+        };
+        match first {
+            Some(first) => self.on_chord_button(first, button, event),
+            None => self.pass_through(event),
+        }
+    }
+
+    fn on_idle_key(&mut self, key: Key, event: InputEvent) -> (Decision, Resolution) {
+        // Only a non-repeat key-down can start a prefix.
         if event.is_key_down() && !event.is_repeat() {
-            if let Some(rule) = self.rule_for_key(key) {
-                let (id, timeout_ms, action) = match rule {
-                    Rule::Hold {
-                        id,
-                        timeout_ms,
-                        action,
-                        ..
-                    } => (id.clone(), *timeout_ms, action.clone()),
-                };
+            if let Some((id, timeout_ms, action)) = self.index.hold(key).cloned() {
                 return self.start_hold(key, event, id, timeout_ms, action);
             }
+            if self.index.is_first_candidate(key) {
+                return self.start_chord(key, event);
+            }
         }
-        self.pass_through(key, event)
+        self.pass_through(event)
     }
 
     fn start_hold(
@@ -257,19 +302,16 @@ impl Matcher {
         action: Action,
     ) -> (Decision, Resolution) {
         if self.pending.push(event).is_err() {
-            self.enter_bypass();
-            let replay = self.pending.take_replay();
-            return (Decision::PassThrough, Resolution::Failed { replay });
+            return self.overflow_flush();
         }
-
-        self.state.mark_physical_down(key);
-        let deadline = self.clock.now_ms() + timeout_ms;
-        self.active = Some(ActiveHold {
+        self.keys.mark_physical_down(key);
+        let deadline_ms = self.clock.now_ms() + timeout_ms;
+        self.active = Some(Active::Holding(ActiveHold {
             rule_id: id,
             key,
-            deadline_ms: deadline,
+            deadline_ms,
             action,
-        });
+        }));
         (
             Decision::Suppress {
                 event_id: event.seq,
@@ -278,15 +320,27 @@ impl Matcher {
         )
     }
 
-    fn on_active_key_event(&mut self, key: Key, event: InputEvent) -> (Decision, Resolution) {
+    fn start_chord(&mut self, key: Key, event: InputEvent) -> (Decision, Resolution) {
+        if self.pending.push(event).is_err() {
+            return self.overflow_flush();
+        }
+        self.keys.mark_physical_down(key);
+        self.active = Some(Active::Chording(ActiveChord { first: key }));
+        (
+            Decision::Suppress {
+                event_id: event.seq,
+            },
+            Resolution::Pending,
+        )
+    }
+
+    /// Handle a key event belonging to the active first key (Hold or Chord).
+    fn on_first_key_event(&mut self, key: Key, event: InputEvent) -> (Decision, Resolution) {
         if event.is_key_up() {
-            // Released before the deadline: the hold failed; replay down+up in
-            // order (the up is included in the replay, not passed through).
-            self.state.mark_physical_up(key);
+            // First key released before completion: fail and replay in order.
+            self.keys.mark_physical_up(key);
             if self.pending.push(event).is_err() {
-                self.enter_bypass();
-                let replay = self.pending.take_replay();
-                return (Decision::PassThrough, Resolution::Failed { replay });
+                return self.overflow_flush();
             }
             let replay = self.pending.take_replay();
             self.active = None;
@@ -299,12 +353,10 @@ impl Matcher {
             );
         }
 
-        // A repeat (or a stray extra) down while the hold is active: keep
-        // holding; the timer is NOT reset (M5 semantics).
+        // Repeat (or stray) down while the prefix is active: keep holding. The
+        // timer is NOT reset (M5 semantics).
         if self.pending.push(event).is_err() {
-            self.enter_bypass();
-            let replay = self.pending.take_replay();
-            return (Decision::PassThrough, Resolution::Failed { replay });
+            return self.overflow_flush();
         }
         (
             Decision::Suppress {
@@ -314,31 +366,181 @@ impl Matcher {
         )
     }
 
-    fn pass_through(&mut self, key: Key, event: InputEvent) -> (Decision, Resolution) {
+    fn on_chord_second_key(
+        &mut self,
+        first: Key,
+        second: Key,
+        event: InputEvent,
+    ) -> (Decision, Resolution) {
+        if event.is_key_down() && !event.is_repeat() {
+            if let Some((rule_id, action)) = self.index.second_key(first, second).cloned() {
+                return self.match_chord(rule_id, action, event, first, Some(second), None);
+            }
+            return self.fail_chord(event);
+        }
+        self.pass_through(event)
+    }
+
+    fn on_chord_button(
+        &mut self,
+        first: Key,
+        button: MouseButton,
+        event: InputEvent,
+    ) -> (Decision, Resolution) {
+        if event.is_button_down() {
+            if let Some((rule_id, action)) = self.index.second_button(first, button).cloned() {
+                return self.match_chord(rule_id, action, event, first, None, Some(button));
+            }
+            return self.fail_chord(event);
+        }
+        self.pass_through(event)
+    }
+
+    /// A non-matching second input arrived: replay the held first-key events
+    /// followed by this input, in order, so the target sees the original order.
+    fn fail_chord(&mut self, event: InputEvent) -> (Decision, Resolution) {
+        if self.pending.push(event).is_err() {
+            return self.overflow_flush();
+        }
+        let replay = self.pending.take_replay();
+        self.active = None;
+        self.mark_replay_seen(&replay);
+        (
+            Decision::Suppress {
+                event_id: event.seq,
+            },
+            Resolution::Failed { replay },
+        )
+    }
+
+    /// Consume the trigger inputs and emit the action once.
+    fn match_chord(
+        &mut self,
+        rule_id: String,
+        action: Action,
+        event: InputEvent,
+        first: Key,
+        second_key: Option<Key>,
+        second_button: Option<MouseButton>,
+    ) -> (Decision, Resolution) {
+        // The held first-key downs are consumed, not replayed.
+        self.pending.take_replay();
+        self.keys.mark_consumed(first);
+        if let Some(key) = second_key {
+            self.keys.mark_consumed(key);
+        }
+        if let Some(button) = second_button {
+            self.buttons.mark_consumed(button);
+        }
+        self.active = None;
+        (
+            Decision::Suppress {
+                event_id: event.seq,
+            },
+            Resolution::Matched { rule_id, action },
+        )
+    }
+
+    fn consume_key(&mut self, key: Key, event: InputEvent) -> (Decision, Resolution) {
         if event.is_key_up() {
-            self.state.mark_physical_up(key);
-            self.state.mark_seen_up(key);
-        } else if event.is_key_down() && !event.is_repeat() {
-            self.state.mark_physical_down(key);
-            self.state.mark_seen_down(key);
+            self.keys.clear_consumed(key);
+            self.keys.mark_physical_up(key);
+        }
+        (
+            Decision::Suppress {
+                event_id: event.seq,
+            },
+            Resolution::Pending,
+        )
+    }
+
+    fn consume_button(&mut self, button: MouseButton, event: InputEvent) -> (Decision, Resolution) {
+        if event.is_button_up() {
+            self.buttons.clear_consumed(button);
+            self.buttons.mark_physical_up(button);
+        }
+        (
+            Decision::Suppress {
+                event_id: event.seq,
+            },
+            Resolution::Pending,
+        )
+    }
+
+    fn pass_through(&mut self, event: InputEvent) -> (Decision, Resolution) {
+        match event.source {
+            InputSource::Keyboard {
+                key, down, repeat, ..
+            } => {
+                if down {
+                    if !repeat {
+                        self.keys.mark_physical_down(key);
+                        self.keys.mark_seen_down(key);
+                    }
+                } else {
+                    self.keys.mark_physical_up(key);
+                    self.keys.mark_seen_up(key);
+                }
+            }
+            InputSource::Mouse {
+                kind: MouseKind::ButtonDown(button),
+                ..
+            } => {
+                self.buttons.mark_physical_down(button);
+                self.buttons.mark_seen_down(button);
+            }
+            InputSource::Mouse {
+                kind: MouseKind::ButtonUp(button),
+                ..
+            } => {
+                self.buttons.mark_physical_up(button);
+                self.buttons.mark_seen_up(button);
+            }
+            InputSource::Mouse { .. } => {}
         }
         (Decision::PassThrough, Resolution::Pending)
+    }
+
+    fn overflow_flush(&mut self) -> (Decision, Resolution) {
+        self.enter_bypass();
+        let replay = self.pending.take_replay();
+        (Decision::PassThrough, Resolution::Failed { replay })
     }
 
     fn enter_bypass(&mut self) {
         self.bypassed = true;
         self.active = None;
-        self.state.clear();
+        self.keys.clear();
+        self.buttons.clear();
     }
 
     fn mark_replay_seen(&mut self, events: &[InputEvent]) {
         for event in events {
-            if let Some(key) = event.key() {
-                if event.is_key_up() {
-                    self.state.mark_seen_up(key);
-                } else if !event.is_repeat() {
-                    self.state.mark_seen_down(key);
+            match event.source {
+                InputSource::Keyboard {
+                    key, down, repeat, ..
+                } => {
+                    if down {
+                        if !repeat {
+                            self.keys.mark_seen_down(key);
+                        }
+                    } else {
+                        self.keys.mark_seen_up(key);
+                    }
                 }
+                InputSource::Mouse {
+                    kind: MouseKind::ButtonDown(button),
+                    ..
+                } => {
+                    self.buttons.mark_seen_down(button);
+                }
+                InputSource::Mouse {
+                    kind: MouseKind::ButtonUp(button),
+                    ..
+                } => {
+                    self.buttons.mark_seen_up(button);
+                }
+                InputSource::Mouse { .. } => {}
             }
         }
     }
@@ -347,7 +549,8 @@ impl Matcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::{InputSource, MouseButton, MouseKind};
+    use crate::event::MouseButton;
+    use crate::rules::{Rule, RuleIndex, Trigger};
 
     fn key_event(seq: u64, time_ms: u64, key: Key, down: bool, repeat: bool) -> InputEvent {
         InputEvent {
@@ -376,17 +579,50 @@ mod tests {
         key_event(seq, time_ms, key, false, false)
     }
 
+    fn button(seq: u64, time_ms: u64, button: MouseButton, down: bool) -> InputEvent {
+        InputEvent {
+            seq,
+            time_ms,
+            injected: false,
+            source: InputSource::Mouse {
+                kind: if down {
+                    MouseKind::ButtonDown(button)
+                } else {
+                    MouseKind::ButtonUp(button)
+                },
+                x: 0,
+                y: 0,
+            },
+        }
+    }
+
     fn hold_rule(key: Key, timeout_ms: u64) -> Rule {
-        Rule::Hold {
+        Rule {
             id: "hold".to_string(),
-            key,
-            timeout_ms,
+            trigger: Trigger::Hold { key, timeout_ms },
             action: Action::KeyChord(vec![Key::C]),
         }
     }
 
+    fn chord_rule(id: &str, first: Key, second: Key) -> Rule {
+        Rule {
+            id: id.to_string(),
+            trigger: Trigger::KeyChord { first, second },
+            action: Action::KeyChord(vec![Key::C]),
+        }
+    }
+
+    fn mouse_chord_rule(id: &str, key: Key, button: MouseButton) -> Rule {
+        Rule {
+            id: id.to_string(),
+            trigger: Trigger::KeyMouseButton { key, button },
+            action: Action::KeyChord(vec![Key::LeftCtrl, Key::C]),
+        }
+    }
+
     fn matcher_with(clock: ManualClock, rules: Vec<Rule>, capacity: usize) -> Matcher {
-        Matcher::new(Box::new(clock), rules, capacity)
+        let index = RuleIndex::compile(rules).expect("valid rules");
+        Matcher::new(Box::new(clock), index, capacity)
     }
 
     #[test]
@@ -426,10 +662,9 @@ mod tests {
         let (decision, resolution) = m.on_event(r);
         assert_eq!(decision, Decision::Suppress { event_id: 1 });
         assert_eq!(resolution, Resolution::Pending);
-        // Deadline unchanged by the repeat.
         assert_eq!(m.next_deadline(), Some(100));
 
-        clock.advance(10); // now at 100
+        clock.advance(10);
         let commands = m.on_timeout();
         assert_eq!(
             commands,
@@ -457,7 +692,6 @@ mod tests {
         );
         assert!(!m.is_bypassed());
 
-        // The consumed down's up must be suppressed, not passed through (NFR-04).
         let u0 = up(1, 120, Key::F8);
         let (decision, resolution) = m.on_event(u0);
         assert_eq!(decision, Decision::Suppress { event_id: 1 });
@@ -473,7 +707,6 @@ mod tests {
         clock.advance(120);
         m.on_timeout();
 
-        // Repeat downs after a match are suppressed, not treated as a new hold.
         let r = repeat(2, 130, Key::F8);
         let (decision, resolution) = m.on_event(r);
         assert_eq!(decision, Decision::Suppress { event_id: 2 });
@@ -506,22 +739,189 @@ mod tests {
     }
 
     #[test]
-    fn mouse_events_pass_through_in_m3() {
+    fn mouse_button_passes_through_without_active_chord() {
         let clock = ManualClock::new(0);
-        let mut m = matcher_with(clock.clone(), vec![hold_rule(Key::F8, 100)], 8);
+        let mut m = matcher_with(
+            clock.clone(),
+            vec![mouse_chord_rule("copy", Key::LeftCtrl, MouseButton::Right)],
+            8,
+        );
 
-        let mouse = InputEvent {
-            seq: 0,
-            time_ms: 0,
-            injected: false,
-            source: InputSource::Mouse {
-                kind: MouseKind::ButtonDown(MouseButton::Right),
-                x: 0,
-                y: 0,
-            },
-        };
-        let (decision, _) = m.on_event(mouse);
+        let (decision, _) = m.on_event(button(0, 0, MouseButton::Right, true));
         assert_eq!(decision, Decision::PassThrough);
+    }
+
+    #[test]
+    fn no_rules_everything_passes_through() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(clock.clone(), vec![], 8);
+
+        let (decision, _) = m.on_event(down(0, 0, Key::LeftCtrl));
+        assert_eq!(decision, Decision::PassThrough);
+        let (decision, _) = m.on_event(button(1, 1, MouseButton::Right, true));
+        assert_eq!(decision, Decision::PassThrough);
+    }
+
+    #[test]
+    fn key_chord_matches_and_consumes_both_inputs() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(
+            clock.clone(),
+            vec![chord_rule("quit", Key::LeftCtrl, Key::Q)],
+            8,
+        );
+
+        let (decision, resolution) = m.on_event(down(0, 0, Key::LeftCtrl));
+        assert_eq!(decision, Decision::Suppress { event_id: 0 });
+        assert_eq!(resolution, Resolution::Pending);
+        assert_eq!(m.next_deadline(), None);
+
+        let q = down(1, 1, Key::Q);
+        let (decision, resolution) = m.on_event(q);
+        assert_eq!(decision, Decision::Suppress { event_id: 1 });
+        assert_eq!(
+            resolution,
+            Resolution::Matched {
+                rule_id: "quit".to_string(),
+                action: Action::KeyChord(vec![Key::C]),
+            }
+        );
+
+        let (decision, _) = m.on_event(up(2, 2, Key::Q));
+        assert_eq!(decision, Decision::Suppress { event_id: 2 });
+        let (decision, _) = m.on_event(up(3, 3, Key::LeftCtrl));
+        assert_eq!(decision, Decision::Suppress { event_id: 3 });
+    }
+
+    #[test]
+    fn key_chord_fails_when_first_released() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(
+            clock.clone(),
+            vec![chord_rule("quit", Key::LeftCtrl, Key::Q)],
+            8,
+        );
+
+        let d0 = down(0, 0, Key::LeftCtrl);
+        m.on_event(d0);
+        let u0 = up(1, 1, Key::LeftCtrl);
+        let (decision, resolution) = m.on_event(u0);
+        assert_eq!(decision, Decision::Suppress { event_id: 1 });
+        assert_eq!(
+            resolution,
+            Resolution::Failed {
+                replay: vec![d0, u0]
+            }
+        );
+    }
+
+    #[test]
+    fn key_chord_fails_on_non_matching_second_key() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(
+            clock.clone(),
+            vec![chord_rule("quit", Key::LeftCtrl, Key::Q)],
+            8,
+        );
+
+        let d0 = down(0, 0, Key::LeftCtrl);
+        m.on_event(d0);
+        let x = down(1, 1, Key::X);
+        let (decision, resolution) = m.on_event(x);
+        assert_eq!(decision, Decision::Suppress { event_id: 1 });
+        assert_eq!(
+            resolution,
+            Resolution::Failed {
+                replay: vec![d0, x]
+            }
+        );
+        let (decision, _) = m.on_event(up(2, 2, Key::X));
+        assert_eq!(decision, Decision::PassThrough);
+        let (decision, _) = m.on_event(up(3, 3, Key::LeftCtrl));
+        assert_eq!(decision, Decision::PassThrough);
+    }
+
+    #[test]
+    fn key_mouse_chord_matches_and_consumes_button() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(
+            clock.clone(),
+            vec![mouse_chord_rule("copy", Key::LeftCtrl, MouseButton::Right)],
+            8,
+        );
+
+        let (decision, resolution) = m.on_event(down(0, 0, Key::LeftCtrl));
+        assert_eq!(decision, Decision::Suppress { event_id: 0 });
+        assert_eq!(resolution, Resolution::Pending);
+
+        let right = button(1, 1, MouseButton::Right, true);
+        let (decision, resolution) = m.on_event(right);
+        assert_eq!(decision, Decision::Suppress { event_id: 1 });
+        assert_eq!(
+            resolution,
+            Resolution::Matched {
+                rule_id: "copy".to_string(),
+                action: Action::KeyChord(vec![Key::LeftCtrl, Key::C]),
+            }
+        );
+
+        let (decision, _) = m.on_event(button(2, 2, MouseButton::Right, false));
+        assert_eq!(decision, Decision::Suppress { event_id: 2 });
+        let (decision, _) = m.on_event(up(3, 3, Key::LeftCtrl));
+        assert_eq!(decision, Decision::Suppress { event_id: 3 });
+    }
+
+    #[test]
+    fn key_mouse_chord_fails_on_non_matching_button() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(
+            clock.clone(),
+            vec![mouse_chord_rule("copy", Key::LeftCtrl, MouseButton::Right)],
+            8,
+        );
+
+        let d0 = down(0, 0, Key::LeftCtrl);
+        m.on_event(d0);
+        let left = button(1, 1, MouseButton::Left, true);
+        let (decision, resolution) = m.on_event(left);
+        assert_eq!(decision, Decision::Suppress { event_id: 1 });
+        assert_eq!(
+            resolution,
+            Resolution::Failed {
+                replay: vec![d0, left]
+            }
+        );
+    }
+
+    #[test]
+    fn multi_candidate_rules_share_first_key() {
+        let clock = ManualClock::new(0);
+        let rules = vec![
+            chord_rule("quit", Key::LeftCtrl, Key::Q),
+            mouse_chord_rule("copy", Key::LeftCtrl, MouseButton::Right),
+        ];
+
+        let mut m = matcher_with(clock.clone(), rules.clone(), 8);
+        m.on_event(down(0, 0, Key::LeftCtrl));
+        let (_, resolution) = m.on_event(down(1, 1, Key::Q));
+        assert_eq!(
+            resolution,
+            Resolution::Matched {
+                rule_id: "quit".to_string(),
+                action: Action::KeyChord(vec![Key::C]),
+            }
+        );
+
+        let mut m2 = matcher_with(clock.clone(), rules, 8);
+        m2.on_event(down(0, 0, Key::LeftCtrl));
+        let (_, resolution) = m2.on_event(button(1, 1, MouseButton::Right, true));
+        assert_eq!(
+            resolution,
+            Resolution::Matched {
+                rule_id: "copy".to_string(),
+                action: Action::KeyChord(vec![Key::LeftCtrl, Key::C]),
+            }
+        );
     }
 
     #[test]
@@ -529,18 +929,15 @@ mod tests {
         let clock = ManualClock::new(0);
         let mut m = matcher_with(clock.clone(), vec![hold_rule(Key::F8, 100)], 1);
 
-        // First candidate down is held.
         let d0 = down(0, 0, Key::F8);
         assert_eq!(m.on_event(d0).0, Decision::Suppress { event_id: 0 });
 
-        // A second candidate down overflows the capacity-1 queue.
         let d1 = down(1, 1, Key::F8);
         let (decision, resolution) = m.on_event(d1);
         assert_eq!(decision, Decision::PassThrough);
         assert_eq!(resolution, Resolution::Failed { replay: vec![d0] });
         assert!(m.is_bypassed());
 
-        // After overflow, everything passes through.
         let (decision, _) = m.on_event(down(2, 2, Key::F8));
         assert_eq!(decision, Decision::PassThrough);
     }
@@ -561,7 +958,6 @@ mod tests {
         let (decision, _) = m.on_event(down(1, 10, Key::F8));
         assert_eq!(decision, Decision::PassThrough);
 
-        // Resume restores matching.
         m.set_paused(false);
         let (decision, _) = m.on_event(down(2, 20, Key::F8));
         assert_eq!(decision, Decision::Suppress { event_id: 2 });

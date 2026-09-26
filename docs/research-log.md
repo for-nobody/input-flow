@@ -73,9 +73,24 @@
 - 单测：`cargo test -p inputflow-engine` 18/18 通过；`cargo test --workspace` 20/20（含 probe-cli 回归 2 项）。`echo quit | target\debug\probe-cli.exe` 实机回归：Hook 安装、干净退出码 0。
 - 待 M4 验证：`Key+Key`/`Key+MouseButton` 组合、`Resolution::Matched`（on_event 命中路径）、多候选竞争、VK→`Key` 映射的实机行为。
 
+## 8. M4 组合匹配（2026-09-26，代码完成，组合交互实机验证待做）
+
+- `inputflow-engine` 新增 `rules`（`Trigger::{KeyChord, KeyMouseButton, Hold}`、`Rule`、`RuleError`、`RuleIndex::compile` 预编译索引）；`matcher` 从单一 `Hold` 泛化为"首键暂扣 + 等待第二输入"的候选前缀状态机；`state` 新增 `MouseState` 跟踪鼠标按键物理/已见/已消费；`event` 补 `button()/is_button_down()/is_button_up()`。
+- 组合语义（ADR-001）：首键 down 暂扣；第二输入完成规则 → 消费并 `Emit` 动作（仅一次）；首键松开或不匹配 → 按序回放 `[首键, 第二输入]`；组合无显式超时，重叠前缀 M4 不支持。`Matcher` 改为 `Send`（`ManualClock` 用 `Arc<AtomicU64>`，新增 `SystemClock`）。
+- 平台代码自 `probe-cli` 迁入 `inputflow-windows`：`platform/windows`（Hook/消息循环/`SendInput`/注入标记/旁路）、`keymap`（VK↔Key、鼠标消息映射，纯逻辑可单测）。`Matcher` 在 Hook 回调内同步调用（`Mutex` 静态，短临界区），回放/动作经 `Command` 交给工作线程 `SendInput`。
+- `probe-cli` 只做线程编排与规则定义；M4 演示规则 `LeftCtrl + RightButton → Ctrl+C`。
+- 单测：`cargo test --workspace` 34/34（引擎 31 + keymap 3）；`cargo clippy --workspace` 无警告。`echo quit | target\debug\probe-cli.exe` 实机回归：Hook 安装、M4 横幅、退出码 0。
+
+### 待实机验证（复现步骤，需人工按键）
+
+- 记事本聚焦，按 Ctrl+Q（无对应规则）：目标应按序收到 Ctrl、Q，无丢键/卡键；日志应出现 `replay 2 held event(s)` 与 `output: 2 event(s) inserted`。
+- 记事本聚焦，按住左 Ctrl 后点右键：应无原右键菜单弹出，`Ctrl+C` 动作触发一次；日志 `matched rule 'ctrl-right-click-copy'`；右键 up 与 Ctrl up 被消费、无孤立释放。
+- 触发后继续按住左 Ctrl、快速连击、普通打字/快捷键直通、F12 旁路往返、提升权限窗口下的 `SendInput` 行为。
+
 ## 变更记录
 
 - 2026-09-26（M0）：建立四条主线的初始调研结论，均标注“待验证”；尚未进行 Windows 实机实验。
 - 2026-09-26（M1）：完成只读探针 `apps/probe-cli`；实机验证 Hook 安装、事件捕获（injected/时间戳/顺序）与干净退出；修复 logger 持有 stdout 锁导致的死锁；确定 M2 抑制与回放方向。
 - 2026-09-26（M2）：实现 F8 抑制 + 延迟回放（`SendInput`）+ 注入标记识别（`dwExtraInfo`）+ 紧急旁路（F12）；纯逻辑辅助已单测；已实机验证 Hook 安装/干净退出，交互按键行为待实机验证。
 - 2026-09-26（M3）：演进为 Cargo workspace；新增纯逻辑 `inputflow-engine`（event/pending/state/matcher）并 18 项单测通过；`inputflow-windows` 占位；probe-cli 回归构建/退出通过。
+- 2026-09-26（M4）：实现组合匹配（rules/matcher/state 扩展）、平台代码迁入 `inputflow-windows`（hooks/keymap/SendInput）、probe-cli 接入引擎；引擎 31 项 + keymap 3 项单测通过；`echo quit | probe-cli.exe` 实机回归通过；组合交互实机验证待做。
