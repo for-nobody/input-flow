@@ -1,3 +1,9 @@
+> [!CAUTION]
+> 本文件是已废弃的 Tauri 时期历史记录，仅用于问题追溯。
+> 不得将其中的前端架构、目录结构或 Tauri 命令作为当前实现要求。
+> 当前任务以 `../tag_5_InputFlow-M7-WinUI3架构与输入扩展任务.md`
+> 和 `../../docs/decisions/ADR-004-Rust常驻Agent与WinUI3设置程序.md` 为准。
+
 # InputFlow M6 三轮复查与 Codex 系统修复任务
 
 > 交给 VS Code Codex 的任务说明。请以仓库当前实际代码为准，先复现、分析和设计，再修改与验证。记录做了什么、为什么、哪些现象已经实测，切勿把假设写成事实。

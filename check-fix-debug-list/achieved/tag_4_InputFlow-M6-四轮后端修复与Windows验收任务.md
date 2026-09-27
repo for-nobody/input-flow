@@ -1,3 +1,9 @@
+> [!CAUTION]
+> 本文件是已废弃的 Tauri 时期历史记录，仅用于问题追溯。
+> 不得将其中的前端架构、目录结构或 Tauri 命令作为当前实现要求。
+> 当前任务以 `../tag_5_InputFlow-M7-WinUI3架构与输入扩展任务.md`
+> 和 `../../docs/decisions/ADR-004-Rust常驻Agent与WinUI3设置程序.md` 为准。
+
 # InputFlow M6：下一轮后端修复与 Windows 验收任务
 
 > 给 VS Code 中的 Codex 使用。当前任务只处理输入引擎及诊断的可靠性；前端 UI 的信息架构、视觉风格和交互稿将由用户另行讨论。**本任务不创建 Tauri/React 页面，不接入真实规则编辑 UI。**

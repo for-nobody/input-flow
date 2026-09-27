@@ -1,139 +1,94 @@
 # InputFlow
 
-Windows 全局键盘与鼠标输入组合引擎：观察键鼠事件，暂扣可能构成已启用规则的事件，命中后消费并发送动作，失败/超时则按序回放。
+Windows 全局键盘与鼠标输入组合引擎：只暂扣可能构成已启用规则的事件，命中后消费并发送动作，失败或超时则按序尽力回放。
 
-> 完整项目上下文见 `docs/PROJECT_PLAN.md`；可执行开发计划见 `Steps.md`。
+> 项目规划：`docs/PROJECT_PLAN.md`  
+> 执行步骤：`Steps.md`  
+> Windows 构建：`docs/BUILD_WINDOWS.md`  
+> 当前 Codex 任务：`check-fix-debug-list/tag_5_InputFlow-M7-WinUI3架构与输入扩展任务.md`
 
 ## 当前状态
 
-- 里程碑：Step 6（M6）—— 第四轮后端可靠性加固已完成自动化部分。
-- 下一步：先完成 Windows 人工输入/性能验收；通过后再进入 Step 7（M7）功能性桌面界面集成。M7 视觉设计可独立推进。
+- M1–M6 Rust 原型和自动化可靠性加固已经存在；历史记录报告 workspace 92 项测试通过。
+- 真实键鼠、UIPI、不同布局和高负载 Hook 存活矩阵仍有未执行项，详见 `check-fix-debug-list/M6-可靠性基线摘要.md`。
+- M7 已确定为：纯 Rust + Win32 的 `inputflow-agent.exe` 常驻，C# + WinUI 3 的 `InputFlow.Settings.exe` 按需启动，以版本化 Windows Named Pipe 通信。
+- 完整键盘（Caps Lock、OEM 符号、导航、数字键盘、媒体键等）进入 M7；有激活条件的鼠标方向移动进入 M8。
+- 项目不使用 Tauri、React、Node.js、npm、WebView2 或 Electron。
 
-## 开发环境（首次实现时固定，满足 NFR-06）
+## 产品原则
 
-| 项目 | 实测值 |
+InputFlow 应像一把扳手，而不是常驻的大型桌面套件：
+
+- agent 是唯一 Hook、托盘、规则运行时、正式配置和 IPC 服务所有者。
+- 设置程序不安装 Hook、不直接写正式配置、不隐藏到托盘；关闭最后一个窗口后进程退出。
+- agent 不加载 .NET、WinUI、WebView 或 JavaScript 运行时。
+- Hook 热路径不执行 UI、磁盘、网络、无界分配或无界队列。
+- F12（或已验证的替代组合）保留为紧急旁路。
+- UI 只能提交草稿；agent 负责验证、原子保存和热应用，失败时保留旧规则。
+
+## 已记录的开发环境
+
+下表来自上一轮 Windows 工作区，仅作为已记录基线；M7 开工时必须重新探测并写回 `docs/BUILD_WINDOWS.md`。
+
+| 项目 | 已记录值 |
 |---|---|
-| 操作系统 | Microsoft Windows 11 Pro，10.0.26200（build 26200），64-bit |
-| CPU 架构 | AMD64（x86_64） |
-| Rust | rustc 1.98.1 (48a229cea 2026-09-01)、cargo 1.98.1 (797e8a9bc 2026-08-05) |
-| Rust 工具链 | `stable-x86_64-pc-windows-msvc`（active/default），target `x86_64-pc-windows-msvc` |
-| MSVC/C++ 构建工具 | 未单独安装（无 `cl.exe`/`link.exe`）；构建经 Rust 1.98.1 内置 `rust-lld` + `windows-link` 自包含链接完成并验证通过 |
+| Windows | Windows 11 Pro 10.0.26200，AMD64 |
+| Rust | rustc 1.98.1；`stable-x86_64-pc-windows-msvc` |
 | Windows SDK | 10.0.26100.0 |
-| git | 2.55.0.windows.5 |
+| Cargo workspace | engine / config / windows / probe-cli |
+| WinUI/.NET/Windows App SDK | 尚未实测记录 |
 
-## 锁定依赖（写入 Cargo.lock）
-
-| crate | 版本 | 说明 |
-|---|---|---|
-| `windows-sys` | 0.61.2 | windows-rs 的原始 FFI 绑定（M1 启用 `Win32_Foundation`、`Win32_System_LibraryLoader`、`Win32_System_Threading`、`Win32_UI_Input_KeyboardAndMouse`、`Win32_UI_WindowsAndMessaging`） |
-| `windows-link` | 0.2.1 | 传递依赖，负责解析导入库链接 |
-| `serde` | 1.0 | 配置序列化 / 反序列化（derive） |
-| `serde_json` | 1.0 | JSON 配置解析与生成 |
-
-## 构建与运行
+## 当前 Rust 构建
 
 ```powershell
-# 全量测试（引擎 + 配置 + keymap + probe-cli）
+cargo fmt --all -- --check
 cargo test --workspace
-
-# 构建 / 运行 probe-cli
+cargo clippy --workspace --all-targets -- -D warnings
 cargo build -p probe-cli
-cargo run -p probe-cli -- --config %LOCALAPPDATA%\InputFlow\config.json
 ```
 
-- 配置默认从 `%LOCALAPPDATA%\InputFlow\config.json` 读取；`--config PATH` 覆盖，`--print-default-config` 打印模板，`--debug` 打开逐键调试日志。
-- 控制台命令：`pause`（暂停并冲刷已暂扣输入）、`resume`（恢复）、`stats`（打印 p50/p95/p99/max）、`quit`/`exit`/`q`（干净退出，退出码 0）。
-- 缺失或损坏的正式配置会先查找同目录下有效的已提交 `.bak.*`，再查找未提交 `.tmp.*`；仍无法恢复才回退为「空规则旁路」并打印警告。成功保存最多保留 5 代 backup、3 份 temp，并保护限额外唯一的有效副本。
-
-预期输出形如：
-
-```text
-probe-cli: low-level hooks installed on message-loop thread 5116.
-probe-cli: 1 rule(s) loaded from `...\config.json`.
-probe-cli: emergency bypass key `F12`.
-probe-cli: type `pause`, `resume`, `stats`, or `quit`.
-probe-cli: shut down cleanly. observed 0 events; 0 output batch(es) sent, 0 failed, 0 dropped.
-probe-cli: callback observed duration (us): total=0 p50=- p95=- p99=- max=-
-probe-cli: hold delay (us): total=0 p50=- p95=- p99=- max=-
-probe-cli: stats query duration (us): 12
-```
-
-M6 演示规则仍为 `Hold(LeftCtrl, 250ms) + RightButton → Ctrl+C`（见下方配置示例）：按住左 Ctrl ≥250ms 后点右键命中，消费触发输入并经 `SendInput` 发送 `Ctrl+C`（无原右键菜单）；不匹配的组合（如 Ctrl+Q）按序回放 `[Ctrl, Q]`，无候选键直接放行。注入事件带 `dwExtraInfo=0x494E5055` 标记，不递归；紧急键（默认 F12）与外部 `pause` 都在 Hook 消息线程串行执行，暂停确认仅在 pending 回放完成后返回，避免新物理输入从暂停/回放间隙超车。暂停仍保留已消费 Down 的释放墓碑直至物理 Up。自动重复 Down 进入有界暂扣队列：失败/暂停时回放，命中时消费，溢出时冲刷并旁路。`SendInput` 返回 0/部分数量会分别诊断并进入旁路；这只能保护后续输入，不承诺恢复先前已压制事件。`Hold`/`Hold+Button` 的到期由消息循环线程的 `SetTimer`（请求 10ms，实际投递可更晚）驱动，定时器安装失败则不报告启动成功。
-
-配置示例（`config.json`）：
-
-```json
-{
-  "schema_version": 1,
-  "emergency_bypass_key": "F12",
-  "rules": [
-    {
-      "id": "hold-ctrl-right-click-copy",
-      "trigger": { "type": "hold_mouse_button", "key": "LeftCtrl", "timeout_ms": 250, "button": "Right" },
-      "action": { "type": "key_chord", "keys": ["LeftCtrl", "C"] }
-    }
-  ]
-}
-```
+M7 计划命令、Visual Studio 工作负载、WinUI 模板和部署模式见 `docs/BUILD_WINDOWS.md`。未在实际 Windows 开发机执行的命令不能写成已通过。
 
 ## 仓库结构
 
 ```text
 inputflow/
+├── Cargo.toml
 ├── README.md
 ├── Steps.md
 ├── InputFlow-项目规划.md
-├── .gitignore
-├── Cargo.toml               # Cargo workspace（resolver = "3"）
-├── Cargo.lock
+├── apps/
+│   ├── probe-cli/            # 当前 M1–M6 原型
+│   ├── inputflow-agent/      # M7 计划
+│   └── settings-winui/       # M7 计划
+├── crates/
+│   ├── inputflow-engine/
+│   ├── inputflow-config/
+│   ├── inputflow-windows/
+│   └── inputflow-protocol/   # M7 计划
 ├── docs/
-│   ├── PROJECT_PLAN.md       # 项目上下文（自规划稿复制）
-│   ├── glossary.md           # 术语表
-│   ├── research-log.md       # 研究日志
+│   ├── PROJECT_PLAN.md
+│   ├── BUILD_WINDOWS.md
 │   └── decisions/
-│       ├── adr-template.md
 │       ├── ADR-000-仓库结构与技术选型.md
 │       ├── ADR-001-组合匹配与回放协议.md
-│       └── ADR-002-时序规则与冲突策略.md
-├── crates/
-│   ├── inputflow-engine/     # 纯逻辑引擎（无 Windows 依赖，跨平台单测）
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── event.rs      # 平台无关 InputEvent / Key / MouseKind / MouseButton + 键名映射
-│   │       ├── pending.rs    # 有界暂扣队列（FIFO、溢出旁路）
-│   │       ├── state.rs      # 按键/鼠标按键：物理按住 / 已见 / 已消费
-│   │       ├── rules.rs      # Trigger/Rule/RuleError/RuleIndex 预编译 + 冲突检测
-│   │       ├── matcher.rs    # 纯状态机：Decision/Resolution、可注入时钟
-│   │       └── stats.rs      # PercentileTracker：有界样本 + p50/p95/p99/max
-│   ├── inputflow-config/     # 版本化 JSON、校验、故障可恢复替换、坏文件恢复
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       └── config.rs     # Config/RuleConfig/TriggerConfig/ActionConfig + load/save/validate
-│   └── inputflow-windows/    # M4 起承载平台接入（全部 unsafe 集中于此）
-│       └── src/
-│           ├── lib.rs
-│           ├── keymap.rs             # VK↔Key、鼠标消息映射（纯逻辑，可单测）
-│           └── platform/
-│               ├── mod.rs
-│               └── windows.rs        # Hook 安装/卸载、消息循环、回调、SendInput、暂停/旁路、性能采样
-└── apps/
-    └── probe-cli/            # M1-M6 原型（workspace 成员）
-        ├── Cargo.toml
-        └── src/
-            └── main.rs               # 线程编排、配置加载、logger、控制台命令、退出
+│       ├── ADR-002-时序规则与冲突策略.md
+│       ├── ADR-003-可靠性配置暂停旁路诊断恢复与性能采样.md
+│       └── ADR-004-Rust常驻Agent与WinUI3设置程序.md
+└── check-fix-debug-list/
+    ├── M6-可靠性基线摘要.md
+    └── tag_5_InputFlow-M7-WinUI3架构与输入扩展任务.md
 ```
 
-## 已知限制 / 备注
+计划目录尚未创建不表示功能已经完成；Codex 应按 tag_5 的阶段和进入条件逐步建立。
 
-- 当前无需安装完整 MSVC C++ 构建工具即可构建（Rust 自包含链接）；若后续里程碑（如 Tauri 2 或原生依赖）需要完整 MSVC 工具链，再安装 VS 2022 Build Tools 的「使用 C++ 的桌面开发」工作负载并回写版本号。
-- `SendInput` 受 UIPI 完整性级别限制：聚焦提升权限（管理员）窗口时注入可能被拒绝或忽略；失败时程序进入旁路状态并记录。
-- 语言约定：文档 / ADR / 研究日志用中文；代码注释、标识符、提交信息、测试名用英文。
-- 时序规则（ADR-002）：`Hold(K,T)` 重复 down 不重置计时、`T` 前释放不命中；`Hold(K,T)+Button(B)` 需 `T` 后且 `K` 仍按住再 `B down` 才命中，MVP 不允许“先按 B 再达到 T”。一个前缀键最多属于一种规则种类：单键 `Hold{K}` 与同前缀复合规则（含 `HoldMouseButton`）、`HoldMouseButton{K}` 与同前缀和弦均判为冲突并拒绝启用。
-- `Hold` / `Hold+Button` 的到期由消息循环线程上的周期 `SetTimer`（请求 10ms）驱动；`WM_TIMER` 是低优先级消息，消息循环繁忙时会晚于请求值。精确一次性调度仍留待 Windows 性能基线决定。
-- 组合无显式超时、不支持重叠前缀；`Key` 仅覆盖常用键，未建模键以 `Unknown(vk)` 兜底。
-- 可靠性（ADR-003 + M6 四轮复查）：配置采用「同步写唯一临时文件 → Windows `ReplaceFileW` + 唯一备份」提交；恢复优先已提交 backup，再考虑未提交 temp，并有安全保留上限。紧急键（默认 F12，可配置）、外部 `pause`、定时器和 Hook 决策由 Hook 线程串行化；暂停冲刷 pending 并保留已消费释放墓碑。诊断日志默认匿名化，逐键细节仅在 `--debug` 下输出；`stats` 锁内只复制一次有界样本，锁外只排序一次。
-- “callback observed duration” 从 Hook 回调入口计到取得统计记录锁，包含归一化、Matcher 锁等待、同步 `SendInput`、转发事件的 `CallNextHookEx` 和统计锁等待；不包含其后的样本写入/解锁，因此不宣称为无法自测尾部的“完整 wall time”。
-- `SendInput` 同步执行可保证一次回放不会被随后直通事件超车，但 Microsoft 没有给出最坏调用耗时；部分插入还可能留下无法确定恢复的修饰键状态。必须完成高负载、0/部分插入和 Hook 存活实测后，才能认为 IF-06 达到 UI 功能集成门槛。
-- 暂停/输出失败期间，释放墓碑会继续抑制已消费 Down 对应的 Up；这是对「旁路立即不拦截任何输入」的有意例外。正常退出会在 Hook 移除前最多等待 2 秒让墓碑对应输入释放；超时或强杀后仍无法拦截的 Up 只记录限制，不宣称恢复。
-- 键盘回放仍以 VK 为主并保留 extended 位但不使用 `KEYEVENTF_SCANCODE`；鼠标按钮回放仍发生在发送时的当前光标位置；动作仍受当时物理修饰键状态影响。这些边界需在正式规则编辑 UI 开放前实测并向用户提示。
-- 自 M3 起仓库为 Cargo workspace：`inputflow-engine`（纯逻辑、零依赖、跨平台单测）、`inputflow-config`（版本化 JSON 配置、校验、`ReplaceFileW` 提交与坏文件恢复）、`inputflow-windows`（承载全部 `unsafe` Win32）、`probe-cli`（原型）。第四轮自动回归：引擎 61 项 + 配置 18 项 + Windows/keymap 13 项，共 92 项通过。
+## 已知限制
+
+- 当前 `Key` 模型只覆盖常用键；完整键盘必须先完成输入身份 ADR 和 Schema v2/迁移设计。
+- Caps/Num/Scroll Lock 有 toggle 语义，必须实测命中、失败回放、暂停和重复，避免双重切换。
+- OEM 符号键受键盘布局影响；需要同时考虑逻辑 VK、scan code、extended 和用户可读名称。
+- 鼠标方向规则尚未实现；第一版必须有显式激活条件，普通移动、点击和拖拽直通。
+- `SendInput` 受 UIPI、焦点和当前修饰状态影响，不能承诺 100% 原样回放。
+- 进程强杀时已暂扣的历史输入无法保证恢复。
+- 设置程序关闭后必须完全退出；后台资源目标要通过 CPU、工作集、线程、句柄和 Hook 分位实测验证。
+

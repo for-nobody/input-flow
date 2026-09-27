@@ -1,3 +1,9 @@
+> [!CAUTION]
+> 本文件是已废弃的 Tauri 时期历史记录，仅用于问题追溯。
+> 不得将其中的前端架构、目录结构或 Tauri 命令作为当前实现要求。
+> 当前任务以 `../tag_5_InputFlow-M7-WinUI3架构与输入扩展任务.md`
+> 和 `../../docs/decisions/ADR-004-Rust常驻Agent与WinUI3设置程序.md` 为准。
+
 # InputFlow M6 三轮复查修复记录
 
 > 日期：2026-09-27  
