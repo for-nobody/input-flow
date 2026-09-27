@@ -63,6 +63,17 @@ impl KeyState {
         self.consumed.remove(&key);
     }
 
+    /// Clear transient physical/target tracking while retaining release
+    /// tombstones for downs that were consumed by a matched rule.
+    pub fn clear_tracking_preserving_consumed(&mut self) {
+        self.physically_held.clear();
+        self.seen_down.clear();
+    }
+
+    pub fn has_consumed(&self) -> bool {
+        !self.consumed.is_empty()
+    }
+
     /// Clear all tracking (used when pausing / entering bypass).
     pub fn clear(&mut self) {
         self.physically_held.clear();
@@ -125,6 +136,17 @@ impl MouseState {
         self.consumed.remove(&button);
     }
 
+    /// Clear transient physical/target tracking while retaining release
+    /// tombstones for downs that were consumed by a matched rule.
+    pub fn clear_tracking_preserving_consumed(&mut self) {
+        self.physically_held.clear();
+        self.seen_down.clear();
+    }
+
+    pub fn has_consumed(&self) -> bool {
+        !self.consumed.is_empty()
+    }
+
     /// Clear all tracking (used when pausing / entering bypass).
     pub fn clear(&mut self) {
         self.physically_held.clear();
@@ -167,6 +189,21 @@ mod tests {
         assert!(!s.is_physically_held(Key::A));
         assert!(!s.is_seen_down(Key::A));
         assert!(!s.is_consumed(Key::A));
+    }
+
+    #[test]
+    fn transition_clear_preserves_only_consumed_keys() {
+        let mut s = KeyState::new();
+        s.mark_physical_down(Key::A);
+        s.mark_seen_down(Key::A);
+        s.mark_consumed(Key::A);
+
+        s.clear_tracking_preserving_consumed();
+
+        assert!(!s.is_physically_held(Key::A));
+        assert!(!s.is_seen_down(Key::A));
+        assert!(s.is_consumed(Key::A));
+        assert!(s.has_consumed());
     }
 
     #[test]

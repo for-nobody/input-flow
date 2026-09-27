@@ -125,6 +125,17 @@
 - 强杀进程（任务管理器）后重启：启动提示上次异常终止。
 - 提升权限窗口聚焦时 `SendInput` 返回值（UIPI 限制）。
 
+## 11. M6 第三轮可靠性加固（2026-09-27，自动化完成，交互/性能验收待做）
+
+- **已证实并修复：消费释放配对**。原实现暂停时清空 consumed 集合，平台旁路又直接跳过 matcher；而 `DefWindowProc` 可由 `WM_RBUTTONUP` 生成 `WM_CONTEXTMENU`，所以“孤立 Up 总是无害”不成立。现在暂停、溢出和输出失败只清普通跟踪，保留已消费键/按钮的释放墓碑；旁路期间仍让事件经过 matcher，仅对应 Up/repeat 被抑制，其他输入直通。正常退出在卸载 Hook 前最多等待 2 秒排空墓碑；超时会记录 `shutdown_limit`，强杀同样无法保证拦截后续 Up。
+- **已证实并修复：自动重复丢失**。活动前缀的 repeat Down 现在进入同一个有界 FIFO；KeyChord、KeyMouseButton、Hold、HoldMouseButton 的失败回放、命中消费、暂停冲刷与重复溢出均有事件序列测试。不再用不完整的按键类别拒绝 Hold 前缀。长时间重复填满 16 项平台队列时，当前重复直通、先前事件同步回放并进入旁路。
+- **已证实并缓解：输出失败不等于恢复**。输出调用可注入，测试区分 0/部分/完整插入。返回 0 且当前事件是失败回放最后一项时，当前事件改为直通；更早的暂扣事件仍可能丢失。部分插入无法仅凭计数确定具体成功项，故不冒险重复发送；进入旁路、保留消费释放墓碑并打印 `last_error`。匹配动作部分执行、修饰键状态偏差及 UIPI 下旧输入无法恢复仍是明确残余风险。
+- **已证实并修复：定时器 ready 顺序**。`SetTimer` 在 ready 前安装；返回 0 时报告错误、卸载 Hook 并令启动失败。请求间隔改为 Windows 实际最小值 10ms；`WM_TIMER` 低优先级，繁忙消息循环可使到期更晚，不能把 10ms 当作投递保证。
+- **已证实并修复：配置提交/恢复**。写入使用 `create_new` 的 `config.json.tmp.<pid>.<seq>` 并 `flush+sync_all`；Windows 已有文件通过 `ReplaceFileW` 替换并保留唯一 `.bak.<pid>.<seq>`。正式文件缺失/损坏时，加载器从新到旧验证 `.tmp.*`/`.bak.*` 并载入首个完整有效副本。替换失败、首次提交失败、损坏正式文件恢复及四线程并发保存均有测试。仍不把它描述成断电条件下的无条件持久原子事务；跨进程同时写入可能有一次失败并留下可发现副本。
+- **IF-06 仍待 Windows 交互实测**。采样范围已扩大为完整 Hook 回调墙钟时间（包括归一化、同步 `SendInput` 及转发路径的 `CallNextHookEx`）并增加 max。同步输出保持顺序，但 API 无最坏耗时承诺；本轮自动 smoke 只验证 Hook+10ms timer 安装/卸载和 exit code 0，输入样本仍为 0，不能据此宣称性能门槛通过。
+- 自动验证：`cargo fmt --all -- --check` 通过；`cargo test --workspace` 为 85/85（engine 60 + config 15 + windows 10）；`cargo clippy --workspace --all-targets -- -D warnings` 通过。Windows smoke：缺失配置回退、Hook/定时器启动、`quit` 干净退出码 0；未发送人工键鼠输入。
+- 详细证据、方案比较和剩余手工矩阵见 `check-fix-debug-list/tag_3_InputFlow-M6-三轮复查修复记录.md`。
+
 ## 变更记录
 
 - 2026-09-26（M0）：建立四条主线的初始调研结论，均标注“待验证”；尚未进行 Windows 实机实验。
@@ -134,3 +145,4 @@
 - 2026-09-26（M4）：实现组合匹配（rules/matcher/state 扩展）、平台代码迁入 `inputflow-windows`（hooks/keymap/SendInput）、probe-cli 接入引擎；引擎 31 项 + keymap 3 项单测通过；`echo quit | probe-cli.exe` 实机回归通过；组合交互实机验证待做。
 - 2026-09-26（M5）：实现时序规则（`Hold`/`HoldMouseButton`）、跨种类冲突检测、平台 `SetTimer` 驱动 `poll_timeouts`；引擎 44 项 + keymap 3 项单测通过；`echo quit | probe-cli.exe` 实机回归通过；交互实机验证待做。
 - 2026-09-26（M6）：实现可靠性——新增 `inputflow-config`（版本化 JSON 配置、校验、原子保存、坏文件回退）、暂停/旁路（冲刷已暂扣）、可配置紧急键、匿名化诊断日志、崩溃标记、性能采样；引擎 48 + 配置 9 + keymap 3 共 60 项单测通过；`cargo clippy` 无警告；`echo quit | probe-cli.exe` 实机回归通过；交互实机验证待做。
+- 2026-09-27（M6 三轮复查）：加入释放墓碑、完整重复事件暂扣/溢出语义、可注入输出结果、定时器启动门槛、`ReplaceFileW` 配置提交与恢复发现、完整回调墙钟采样；85 项测试与 Clippy 通过，Hook 启停 smoke 通过；真实键鼠/菜单/UIPI/高负载性能仍待人工验收。

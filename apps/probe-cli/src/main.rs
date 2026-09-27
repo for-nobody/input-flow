@@ -178,7 +178,9 @@ fn default_config_path() -> PathBuf {
 fn print_usage() {
     println!("probe-cli: InputFlow engine probe (M6).");
     println!("usage: probe-cli [--config PATH] [--debug] [--print-default-config] [--help]");
-    println!("  --config PATH           config file (default: %LOCALAPPDATA%\\InputFlow\\config.json)");
+    println!(
+        "  --config PATH           config file (default: %LOCALAPPDATA%\\InputFlow\\config.json)"
+    );
     println!("  --debug                 enable per-event debug logging");
     println!("  --print-default-config  print a default config template and exit");
 }
@@ -197,7 +199,9 @@ impl CrashMarker {
             PathBuf::from(".")
         };
         let _ = fs::create_dir_all(&dir);
-        Self { path: dir.join("running") }
+        Self {
+            path: dir.join("running"),
+        }
     }
 
     fn warning_if_previous_abnormal(&self) -> Option<String> {
@@ -264,27 +268,31 @@ fn run_console_loop() {
 
 fn print_stats() {
     match windows::callback_latency_stats() {
-        Some((total, p50, p95, p99)) => println!(
-            "probe-cli: callback latency (us): total={total} p50={} p95={} p99={}",
+        Some((total, p50, p95, p99, max)) => println!(
+            "probe-cli: callback wall time (us): total={total} p50={} p95={} p99={} max={}",
             fmt_opt(p50),
             fmt_opt(p95),
-            fmt_opt(p99)
+            fmt_opt(p99),
+            fmt_opt(max)
         ),
-        None => println!("probe-cli: callback latency: no samples."),
+        None => println!("probe-cli: callback wall time: no samples."),
     }
     match windows::hold_delay_stats() {
-        Some((total, p50, p95, p99)) => println!(
-            "probe-cli: hold delay (us): total={total} p50={} p95={} p99={}",
+        Some((total, p50, p95, p99, max)) => println!(
+            "probe-cli: hold delay (us): total={total} p50={} p95={} p99={} max={}",
             fmt_opt(p50),
             fmt_opt(p95),
-            fmt_opt(p99)
+            fmt_opt(p99),
+            fmt_opt(max)
         ),
         None => println!("probe-cli: hold delay: no samples."),
     }
 }
 
 fn fmt_opt(value: Option<u64>) -> String {
-    value.map(|n| n.to_string()).unwrap_or_else(|| "-".to_string())
+    value
+        .map(|n| n.to_string())
+        .unwrap_or_else(|| "-".to_string())
 }
 
 /// Print diagnostic lines as they arrive; stop when asked and after draining.

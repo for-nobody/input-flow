@@ -9,6 +9,7 @@ dependencies = [
  "inputflow-engine",
  "serde",
  "serde_json",
+ "windows-sys",
 ]
 
 [[package]]

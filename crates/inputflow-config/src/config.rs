@@ -1,4 +1,4 @@
-//! Configuration schema, validation, loading, and atomic saving.
+//! Configuration schema, validation, loading, and crash-recoverable saving.
 //!
 //! The on-disk format is a single JSON object with a `schema_version`, an
 //! `emergency_bypass_key`, and a list of `rules`. Key and mouse-button names use
@@ -7,8 +7,10 @@
 
 use std::collections::BTreeSet;
 use std::fs;
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use inputflow_engine::{Action, Key, MouseButton, Rule, RuleIndex, Trigger};
 use serde::{Deserialize, Serialize};
@@ -21,6 +23,11 @@ pub const DEFAULT_EMERGENCY_KEY: Key = Key::F12;
 pub const MIN_TIMEOUT_MS: u64 = 1;
 /// Upper bound (inclusive) for a rule's `timeout_ms`.
 pub const MAX_TIMEOUT_MS: u64 = 60_000;
+
+/// Serialize commits within this process. Unique artifact names prevent file
+/// clobbering, while this lock makes the intended last-writer-wins order clear.
+static SAVE_LOCK: Mutex<()> = Mutex::new(());
+static SAVE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// An on-disk configuration document.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,9 +54,18 @@ pub struct RuleConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, tag = "type", rename_all = "snake_case")]
 pub enum TriggerConfig {
-    KeyChord { first: String, second: String },
-    KeyMouseButton { key: String, button: String },
-    Hold { key: String, timeout_ms: u64 },
+    KeyChord {
+        first: String,
+        second: String,
+    },
+    KeyMouseButton {
+        key: String,
+        button: String,
+    },
+    Hold {
+        key: String,
+        timeout_ms: u64,
+    },
     HoldMouseButton {
         key: String,
         timeout_ms: u64,
@@ -103,58 +119,100 @@ fn default_emergency_key_name() -> String {
 /// Load and validate the config at `path`. Never fails: on any error it returns
 /// a default (empty rules) config and records the problems.
 pub fn load(path: &Path) -> LoadedConfig {
-    let text = match fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+    let primary_errors = match load_resolved(path) {
+        Ok(resolved) => {
             return LoadedConfig {
-                problems: vec![format!(
-                    "config file not found at `{}`; starting with no rules (bypass)",
-                    path.display()
-                )],
-                ..LoadedConfig::default()
+                emergency_key: resolved.emergency_key,
+                rules: resolved.rules,
+                problems: Vec::new(),
             };
         }
-        Err(err) => {
-            return LoadedConfig {
-                problems: vec![format!(
-                    "failed to read config `{}`: {err}; starting with no rules (bypass)",
-                    path.display()
-                )],
-                ..LoadedConfig::default()
-            };
-        }
+        Err(errors) => errors,
     };
-
-    let config: Config = match serde_json::from_str(&text) {
-        Ok(config) => config,
-        Err(err) => {
+    for candidate in recovery_candidates(path) {
+        if let Ok(resolved) = load_resolved(&candidate) {
             return LoadedConfig {
+                emergency_key: resolved.emergency_key,
+                rules: resolved.rules,
                 problems: vec![format!(
-                    "config `{}` is not valid JSON: {err}; starting with no rules (bypass)",
-                    path.display()
+                    "config `{}` could not be used; recovered a valid copy from `{}`. Save once to make the recovery official. Primary error: {}",
+                    path.display(),
+                    candidate.display(),
+                    primary_errors.join("; ")
                 )],
-                ..LoadedConfig::default()
             };
         }
-    };
-
-    match validate(&config) {
-        Ok(resolved) => LoadedConfig {
-            emergency_key: resolved.emergency_key,
-            rules: resolved.rules,
-            problems: Vec::new(),
-        },
-        Err(errors) => LoadedConfig {
-            problems: std::iter::once(format!(
-                "config `{}` is invalid ({n} problem(s)); starting with no rules (bypass)",
-                path.display(),
-                n = errors.len()
-            ))
-            .chain(errors.into_iter().map(|e| e.0))
-            .collect(),
-            ..LoadedConfig::default()
-        },
     }
+
+    LoadedConfig {
+        problems: primary_errors
+            .into_iter()
+            .chain(std::iter::once(
+                "no valid recovery artifact was found; starting with no rules (bypass)".to_string(),
+            ))
+            .collect(),
+        ..LoadedConfig::default()
+    }
+}
+
+fn load_resolved(path: &Path) -> Result<Resolved, Vec<String>> {
+    let text = fs::read_to_string(path).map_err(|err| {
+        vec![if err.kind() == io::ErrorKind::NotFound {
+            format!("config file not found at `{}`", path.display())
+        } else {
+            format!("failed to read config `{}`: {err}", path.display())
+        }]
+    })?;
+
+    let config: Config = serde_json::from_str(&text).map_err(|err| {
+        vec![format!(
+            "config `{}` is not valid JSON: {err}",
+            path.display()
+        )]
+    })?;
+
+    validate(&config).map_err(|errors| {
+        std::iter::once(format!(
+            "config `{}` is invalid ({} problem(s))",
+            path.display(),
+            errors.len()
+        ))
+        .chain(errors.into_iter().map(|error| error.0))
+        .collect()
+    })
+}
+
+/// Return newest recovery artifacts first. They are siblings so a rename or
+/// ReplaceFile operation never crosses volumes.
+fn recovery_candidates(path: &Path) -> Vec<PathBuf> {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let Some(file_name) = path.file_name().map(|name| name.to_string_lossy()) else {
+        return Vec::new();
+    };
+    let tmp_prefix = format!("{file_name}.tmp.");
+    let backup_prefix = format!("{file_name}.bak.");
+    let mut candidates: Vec<(std::time::SystemTime, PathBuf)> = fs::read_dir(parent)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if !name.starts_with(&tmp_prefix) && !name.starts_with(&backup_prefix) {
+                return None;
+            }
+            let modified = entry
+                .metadata()
+                .and_then(|metadata| metadata.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            Some((modified, entry.path()))
+        })
+        .collect();
+    candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
+    candidates.into_iter().map(|(_, path)| path).collect()
 }
 /// The validated, resolved form of a config.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -249,7 +307,6 @@ fn resolve_rule(rule: &RuleConfig) -> Result<Rule, String> {
         },
         TriggerConfig::Hold { key, timeout_ms } => {
             let key = parse_key(key)?;
-            check_hold_prefix_key(&key)?;
             Trigger::Hold {
                 key,
                 timeout_ms: check_timeout(*timeout_ms)?,
@@ -261,7 +318,6 @@ fn resolve_rule(rule: &RuleConfig) -> Result<Rule, String> {
             button,
         } => {
             let key = parse_key(key)?;
-            check_hold_prefix_key(&key)?;
             Trigger::HoldMouseButton {
                 key,
                 timeout_ms: check_timeout(*timeout_ms)?,
@@ -294,19 +350,6 @@ fn parse_key(name: &str) -> Result<Key, String> {
     Key::from_name(name).ok_or_else(|| format!("unknown key `{name}`"))
 }
 
-/// Reject `Hold`/`Hold+MouseButton` prefixes whose key auto-repeats: the matcher
-/// absorbs auto-repeat downs, so holding such a key as a prefix would silently
-/// drop its repeats on failure (M6 round-2 D).
-fn check_hold_prefix_key(key: &Key) -> Result<(), String> {
-    if key.auto_repeats() {
-        Err(format!(
-            "hold prefix key `{key}` auto-repeats; auto-repeating keys are not supported as Hold/Hold+MouseButton prefixes"
-        ))
-    } else {
-        Ok(())
-    }
-}
-
 fn parse_button(name: &str) -> Result<MouseButton, String> {
     MouseButton::from_name(name).ok_or_else(|| format!("unknown mouse button `{name}`"))
 }
@@ -320,11 +363,49 @@ fn check_timeout(timeout_ms: u64) -> Result<u64, String> {
         ))
     }
 }
-/// Write `config` to `path` as safely as possible using only `std::fs`: write a
-/// unique temp file, flush and sync it, then replace the target via a
-/// backup/restore dance that never leaves the old config deleted if the final
-/// rename fails. Creates parent directories.
+/// Write `config` to a unique, synced sibling and commit it without first
+/// removing or renaming the official file. On Windows an existing file is
+/// replaced with `ReplaceFileW`, which can also retain the old file as a unique
+/// recovery backup. Failed commits deliberately keep their valid temp artifact.
 pub fn save(path: &Path, config: &Config) -> Result<(), String> {
+    let _guard = SAVE_LOCK
+        .lock()
+        .map_err(|_| "config save lock is poisoned".to_string())?;
+    save_with_committer(path, config, &SystemCommitter)
+}
+
+trait FileCommitter {
+    fn replace_existing(&self, target: &Path, replacement: &Path, backup: &Path) -> io::Result<()>;
+    fn promote_new(&self, replacement: &Path, target: &Path) -> io::Result<()>;
+}
+
+struct SystemCommitter;
+
+impl FileCommitter for SystemCommitter {
+    fn replace_existing(&self, target: &Path, replacement: &Path, backup: &Path) -> io::Result<()> {
+        replace_existing_file(target, replacement, backup)
+    }
+
+    fn promote_new(&self, replacement: &Path, target: &Path) -> io::Result<()> {
+        fs::rename(replacement, target)
+    }
+}
+
+fn save_with_committer(
+    path: &Path,
+    config: &Config,
+    committer: &dyn FileCommitter,
+) -> Result<(), String> {
+    if let Err(errors) = validate(config) {
+        return Err(format!(
+            "refusing to save invalid config: {}",
+            errors
+                .into_iter()
+                .map(|error| error.0)
+                .collect::<Vec<_>>()
+                .join("; ")
+        ));
+    }
     let text = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
 
     if let Some(parent) = path.parent()
@@ -333,46 +414,85 @@ pub fn save(path: &Path, config: &Config) -> Result<(), String> {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
 
-    // Unique sibling paths avoid clobbering across concurrent/failed saves.
+    // Unique sibling paths plus create_new avoid clobbering artifacts from a
+    // concurrent process or a previous crash.
     let tmp = temp_sibling(path, "tmp");
     let backup = temp_sibling(path, "bak");
 
-    let mut file = fs::File::create(&tmp).map_err(|e| e.to_string())?;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)
+        .map_err(|e| format!("failed to create `{}`: {e}", tmp.display()))?;
     file.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
     file.flush().map_err(|e| e.to_string())?;
     file.sync_all().map_err(|e| e.to_string())?;
     drop(file);
 
-    // Move the old config aside first (Windows `rename` cannot overwrite an
-    // existing target). If the final rename fails, restore the old config from
-    // backup instead of leaving it deleted.
-    let had_old = path.exists();
-    if had_old {
-        let _ = fs::remove_file(&backup);
-        fs::rename(path, &backup).map_err(|e| e.to_string())?;
-    }
-
-    if let Err(err) = fs::rename(&tmp, path) {
-        if had_old {
-            let _ = fs::rename(&backup, path);
-        }
-        let _ = fs::remove_file(&tmp);
-        return Err(format!("failed to move config into place: {err}"));
-    }
-
-    if had_old {
-        let _ = fs::remove_file(&backup);
+    let commit = if path.exists() {
+        committer.replace_existing(path, &tmp, &backup)
+    } else {
+        committer.promote_new(&tmp, path)
+    };
+    if let Err(error) = commit {
+        return Err(format!(
+            "failed to commit config `{}`: {error}; recovery artifact retained at `{}`",
+            path.display(),
+            tmp.display()
+        ));
     }
     Ok(())
 }
 
-/// A sibling path with a unique `.{ext}.{pid}` suffix, used for temp/backup files.
+#[cfg(windows)]
+fn replace_existing_file(target: &Path, replacement: &Path, backup: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::ReplaceFileW;
+
+    fn wide(path: &Path) -> Vec<u16> {
+        path.as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+
+    let target = wide(target);
+    let replacement = wide(replacement);
+    let backup = wide(backup);
+    // SAFETY: all three buffers are NUL-terminated and remain alive for the
+    // duration of the call; reserved pointers are required to be null.
+    let replaced = unsafe {
+        ReplaceFileW(
+            target.as_ptr(),
+            replacement.as_ptr(),
+            backup.as_ptr(),
+            0,
+            std::ptr::null(),
+            std::ptr::null(),
+        )
+    };
+    if replaced == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(windows))]
+fn replace_existing_file(target: &Path, replacement: &Path, backup: &Path) -> io::Result<()> {
+    fs::copy(target, backup)?;
+    fs::File::open(backup)?.sync_all()?;
+    fs::rename(replacement, target)
+}
+
+/// A sibling path with a process-and-sequence-qualified suffix.
 fn temp_sibling(path: &Path, ext: &str) -> PathBuf {
     let mut name = path
         .file_name()
         .map(|s| s.to_os_string())
         .unwrap_or_else(|| "config".into());
-    name.push(format!(".{ext}.{}", std::process::id()));
+    let sequence = SAVE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    name.push(format!(".{ext}.{}.{sequence}", std::process::id()));
     path.with_file_name(name)
 }
 
@@ -445,7 +565,11 @@ mod tests {
             timeout_ms: 250,
         };
         let problems = validate(&config).unwrap_err();
-        assert!(problems.iter().any(|e| e.0.contains("unknown key `NotAKey`")));
+        assert!(
+            problems
+                .iter()
+                .any(|e| e.0.contains("unknown key `NotAKey`"))
+        );
     }
 
     #[test]
@@ -460,14 +584,32 @@ mod tests {
     }
 
     #[test]
-    fn auto_repeating_hold_key_is_rejected() {
-        let mut config = sample_config();
-        config.rules[0].trigger = TriggerConfig::Hold {
-            key: "A".to_string(),
-            timeout_ms: 250,
-        };
-        let problems = validate(&config).unwrap_err();
-        assert!(problems.iter().any(|e| e.0.contains("auto-repeats")));
+    fn every_trigger_kind_accepts_a_repeating_prefix() {
+        let triggers = [
+            TriggerConfig::KeyChord {
+                first: "A".to_string(),
+                second: "B".to_string(),
+            },
+            TriggerConfig::KeyMouseButton {
+                key: "A".to_string(),
+                button: "Right".to_string(),
+            },
+            TriggerConfig::Hold {
+                key: "A".to_string(),
+                timeout_ms: 250,
+            },
+            TriggerConfig::HoldMouseButton {
+                key: "A".to_string(),
+                timeout_ms: 250,
+                button: "Right".to_string(),
+            },
+        ];
+
+        for trigger in triggers {
+            let mut config = sample_config();
+            config.rules[0].trigger = trigger;
+            assert!(validate(&config).is_ok());
+        }
     }
 
     #[test]
@@ -492,9 +634,11 @@ mod tests {
         let mut config = sample_config();
         config.emergency_bypass_key = "LeftCtrl".to_string();
         let problems = validate(&config).unwrap_err();
-        assert!(problems
-            .iter()
-            .any(|e| e.0.contains("collides with a rule prefix key")));
+        assert!(
+            problems
+                .iter()
+                .any(|e| e.0.contains("collides with a rule prefix key"))
+        );
     }
     #[test]
     fn rule_conflict_is_rejected() {
@@ -510,14 +654,17 @@ mod tests {
             },
         });
         let problems = validate(&config).unwrap_err();
-        assert!(problems
-            .iter()
-            .any(|e| e.0.contains("different kinds share prefix key")));
+        assert!(
+            problems
+                .iter()
+                .any(|e| e.0.contains("different kinds share prefix key"))
+        );
     }
 
     #[test]
     fn save_then_load_round_trips() {
-        let dir = std::env::temp_dir().join(format!("inputflow-config-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("inputflow-config-test-{}", std::process::id()));
         let path = dir.join("config.json");
         let config = sample_config();
 
@@ -546,14 +693,28 @@ mod tests {
         assert!(loaded.problems.is_empty());
         assert_eq!(loaded.rules, validate(&second).unwrap().rules);
 
-        // No leftover temp/backup files after a successful overwrite.
-        let leftovers: Vec<String> = fs::read_dir(&dir)
+        // ReplaceFile retains exactly one valid old config as a recovery copy;
+        // the committed temp path itself has been consumed.
+        let leftovers: Vec<PathBuf> = fs::read_dir(&dir)
             .unwrap()
             .filter_map(|e| e.ok())
-            .map(|e| e.file_name().to_string_lossy().into_owned())
-            .filter(|n| n.contains(".tmp.") || n.contains(".bak."))
+            .map(|e| e.path())
+            .filter(|path| {
+                let name = path.file_name().unwrap().to_string_lossy();
+                name.contains(".tmp.") || name.contains(".bak.")
+            })
             .collect();
-        assert!(leftovers.is_empty(), "leftover files: {leftovers:?}");
+        assert_eq!(leftovers.len(), 1, "recovery files: {leftovers:?}");
+        assert!(
+            leftovers[0]
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .contains(".bak.")
+        );
+        let backup: Config =
+            serde_json::from_str(&fs::read_to_string(&leftovers[0]).unwrap()).unwrap();
+        assert!(backup.rules.is_empty());
 
         let _ = fs::remove_dir_all(&dir);
     }
@@ -584,9 +745,182 @@ mod tests {
 
         let _ = fs::remove_dir_all(&dir);
     }
+
+    struct FailingCommitter {
+        fail_replace: bool,
+        fail_promote: bool,
+    }
+
+    impl FileCommitter for FailingCommitter {
+        fn replace_existing(
+            &self,
+            _target: &Path,
+            _replacement: &Path,
+            _backup: &Path,
+        ) -> io::Result<()> {
+            if self.fail_replace {
+                Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "injected replace failure",
+                ))
+            } else {
+                unreachable!("test committer only exercises failure")
+            }
+        }
+
+        fn promote_new(&self, _replacement: &Path, _target: &Path) -> io::Result<()> {
+            if self.fail_promote {
+                Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "injected promote failure",
+                ))
+            } else {
+                unreachable!("test committer only exercises failure")
+            }
+        }
+    }
+
+    #[test]
+    fn failed_replace_keeps_official_config_and_recovery_temp() {
+        let dir = std::env::temp_dir().join(format!(
+            "inputflow-config-replace-failure-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        let mut old = sample_config();
+        old.rules.clear();
+        fs::write(&path, serde_json::to_vec_pretty(&old).unwrap()).unwrap();
+
+        let error = save_with_committer(
+            &path,
+            &sample_config(),
+            &FailingCommitter {
+                fail_replace: true,
+                fail_promote: false,
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.contains("injected replace failure"));
+        let official: Config = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(official, old);
+        let candidates = recovery_candidates(&path);
+        assert_eq!(candidates.len(), 1);
+        assert!(
+            candidates[0]
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .contains(".tmp.")
+        );
+        assert_eq!(load(&path).rules.len(), 0);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn failed_first_commit_is_recovered_from_valid_temp() {
+        let dir = std::env::temp_dir().join(format!(
+            "inputflow-config-promote-failure-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+
+        save_with_committer(
+            &path,
+            &sample_config(),
+            &FailingCommitter {
+                fail_replace: false,
+                fail_promote: true,
+            },
+        )
+        .unwrap_err();
+        assert!(!path.exists());
+
+        let recovered = load(&path);
+        assert_eq!(recovered.rules.len(), 1);
+        assert!(
+            recovered
+                .problems
+                .iter()
+                .any(|problem| problem.contains("recovered"))
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn corrupt_official_config_recovers_valid_backup() {
+        let dir = std::env::temp_dir().join(format!(
+            "inputflow-config-backup-recovery-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        fs::write(&path, "{ invalid").unwrap();
+        let backup = path.with_file_name(format!("config.json.bak.{}.0", std::process::id()));
+        fs::write(
+            &backup,
+            serde_json::to_vec_pretty(&sample_config()).unwrap(),
+        )
+        .unwrap();
+
+        let recovered = load(&path);
+        assert_eq!(recovered.rules.len(), 1);
+        assert!(
+            recovered
+                .problems
+                .iter()
+                .any(|problem| problem.contains("recovered"))
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn concurrent_saves_do_not_share_artifact_names() {
+        let dir = std::env::temp_dir().join(format!(
+            "inputflow-config-concurrent-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = std::sync::Arc::new(dir.join("config.json"));
+        let mut workers = Vec::new();
+
+        for key in ["F1", "F2", "F3", "F4"] {
+            let path = std::sync::Arc::clone(&path);
+            workers.push(std::thread::spawn(move || {
+                let config = Config {
+                    schema_version: SCHEMA_VERSION,
+                    emergency_bypass_key: key.to_string(),
+                    rules: Vec::new(),
+                };
+                save(&path, &config)
+            }));
+        }
+        for worker in workers {
+            worker.join().unwrap().unwrap();
+        }
+
+        let loaded = load(&path);
+        assert!(loaded.problems.is_empty());
+        assert!([Key::F1, Key::F2, Key::F3, Key::F4].contains(&loaded.emergency_key));
+        let artifact_names: Vec<String> = recovery_candidates(&path)
+            .into_iter()
+            .map(|candidate| {
+                candidate
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        let unique: std::collections::BTreeSet<_> = artifact_names.iter().collect();
+        assert_eq!(unique.len(), artifact_names.len());
+        assert!(!artifact_names.iter().any(|name| name.contains(".tmp.")));
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
-
-
-
-
-

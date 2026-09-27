@@ -173,13 +173,17 @@ impl Matcher {
 
     /// Feed one event and synchronously decide how to handle it.
     pub fn on_event(&mut self, event: InputEvent) -> (Decision, Resolution) {
-        // Synthesized events never participate in matching (FR-06).
-        if event.injected || self.paused || self.bypassed {
+        // Synthesized events never participate in matching (FR-06). In
+        // particular, an injected up must not clear a physical release
+        // tombstone left by a consumed down.
+        if event.injected {
             return self.pass_through(event);
         }
 
-        // A key/button whose down was consumed must have its up consumed too
-        // (NFR-04), and repeat downs must not re-trigger a match.
+        // A key/button whose down was consumed must have its physical up
+        // consumed too (NFR-04), including while paused/bypassed. These entries
+        // are release tombstones: retaining this tiny set is the deliberate
+        // exception to "bypass intercepts nothing".
         if let Some(key) = event.key()
             && self.keys.is_consumed(key)
         {
@@ -189,6 +193,10 @@ impl Matcher {
             && self.buttons.is_consumed(button)
         {
             return self.consume_button(button, event);
+        }
+
+        if self.paused || self.bypassed {
+            return self.pass_through(event);
         }
 
         // No enabled rules: nothing is a candidate, everything passes through.
@@ -297,13 +305,12 @@ impl Matcher {
         if paused {
             let held = self.pending.take_replay();
             self.active = None;
-            // Clear all tracking. A consumed key/button released after pause then
-            // passes through as an orphan up, which is harmless (applications
-            // ignore an up without a prior down and no click/character is
-            // generated). Replaying a synthetic *down* instead would re-trigger
-            // clicks/keystrokes, so it is deliberately not done (M6 P2 #6).
-            self.keys.clear();
-            self.buttons.clear();
+            // Pending input is replayed by the caller, but already-consumed
+            // downs must never be resurrected. Preserve only their release
+            // tombstones so a later physical up is suppressed even in bypass;
+            // all unrelated input passes through immediately.
+            self.keys.clear_tracking_preserving_consumed();
+            self.buttons.clear_tracking_preserving_consumed();
             held
         } else {
             Vec::new()
@@ -314,6 +321,11 @@ impl Matcher {
     /// intercepting input.
     pub fn is_bypassed(&self) -> bool {
         self.bypassed
+    }
+
+    /// Whether a consumed physical down is still awaiting its matching up.
+    pub fn has_release_tombstones(&self) -> bool {
+        self.keys.has_consumed() || self.buttons.has_consumed()
     }
 
     /// Set or clear the internal overflow-bypass flag. Setting it true also
@@ -477,11 +489,14 @@ impl Matcher {
             );
         }
 
-        // Auto-repeat down while the prefix is active: absorb it. The original
-        // down is already held in `pending`; re-adding repeats would only burn
-        // queue capacity (and eventually overflow) and must not reset the timer
-        // (M5/M6 semantics).
+        // Auto-repeat down while the prefix is active is part of the original
+        // input stream. Retain it so failure/pause can replay it exactly; a
+        // successful match consumes it with the rest of the trigger. The
+        // bounded queue provides the degradation path for a long repeat burst.
         if event.is_repeat() {
+            if self.pending.push(event).is_err() {
+                return self.overflow_flush();
+            }
             return (
                 Decision::Suppress {
                     event_id: event.seq,
@@ -689,8 +704,8 @@ impl Matcher {
     fn enter_bypass(&mut self) {
         self.bypassed = true;
         self.active = None;
-        self.keys.clear();
-        self.buttons.clear();
+        self.keys.clear_tracking_preserving_consumed();
+        self.buttons.clear_tracking_preserving_consumed();
     }
 
     fn mark_replay_seen(&mut self, events: &[InputEvent]) {
@@ -867,7 +882,12 @@ mod tests {
         let a = down(1, 10, Key::A);
         let (decision, resolution) = m.on_event(a);
         assert_eq!(decision, Decision::Suppress { event_id: 1 });
-        assert_eq!(resolution, Resolution::Failed { replay: vec![ctrl, a] });
+        assert_eq!(
+            resolution,
+            Resolution::Failed {
+                replay: vec![ctrl, a]
+            }
+        );
         assert_eq!(m.next_deadline(), None);
     }
 
@@ -888,11 +908,16 @@ mod tests {
         let a = down(1, 10, Key::A);
         let (decision, resolution) = m.on_event(a);
         assert_eq!(decision, Decision::Suppress { event_id: 1 });
-        assert_eq!(resolution, Resolution::Failed { replay: vec![ctrl, a] });
+        assert_eq!(
+            resolution,
+            Resolution::Failed {
+                replay: vec![ctrl, a]
+            }
+        );
     }
 
     #[test]
-    fn pause_does_not_replay_consumed_inputs() {
+    fn pause_keeps_consumed_releases_as_tombstones() {
         let clock = ManualClock::new(0);
         let mut m = matcher_with(
             clock.clone(),
@@ -911,19 +936,47 @@ mod tests {
             Resolution::Matched { ref rule_id, .. } if rule_id == "hold-click"
         ));
 
-        // Pausing must NOT replay synthetic downs (which would re-trigger a click
-        // or keystroke); it clears state so the later releases are harmless
-        // orphan ups (M6 P2 #6 / round-2 C).
+        // Pausing must not replay synthetic downs (which would re-trigger a
+        // click or keystroke). Instead it keeps only release tombstones.
         assert!(m.set_paused(true).is_empty());
+        assert!(m.has_release_tombstones());
 
-        // Releases now pass through (harmless orphan ups), never suppressed.
+        // Unrelated input is truly bypassed while the consumed releases remain
+        // suppressed. In particular, a right-button up cannot become
+        // WM_CONTEXTMENU without its consumed down.
+        assert_eq!(m.on_event(down(2, 259, Key::A)).0, Decision::PassThrough);
         assert_eq!(
-            m.on_event(button(2, 260, MouseButton::Right, false)).0,
-            Decision::PassThrough
+            m.on_event(button(3, 260, MouseButton::Right, false)).0,
+            Decision::Suppress { event_id: 3 }
         );
         assert_eq!(
-            m.on_event(up(3, 261, Key::LeftCtrl)).0,
-            Decision::PassThrough
+            m.on_event(up(4, 261, Key::LeftCtrl)).0,
+            Decision::Suppress { event_id: 4 }
+        );
+        assert!(!m.has_release_tombstones());
+    }
+
+    #[test]
+    fn resume_does_not_discard_consumed_release_tombstones() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(
+            clock.clone(),
+            vec![mouse_chord_rule("copy", Key::LeftCtrl, MouseButton::Right)],
+            8,
+        );
+
+        m.on_event(down(0, 0, Key::LeftCtrl));
+        m.on_event(button(1, 1, MouseButton::Right, true));
+        m.set_paused(true);
+        m.set_paused(false);
+
+        assert_eq!(
+            m.on_event(button(2, 2, MouseButton::Right, false)).0,
+            Decision::Suppress { event_id: 2 }
+        );
+        assert_eq!(
+            m.on_event(up(3, 3, Key::LeftCtrl)).0,
+            Decision::Suppress { event_id: 3 }
         );
     }
 
@@ -964,6 +1017,150 @@ mod tests {
         assert_eq!(decision, Decision::Suppress { event_id: 2 });
         assert_eq!(resolution, Resolution::Pending);
         assert_eq!(m.next_deadline(), None);
+    }
+
+    #[test]
+    fn key_chord_failure_replays_prefix_repeats_in_order() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(clock, vec![chord_rule("ab", Key::A, Key::B)], 8);
+
+        let a0 = down(0, 0, Key::A);
+        let a1 = repeat(1, 10, Key::A);
+        let a2 = repeat(2, 20, Key::A);
+        let x = down(3, 30, Key::X);
+        m.on_event(a0);
+        m.on_event(a1);
+        m.on_event(a2);
+
+        assert_eq!(
+            m.on_event(x),
+            (
+                Decision::Suppress { event_id: 3 },
+                Resolution::Failed {
+                    replay: vec![a0, a1, a2, x]
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn key_mouse_failure_replays_prefix_repeats_in_order() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(
+            clock,
+            vec![mouse_chord_rule("a-right", Key::A, MouseButton::Right)],
+            8,
+        );
+
+        let a0 = down(0, 0, Key::A);
+        let a1 = repeat(1, 10, Key::A);
+        let left = button(2, 20, MouseButton::Left, true);
+        m.on_event(a0);
+        m.on_event(a1);
+
+        assert_eq!(
+            m.on_event(left).1,
+            Resolution::Failed {
+                replay: vec![a0, a1, left]
+            }
+        );
+    }
+
+    #[test]
+    fn hold_failure_replays_prefix_repeats_in_order() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(clock, vec![hold_rule(Key::F8, 100)], 8);
+
+        let d0 = down(0, 0, Key::F8);
+        let r1 = repeat(1, 10, Key::F8);
+        let u0 = up(2, 20, Key::F8);
+        m.on_event(d0);
+        m.on_event(r1);
+
+        assert_eq!(
+            m.on_event(u0).1,
+            Resolution::Failed {
+                replay: vec![d0, r1, u0]
+            }
+        );
+    }
+
+    #[test]
+    fn hold_mouse_failure_replays_prefix_repeats_in_order() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(
+            clock,
+            vec![hold_button_rule(Key::F8, 100, MouseButton::Right)],
+            8,
+        );
+
+        let d0 = down(0, 0, Key::F8);
+        let r1 = repeat(1, 10, Key::F8);
+        let left = button(2, 20, MouseButton::Left, true);
+        m.on_event(d0);
+        m.on_event(r1);
+
+        assert_eq!(
+            m.on_event(left).1,
+            Resolution::Failed {
+                replay: vec![d0, r1, left]
+            }
+        );
+    }
+
+    #[test]
+    fn successful_match_consumes_retained_prefix_repeats() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(clock, vec![chord_rule("ab", Key::A, Key::B)], 8);
+
+        m.on_event(down(0, 0, Key::A));
+        m.on_event(repeat(1, 10, Key::A));
+        assert!(matches!(
+            m.on_event(down(2, 20, Key::B)).1,
+            Resolution::Matched { .. }
+        ));
+        assert_eq!(
+            m.on_event(up(3, 30, Key::B)).0,
+            Decision::Suppress { event_id: 3 }
+        );
+        assert_eq!(
+            m.on_event(up(4, 40, Key::A)).0,
+            Decision::Suppress { event_id: 4 }
+        );
+    }
+
+    #[test]
+    fn pause_replays_retained_prefix_repeats() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(clock, vec![hold_rule(Key::F8, 100)], 8);
+        let d0 = down(0, 0, Key::F8);
+        let r1 = repeat(1, 10, Key::F8);
+        m.on_event(d0);
+        m.on_event(r1);
+
+        assert_eq!(m.set_paused(true), vec![d0, r1]);
+    }
+
+    #[test]
+    fn repeat_overflow_replays_buffer_and_passes_current_repeat() {
+        let clock = ManualClock::new(0);
+        let mut m = matcher_with(clock, vec![hold_rule(Key::F8, 100)], 2);
+        let d0 = down(0, 0, Key::F8);
+        let r1 = repeat(1, 10, Key::F8);
+        let r2 = repeat(2, 20, Key::F8);
+        m.on_event(d0);
+        m.on_event(r1);
+
+        assert_eq!(
+            m.on_event(r2),
+            (
+                Decision::PassThrough,
+                Resolution::Failed {
+                    replay: vec![d0, r1]
+                }
+            )
+        );
+        assert!(m.is_bypassed());
     }
 
     #[test]
