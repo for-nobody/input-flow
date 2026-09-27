@@ -136,6 +136,14 @@
 - 自动验证：`cargo fmt --all -- --check` 通过；`cargo test --workspace` 为 85/85（engine 60 + config 15 + windows 10）；`cargo clippy --workspace --all-targets -- -D warnings` 通过。Windows smoke：缺失配置回退、Hook/定时器启动、`quit` 干净退出码 0；未发送人工键鼠输入。
 - 详细证据、方案比较和剩余手工矩阵见 `check-fix-debug-list/tag_3_InputFlow-M6-三轮复查修复记录.md`。
 
+## 12. M6 第四轮后端可靠性加固（2026-09-27，自动化完成，真实输入验收待做）
+
+- **IF-07 已证实并修复**：控制线程原先在 matcher 锁内 `set_paused(true)`，解锁后才调用 `SendInput`，Hook 可在间隙把新事件直通。比较了“跨线程持锁直至输出完成”“只加序号/延后 BYPASS”“调度到 Hook 所属线程”后选择最后一项：外部 pause/resume 入控制队列并用私有线程消息唤醒，Hook 线程串行完成冲刷/回放/状态切换，再返回带插入计数的确认；2 秒内未开始的请求会取消，已开始但未完成则明确报告结果不确定。F12、timer、物理回调和正常退出均由同一线程排序。
+- **IF-08 已证实并修复**：旧查询持 `PercentileTracker` 锁分别复制/排序 p50、p95、p99，最多三次排序 100,000 个样本；回调又在取得统计锁前读取 elapsed。现在锁内只复制一次有界窗口，锁外只排序一次；可控并发测试在排序屏障期间成功记录新样本，证明热路径不等待完整排序。回调 elapsed 移到取得记录锁之后，统计锁等待可见；名称改为“observed duration”，明确最后的写样本/解锁不能由样本自身覆盖。控制台同时打印纯数据查询耗时。
+- **IF-09 策略已落地**：`.bak` 表示曾正式提交的上一版本，`.tmp` 表示尚未提交的尝试；正式文件无效时先选最新有效 backup，再考虑 temp，诊断会标明种类。成功保存最多保留 5 代 backup、3 份 temp；清理先验证，若限额内均损坏，会额外保留限额外最新有效副本。保存中途进程被强杀仍可能留下一份额外 temp；成功保存的清理失败当前没有独立 warning 返回通道，正式 UI 接线前需把保存结果升级为可携带 warning 的报告。
+- 自动验证：`cargo test --workspace` 为 92/92（engine 61 + config 18 + windows 13）；`cargo clippy --workspace --all-targets -- -D warnings` 通过。Windows lifecycle smoke 实际执行 `pause → resume → stats → quit`，Hook/timer/控制消息/确认/清理均成功，退出码 0；无物理输入，callback 样本仍为 0，因此不作为桌面输入或性能验收。
+- 详细事件交错、方案取舍、命令原始结果和待人工矩阵见 `check-fix-debug-list/tag_4_InputFlow-M6-四轮后端修复记录.md`。
+
 ## 变更记录
 
 - 2026-09-26（M0）：建立四条主线的初始调研结论，均标注“待验证”；尚未进行 Windows 实机实验。
@@ -146,3 +154,4 @@
 - 2026-09-26（M5）：实现时序规则（`Hold`/`HoldMouseButton`）、跨种类冲突检测、平台 `SetTimer` 驱动 `poll_timeouts`；引擎 44 项 + keymap 3 项单测通过；`echo quit | probe-cli.exe` 实机回归通过；交互实机验证待做。
 - 2026-09-26（M6）：实现可靠性——新增 `inputflow-config`（版本化 JSON 配置、校验、原子保存、坏文件回退）、暂停/旁路（冲刷已暂扣）、可配置紧急键、匿名化诊断日志、崩溃标记、性能采样；引擎 48 + 配置 9 + keymap 3 共 60 项单测通过；`cargo clippy` 无警告；`echo quit | probe-cli.exe` 实机回归通过；交互实机验证待做。
 - 2026-09-27（M6 三轮复查）：加入释放墓碑、完整重复事件暂扣/溢出语义、可注入输出结果、定时器启动门槛、`ReplaceFileW` 配置提交与恢复发现、完整回调墙钟采样；85 项测试与 Clippy 通过，Hook 启停 smoke 通过；真实键鼠/菜单/UIPI/高负载性能仍待人工验收。
+- 2026-09-27（M6 四轮复查）：外部暂停/恢复改由 Hook 线程串行执行并确认；统计改为锁内快照、锁外单次排序并校正计时口径；配置恢复采用 backup 优先和有效性保护的 5/3 代保留；92 项测试、Clippy 和 pause/resume lifecycle smoke 通过，真实键鼠/UIPI/高负载验收仍待人工执行。

@@ -14,6 +14,25 @@ pub struct PercentileTracker {
     total: u64,
 }
 
+/// An immutable copy of a tracker window. It can be sorted and summarized
+/// without holding the recorder's mutex.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PercentileSnapshot {
+    total: u64,
+    samples: Vec<u64>,
+}
+
+/// One-pass summary of a percentile snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PercentileSummary {
+    pub total: u64,
+    pub retained: usize,
+    pub p50: Option<u64>,
+    pub p95: Option<u64>,
+    pub p99: Option<u64>,
+    pub max: Option<u64>,
+}
+
 impl PercentileTracker {
     /// Create an empty tracker retaining at most `capacity` samples.
     pub fn new(capacity: usize) -> Self {
@@ -52,6 +71,15 @@ impl PercentileTracker {
         self.total
     }
 
+    /// Copy the bounded retained window. Callers should release any surrounding
+    /// lock before invoking [`PercentileSnapshot::summary`].
+    pub fn snapshot(&self) -> PercentileSnapshot {
+        PercentileSnapshot {
+            total: self.total,
+            samples: self.samples.clone(),
+        }
+    }
+
     /// Nearest-rank percentile in `[0, 100]`; `None` when no samples.
     pub fn percentile(&self, p: f64) -> Option<u64> {
         if self.samples.is_empty() {
@@ -83,6 +111,35 @@ impl PercentileTracker {
     pub fn p99(&self) -> Option<u64> {
         self.percentile(99.0)
     }
+}
+
+impl PercentileSnapshot {
+    /// Sort this snapshot once and calculate every reported percentile.
+    pub fn summary(mut self) -> PercentileSummary {
+        self.samples.sort_unstable();
+        PercentileSummary {
+            total: self.total,
+            retained: self.samples.len(),
+            p50: nearest_rank(&self.samples, 50.0),
+            p95: nearest_rank(&self.samples, 95.0),
+            p99: nearest_rank(&self.samples, 99.0),
+            max: self.samples.last().copied(),
+        }
+    }
+}
+
+fn nearest_rank(sorted: &[u64], p: f64) -> Option<u64> {
+    if sorted.is_empty() {
+        return None;
+    }
+    if p <= 0.0 {
+        return sorted.first().copied();
+    }
+    if p >= 100.0 {
+        return sorted.last().copied();
+    }
+    let rank = ((p / 100.0) * sorted.len() as f64).ceil() as usize;
+    Some(sorted[rank.saturating_sub(1).min(sorted.len() - 1)])
 }
 
 #[cfg(test)]
@@ -126,5 +183,25 @@ mod tests {
         assert_eq!(t.percentile(0.0), Some(30));
         assert_eq!(t.percentile(100.0), Some(50));
         assert_eq!(t.p50(), Some(40));
+    }
+
+    #[test]
+    fn snapshot_summary_sorts_once_and_preserves_total() {
+        let mut t = PercentileTracker::new(5);
+        for value in [90, 10, 50, 30, 70, 110] {
+            t.record(value);
+        }
+
+        assert_eq!(
+            t.snapshot().summary(),
+            PercentileSummary {
+                total: 6,
+                retained: 5,
+                p50: Some(50),
+                p95: Some(110),
+                p99: Some(110),
+                max: Some(110),
+            }
+        );
     }
 }

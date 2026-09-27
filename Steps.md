@@ -261,13 +261,15 @@
 
 > 2026-09-27 三轮复查：IF-01～IF-05 已完成针对性代码加固和故障注入/事件序列测试；IF-06 的同步 `SendInput` 最坏 Hook 耗时与 Hook 存活仍没有真实输入样本。M7 的视觉设计可推进，但规则创建/启用、暂停和持久化的正式 UI 接线须等待 `check-fix-debug-list/tag_3_InputFlow-M6-三轮复查修复记录.md` 中的 Windows 人工矩阵通过。
 
+> 2026-09-27 四轮复查：IF-07 已把外部暂停/恢复调度到 Hook 消息线程并同步确认回放结果；IF-08 已改为统计锁内单次快照、锁外单次排序，并修正计时口径；IF-09 已固定“已提交 backup 优先于未提交 temp”并实施有效性保护的 5/3 代保留。自动测试与无输入 Windows lifecycle smoke 通过；真实键鼠、UIPI 和高负载 Hook 存活矩阵仍待人工回填，详见 `check-fix-debug-list/tag_4_InputFlow-M6-四轮后端修复记录.md`。
+
 ---
 
 ## Step 7（M7）：桌面界面
 
 **目标**：Tauri 2 + React + TypeScript 提供规则列表、编辑、状态与提示；前端不持有 Hook。
 
-**进入条件**：先完成 M6 三轮复查记录中的 Windows 菜单/重复键/UIPI/高负载性能验收；未通过前只做不会启用真实拦截规则的视觉与工程骨架。
+**进入条件**：先完成 M6 四轮复查记录中的 Windows 菜单/重复键/UIPI/高负载性能验收；未通过前只做不会启用真实拦截规则的视觉与工程骨架。
 
 ### 7.1 项目搭建
 - [ ] 建立 `apps/desktop/`：Tauri 2 + React + TypeScript。

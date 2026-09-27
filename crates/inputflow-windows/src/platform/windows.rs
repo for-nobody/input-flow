@@ -24,15 +24,15 @@
 //! replay/action ordered before any subsequent pass-through event. A thread timer
 //! (`SetTimer`) drives `Hold` / `Hold+MouseButton` deadlines via `WM_TIMER`.
 
-use std::collections::BTreeSet;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::SyncSender;
-use std::sync::{Mutex, OnceLock};
-use std::time::Instant;
+use std::collections::{BTreeSet, VecDeque};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
+use std::sync::mpsc::{SyncSender, sync_channel};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use inputflow_engine::{
     Action, Command, Decision, InputEvent, InputSource, Key, Matcher, MouseButton, MouseKind,
-    PercentileTracker, Resolution,
+    PercentileSnapshot, PercentileSummary, PercentileTracker, Resolution,
 };
 
 use windows_sys::Win32::Foundation::{GetLastError, LPARAM, LRESULT, WPARAM};
@@ -47,8 +47,8 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, HC_ACTION, KBDLLHOOKSTRUCT, KillTimer,
     LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT, PM_NOREMOVE, PeekMessageW, PostThreadMessageW, SetTimer,
-    SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_QUIT,
-    WM_TIMER,
+    SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_APP,
+    WM_QUIT, WM_TIMER,
 };
 
 use crate::keymap;
@@ -67,10 +67,25 @@ const TIMEOUT_TIMER_INTERVAL_MS: u32 = 10;
 /// were consumed. This avoids most orphan-up exits without hanging forever if a
 /// device disappears or an up event never arrives.
 const SHUTDOWN_TOMBSTONE_DRAIN_MS: u64 = 2_000;
+/// Maximum time an external control caller waits for the hook thread to finish
+/// a pause/resume transaction. A still-queued request is cancelled on timeout.
+const CONTROL_ACK_TIMEOUT_MS: u64 = 2_000;
+/// Private thread message used only to wake the hook thread for queued controls.
+const WM_INPUTFLOW_CONTROL: u32 = WM_APP + 1;
+const CONTROL_PENDING: u8 = 0;
+const CONTROL_RUNNING: u8 = 1;
+const CONTROL_CANCELLED: u8 = 2;
+const CONTROL_COMPLETE: u8 = 3;
 
 /// The matcher, shared with the hook thread and driven synchronously from the
 /// callbacks. Installed once before the hook thread starts.
 static MATCHER: OnceLock<Mutex<Matcher>> = OnceLock::new();
+/// Thread id of the live hook/message-loop owner, or zero outside its lifetime.
+static HOOK_THREAD_ID: AtomicU32 = AtomicU32::new(0);
+/// Control requests are executed only by the hook thread. This makes pause,
+/// replay, resume, timer resolution, and physical callbacks one serial stream.
+static CONTROL_REQUESTS: OnceLock<Mutex<VecDeque<ControlRequest>>> = OnceLock::new();
+static CONTROL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 /// Sender for human-readable diagnostics consumed by the logger thread.
 static LOG_TX: OnceLock<SyncSender<String>> = OnceLock::new();
 /// When `true`, no input is intercepted (emergency bypass / output failure).
@@ -99,6 +114,35 @@ static HOLD_START: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
 /// Physical held-key set used to detect auto-repeat downs (low-level hooks have
 /// no repeat bit). Only ever touched from the hook thread.
 static HELD_KEYS: OnceLock<Mutex<BTreeSet<Key>>> = OnceLock::new();
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ControlAction {
+    Suspend,
+    Resume,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ControlResult {
+    Suspended(PauseReport),
+    Resumed,
+}
+
+struct ControlRequest {
+    id: u64,
+    action: ControlAction,
+    state: Arc<AtomicU8>,
+    response: SyncSender<Result<ControlResult, String>>,
+}
+
+/// Auditable result of a completed pause transaction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PauseReport {
+    pub held_events: usize,
+    pub requested_inputs: u32,
+    pub inserted_inputs: u32,
+    pub output_complete: bool,
+    pub last_error: u32,
+}
 
 /// Install the matcher used by the hook callbacks. Call before the hook thread.
 pub fn install_matcher(matcher: Matcher) {
@@ -157,19 +201,46 @@ fn track_held_key(key: Key, up: bool) -> bool {
     }
 }
 
-/// Best-effort flush any held events: pause the matcher (which returns the held
-/// events and clears its state) and dispatch them for replay.
-fn flush_held_events() {
-    let held = match MATCHER.get() {
+fn control_requests() -> &'static Mutex<VecDeque<ControlRequest>> {
+    CONTROL_REQUESTS.get_or_init(|| Mutex::new(VecDeque::new()))
+}
+
+/// Pause the matcher and synchronously deliver its held events. This function
+/// must run on the hook thread, so no physical callback can be processed between
+/// taking the held events and completing their `SendInput` delivery.
+fn flush_held_events_on_hook_thread_with(
+    matcher: Option<&Mutex<Matcher>>,
+    dispatch: impl FnOnce(&Command) -> OutputReport,
+) -> PauseReport {
+    let held = match matcher {
         Some(matcher) => match matcher.lock() {
             Ok(mut guard) => guard.set_paused(true),
             Err(_) => Vec::new(),
         },
         None => Vec::new(),
     };
-    if !held.is_empty() {
-        dispatch_command(&Command::Replay { events: held });
+    let held_events = held.len();
+    let report = if held.is_empty() {
+        OutputReport {
+            requested: 0,
+            inserted: 0,
+            last_error: 0,
+            status: OutputStatus::Complete,
+        }
+    } else {
+        dispatch(&Command::Replay { events: held })
+    };
+    PauseReport {
+        held_events,
+        requested_inputs: report.requested,
+        inserted_inputs: report.inserted,
+        output_complete: report.status == OutputStatus::Complete,
+        last_error: report.last_error,
     }
+}
+
+fn flush_held_events_on_hook_thread() -> PauseReport {
+    flush_held_events_on_hook_thread_with(MATCHER.get(), dispatch_command)
 }
 
 fn matcher_has_release_tombstones() -> bool {
@@ -179,33 +250,187 @@ fn matcher_has_release_tombstones() -> bool {
         .is_some_and(|guard| guard.has_release_tombstones())
 }
 
-/// Suspend interception: flush held events, then stop intercepting new input.
-pub fn suspend() {
-    flush_held_events();
+fn suspend_on_hook_thread() -> PauseReport {
+    let report = flush_held_events_on_hook_thread();
     BYPASS.store(true, Ordering::Relaxed);
-    send_log("suspended: interception stopped (held input flushed)".to_string());
+    send_log(format!(
+        "suspended: interception stopped; held_events={} inserted={} requested={} output_complete={} last_error={}",
+        report.held_events,
+        report.inserted_inputs,
+        report.requested_inputs,
+        report.output_complete,
+        report.last_error
+    ));
+    report
 }
 
-/// Resume interception after a suspension, clearing any overflow bypass too.
-pub fn resume() {
-    BYPASS.store(false, Ordering::Relaxed);
+fn resume_on_hook_thread() {
     if let Some(matcher) = MATCHER.get()
         && let Ok(mut guard) = matcher.lock()
     {
         guard.set_paused(false);
         guard.set_bypassed(false);
     }
+    BYPASS.store(false, Ordering::Relaxed);
     send_log("resumed: interception active".to_string());
 }
 
+fn execute_control(action: ControlAction) -> ControlResult {
+    match action {
+        ControlAction::Suspend => ControlResult::Suspended(suspend_on_hook_thread()),
+        ControlAction::Resume => {
+            resume_on_hook_thread();
+            ControlResult::Resumed
+        }
+    }
+}
+
+fn request_control(action: ControlAction) -> Result<ControlResult, String> {
+    let hook_thread_id = HOOK_THREAD_ID.load(Ordering::Acquire);
+    if hook_thread_id == 0 {
+        return Err("hook thread is not ready".to_string());
+    }
+    // Emergency F12 already runs inside a hook callback. Execute directly to
+    // avoid posting to and waiting on the current thread.
+    let current_thread_id = unsafe { GetCurrentThreadId() };
+    if current_thread_id == hook_thread_id {
+        return Ok(execute_control(action));
+    }
+
+    let id = CONTROL_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let state = Arc::new(AtomicU8::new(CONTROL_PENDING));
+    let (response_tx, response_rx) = sync_channel(1);
+    control_requests()
+        .lock()
+        .map_err(|_| "control queue lock is poisoned".to_string())?
+        .push_back(ControlRequest {
+            id,
+            action,
+            state: Arc::clone(&state),
+            response: response_tx,
+        });
+
+    // SAFETY: the hook thread created its message queue before publishing its
+    // id. The request itself is owned by the process-global queue.
+    if unsafe { PostThreadMessageW(hook_thread_id, WM_INPUTFLOW_CONTROL, 0, 0) } == 0 {
+        // Capture immediately; locking the local queue may overwrite it.
+        let last_error = unsafe { GetLastError() };
+        let removed = control_requests()
+            .lock()
+            .ok()
+            .and_then(|mut requests| {
+                let index = requests.iter().position(|request| request.id == id)?;
+                requests.remove(index)
+            })
+            .is_some();
+        if removed {
+            return Err(format!(
+                "failed to wake hook thread for control request (last_error={last_error})"
+            ));
+        }
+        // Another control wake may already have dequeued this request. In that
+        // case its acknowledgement, rather than the failed redundant wake,
+        // determines the result.
+        return response_rx
+            .recv_timeout(Duration::from_millis(CONTROL_ACK_TIMEOUT_MS))
+            .map_err(|error| {
+                format!(
+                    "control wake failed (last_error={last_error}) and dequeued request was not acknowledged: {error}"
+                )
+            })?;
+    }
+
+    match response_rx.recv_timeout(Duration::from_millis(CONTROL_ACK_TIMEOUT_MS)) {
+        Ok(result) => result,
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            Err("hook thread ended before acknowledging control request".to_string())
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            if state
+                .compare_exchange(
+                    CONTROL_PENDING,
+                    CONTROL_CANCELLED,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+            {
+                Err(format!(
+                    "hook thread did not start control request within {CONTROL_ACK_TIMEOUT_MS}ms; request cancelled"
+                ))
+            } else {
+                Err(format!(
+                    "hook thread did not finish control request within {CONTROL_ACK_TIMEOUT_MS}ms; it may complete asynchronously"
+                ))
+            }
+        }
+    }
+}
+
+fn handle_control_requests() {
+    loop {
+        let request = match control_requests().lock() {
+            Ok(mut requests) => requests.pop_front(),
+            Err(_) => return,
+        };
+        let Some(request) = request else {
+            return;
+        };
+        if request
+            .state
+            .compare_exchange(
+                CONTROL_PENDING,
+                CONTROL_RUNNING,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_err()
+        {
+            let _ = request.response.try_send(Err(
+                "control request was cancelled before execution".to_string(),
+            ));
+            continue;
+        }
+        let result = execute_control(request.action);
+        request.state.store(CONTROL_COMPLETE, Ordering::Release);
+        let _ = request.response.try_send(Ok(result));
+    }
+}
+
+fn fail_pending_control_requests(reason: &str) {
+    let Ok(mut requests) = control_requests().lock() else {
+        return;
+    };
+    for request in requests.drain(..) {
+        request.state.store(CONTROL_CANCELLED, Ordering::Release);
+        let _ = request.response.try_send(Err(reason.to_string()));
+    }
+}
+
+/// Suspend interception on the hook thread and wait for replay delivery.
+pub fn suspend() -> Result<PauseReport, String> {
+    match request_control(ControlAction::Suspend)? {
+        ControlResult::Suspended(report) => Ok(report),
+        ControlResult::Resumed => Err("unexpected resume acknowledgement".to_string()),
+    }
+}
+
+/// Resume interception on the hook thread, clearing any overflow bypass too.
+pub fn resume() -> Result<(), String> {
+    match request_control(ControlAction::Resume)? {
+        ControlResult::Resumed => Ok(()),
+        ControlResult::Suspended(_) => Err("unexpected suspend acknowledgement".to_string()),
+    }
+}
+
 /// Toggle suspension and return the new state (`true` = interception stopped).
-pub fn toggle_suspend() -> bool {
+pub fn toggle_suspend() -> Result<bool, String> {
     if is_bypassed() {
-        resume();
-        false
+        resume()?;
+        Ok(false)
     } else {
-        suspend();
-        true
+        suspend()?;
+        Ok(true)
     }
 }
 
@@ -214,9 +439,9 @@ pub fn is_suspended() -> bool {
     is_bypassed()
 }
 
-/// Flush any held events; used on clean shutdown before unhooking.
-pub fn flush_held() {
-    flush_held_events();
+/// Flush any held events during clean shutdown. The caller is the hook thread.
+fn flush_held() {
+    let _ = flush_held_events_on_hook_thread();
 }
 
 fn callback_latency_tracker() -> &'static Mutex<PercentileTracker> {
@@ -231,14 +456,16 @@ fn hold_start_cell() -> &'static Mutex<Option<Instant>> {
     HOLD_START.get_or_init(|| Mutex::new(None))
 }
 
-fn record_callback_latency(micros: u64) {
+fn record_callback_latency(start: Instant) {
     if let Ok(mut tracker) = callback_latency_tracker().lock() {
-        tracker.record(micros);
+        // Take elapsed only after acquiring the recorder lock so contention with
+        // a concurrent stats snapshot is represented in this sample.
+        tracker.record(start.elapsed().as_micros() as u64);
     }
 }
 
 fn finish_callback(start: Instant, result: LRESULT) -> LRESULT {
-    record_callback_latency(start.elapsed().as_micros() as u64);
+    record_callback_latency(start);
     result
 }
 
@@ -257,29 +484,38 @@ fn record_hold_delay() {
 /// A latency/delay stats summary: `(total, p50, p95, p99, max)` in microseconds.
 pub type Percentiles = (u64, Option<u64>, Option<u64>, Option<u64>, Option<u64>);
 
-/// Callback wall time, including normalization, matching/output, logging enqueue,
-/// and `CallNextHookEx` for forwarded events.
-pub fn callback_latency_stats() -> Option<Percentiles> {
-    let tracker = callback_latency_tracker().lock().ok()?;
+fn tracker_summary_with(
+    tracker: &Mutex<PercentileTracker>,
+    summarize: impl FnOnce(PercentileSnapshot) -> PercentileSummary,
+) -> Option<PercentileSummary> {
+    // Copy at most 100,000 u64 values while locked, then perform the O(n log n)
+    // sort after releasing the hot-path recorder mutex.
+    let snapshot = tracker.lock().ok()?.snapshot();
+    Some(summarize(snapshot))
+}
+
+fn tracker_stats(tracker: &Mutex<PercentileTracker>) -> Option<Percentiles> {
+    let summary = tracker_summary_with(tracker, PercentileSnapshot::summary)?;
     Some((
-        tracker.total(),
-        tracker.p50(),
-        tracker.p95(),
-        tracker.p99(),
-        tracker.percentile(100.0),
+        summary.total,
+        summary.p50,
+        summary.p95,
+        summary.p99,
+        summary.max,
     ))
+}
+
+/// Observed callback duration through acquisition of the stats recorder. It
+/// includes normalization, matcher-lock wait, matching/output, logging enqueue,
+/// `CallNextHookEx` for forwarded events, and recorder-lock wait. It necessarily
+/// excludes the final sample write/unlock performed after elapsed is read.
+pub fn callback_latency_stats() -> Option<Percentiles> {
+    tracker_stats(callback_latency_tracker())
 }
 
 /// (total, p50, p95, p99, max) for hold delay in microseconds, if sampled.
 pub fn hold_delay_stats() -> Option<Percentiles> {
-    let tracker = hold_delay_tracker().lock().ok()?;
-    Some((
-        tracker.total(),
-        tracker.p50(),
-        tracker.p95(),
-        tracker.p99(),
-        tracker.percentile(100.0),
-    ))
+    tracker_stats(hold_delay_tracker())
 }
 
 /// Number of events that were normalized (assigned a sequence number).
@@ -715,7 +951,10 @@ pub fn run_hook_thread(ready: std::sync::mpsc::Sender<Result<u32, String>>) {
     // live.
     // SAFETY: GetCurrentThreadId has no preconditions.
     let tid = unsafe { GetCurrentThreadId() };
+    HOOK_THREAD_ID.store(tid, Ordering::Release);
     if ready.send(Ok(tid)).is_err() {
+        HOOK_THREAD_ID.store(0, Ordering::Release);
+        fail_pending_control_requests("hook thread stopped before becoming ready");
         // SAFETY: timer and hooks were successfully installed above.
         unsafe {
             KillTimer(std::ptr::null_mut(), timer_id);
@@ -726,6 +965,8 @@ pub fn run_hook_thread(ready: std::sync::mpsc::Sender<Result<u32, String>>) {
 
     // SAFETY: runs the message loop until GetMessageW returns <= 0.
     unsafe { run_message_loop() };
+    HOOK_THREAD_ID.store(0, Ordering::Release);
+    fail_pending_control_requests("hook thread is shutting down");
 
     // Best-effort flush any held events before removing the hooks.
     SHUTTING_DOWN.store(true, Ordering::Relaxed);
@@ -830,6 +1071,10 @@ unsafe fn run_message_loop() {
             drive_timeouts();
             continue;
         }
+        if msg.message == WM_INPUTFLOW_CONTROL {
+            handle_control_requests();
+            continue;
+        }
         // SAFETY: `msg` was just retrieved and is valid.
         unsafe {
             TranslateMessage(&msg);
@@ -909,15 +1154,17 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
         // The emergency key toggles suspension on its first (non-repeat) down and
         // is itself never intercepted.
         if !up && !repeat && key == emergency_key() && !SHUTTING_DOWN.load(Ordering::Relaxed) {
-            let suspended = toggle_suspend();
-            send_log(format!(
-                "suspended {}",
-                if suspended {
-                    "ON (interception stopped)"
-                } else {
-                    "OFF (interception active)"
-                }
-            ));
+            match toggle_suspend() {
+                Ok(suspended) => send_log(format!(
+                    "suspended {}",
+                    if suspended {
+                        "ON (interception stopped)"
+                    } else {
+                        "OFF (interception active)"
+                    }
+                )),
+                Err(error) => send_log(format!("suspend_toggle_failed: {error}")),
+            }
             // SAFETY: `hhk` is ignored for low-level hooks.
             let result = unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
             return finish_callback(callback_start, result);
@@ -998,6 +1245,9 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Barrier;
+
+    use inputflow_engine::{ManualClock, Rule, RuleIndex, Trigger};
 
     fn key_event(seq: u64, key: Key, down: bool) -> InputEvent {
         InputEvent {
@@ -1135,6 +1385,197 @@ mod tests {
         });
         assert_eq!(report.status, OutputStatus::ZeroInserted);
         assert_ne!(report.status, OutputStatus::Complete);
+    }
+
+    #[test]
+    fn legacy_unlock_before_replay_model_proves_overtake() {
+        let index = RuleIndex::compile(vec![Rule {
+            id: "hold-click".to_string(),
+            trigger: Trigger::HoldMouseButton {
+                key: Key::LeftCtrl,
+                timeout_ms: 250,
+                button: MouseButton::Right,
+            },
+            action: Action::KeyChord(vec![Key::C]),
+        }])
+        .unwrap();
+        let matcher = Arc::new(Mutex::new(Matcher::new(
+            Box::new(ManualClock::new(0)),
+            index,
+            16,
+        )));
+        matcher
+            .lock()
+            .unwrap()
+            .on_event(key_event(0, Key::LeftCtrl, true));
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let matcher_paused = Arc::new(Barrier::new(2));
+        let release_replay = Arc::new(Barrier::new(2));
+
+        let pause_matcher = Arc::clone(&matcher);
+        let pause_observed = Arc::clone(&observed);
+        let pause_ready = Arc::clone(&matcher_paused);
+        let pause_release = Arc::clone(&release_replay);
+        let pause = std::thread::spawn(move || {
+            // This deliberately models the pre-fix production sequence: take
+            // pending under the matcher lock, unlock, then perform output.
+            let held = pause_matcher.lock().unwrap().set_paused(true);
+            pause_ready.wait();
+            pause_release.wait();
+            pause_observed.lock().unwrap().push(held[0].seq);
+        });
+
+        matcher_paused.wait();
+        let newer = key_event(1, Key::A, true);
+        assert_eq!(
+            matcher.lock().unwrap().on_event(newer).0,
+            Decision::PassThrough
+        );
+        observed.lock().unwrap().push(newer.seq);
+        release_replay.wait();
+        pause.join().unwrap();
+
+        assert_eq!(*observed.lock().unwrap(), vec![1, 0]);
+    }
+
+    #[test]
+    fn pause_replay_cannot_be_overtaken_on_the_serial_hook_owner() {
+        enum Work {
+            Pause,
+            Input(InputEvent),
+            Stop,
+        }
+
+        let index = RuleIndex::compile(vec![Rule {
+            id: "hold-click".to_string(),
+            trigger: Trigger::HoldMouseButton {
+                key: Key::LeftCtrl,
+                timeout_ms: 250,
+                button: MouseButton::Right,
+            },
+            action: Action::KeyChord(vec![Key::C]),
+        }])
+        .unwrap();
+        let matcher = Arc::new(Mutex::new(Matcher::new(
+            Box::new(ManualClock::new(0)),
+            index,
+            16,
+        )));
+        assert_eq!(
+            matcher
+                .lock()
+                .unwrap()
+                .on_event(key_event(0, Key::LeftCtrl, true))
+                .0,
+            Decision::Suppress { event_id: 0 }
+        );
+
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let dispatch_started = Arc::new(Barrier::new(2));
+        let release_dispatch = Arc::new(Barrier::new(2));
+        let (work_tx, work_rx) = std::sync::mpsc::channel();
+        let (pause_tx, pause_rx) = std::sync::mpsc::channel();
+        let (input_tx, input_rx) = std::sync::mpsc::channel();
+
+        let owner_matcher = Arc::clone(&matcher);
+        let owner_observed = Arc::clone(&observed);
+        let owner_started = Arc::clone(&dispatch_started);
+        let owner_release = Arc::clone(&release_dispatch);
+        let owner = std::thread::spawn(move || {
+            while let Ok(work) = work_rx.recv() {
+                match work {
+                    Work::Pause => {
+                        let report = flush_held_events_on_hook_thread_with(
+                            Some(owner_matcher.as_ref()),
+                            |command| {
+                                let Command::Replay { events } = command else {
+                                    panic!("pause must replay held input");
+                                };
+                                owner_observed.lock().unwrap().push(events[0].seq);
+                                owner_started.wait();
+                                owner_release.wait();
+                                OutputReport {
+                                    requested: events.len() as u32,
+                                    inserted: events.len() as u32,
+                                    last_error: 0,
+                                    status: OutputStatus::Complete,
+                                }
+                            },
+                        );
+                        pause_tx.send(report).unwrap();
+                    }
+                    Work::Input(event) => {
+                        let decision = owner_matcher.lock().unwrap().on_event(event).0;
+                        assert_eq!(decision, Decision::PassThrough);
+                        owner_observed.lock().unwrap().push(event.seq);
+                        input_tx.send(()).unwrap();
+                    }
+                    Work::Stop => break,
+                }
+            }
+        });
+
+        work_tx.send(Work::Pause).unwrap();
+        dispatch_started.wait();
+        work_tx
+            .send(Work::Input(key_event(1, Key::A, true)))
+            .unwrap();
+        assert!(input_rx.recv_timeout(Duration::from_millis(50)).is_err());
+        assert_eq!(*observed.lock().unwrap(), vec![0]);
+
+        release_dispatch.wait();
+        let report = pause_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(report.output_complete);
+        input_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(*observed.lock().unwrap(), vec![0, 1]);
+
+        work_tx.send(Work::Stop).unwrap();
+        owner.join().unwrap();
+    }
+
+    #[test]
+    fn stats_sort_runs_after_releasing_the_recorder_lock() {
+        let tracker = Arc::new(Mutex::new(PercentileTracker::new(100_000)));
+        {
+            let mut guard = tracker.lock().unwrap();
+            for value in (0..100_000).rev() {
+                guard.record(value);
+            }
+        }
+        let summarize_started = Arc::new(Barrier::new(2));
+        let release_summarize = Arc::new(Barrier::new(2));
+        let query_tracker = Arc::clone(&tracker);
+        let query_started = Arc::clone(&summarize_started);
+        let query_release = Arc::clone(&release_summarize);
+        let query = std::thread::spawn(move || {
+            tracker_summary_with(query_tracker.as_ref(), |snapshot| {
+                query_started.wait();
+                query_release.wait();
+                snapshot.summary()
+            })
+            .unwrap()
+        });
+
+        summarize_started.wait();
+        let (recorded_tx, recorded_rx) = std::sync::mpsc::channel();
+        let record_tracker = Arc::clone(&tracker);
+        let writer = std::thread::spawn(move || {
+            record_tracker.lock().unwrap().record(100_001);
+            recorded_tx.send(()).unwrap();
+        });
+        recorded_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("recording must not wait for snapshot sorting");
+        release_summarize.wait();
+
+        let summary = query.join().unwrap();
+        writer.join().unwrap();
+        assert_eq!(summary.total, 100_000);
+        assert_eq!(tracker.lock().unwrap().total(), 100_001);
+        assert_eq!(summary.p50, Some(49_999));
+        assert_eq!(summary.p95, Some(94_999));
+        assert_eq!(summary.p99, Some(98_999));
+        assert_eq!(summary.max, Some(99_999));
     }
 
     #[test]

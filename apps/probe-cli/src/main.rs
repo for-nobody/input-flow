@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use inputflow_config::{default_config, load as load_config, to_json_pretty};
 use inputflow_engine::{Matcher, RuleIndex, SystemClock};
@@ -238,14 +238,27 @@ fn run_console_loop() {
                     if windows::is_suspended() {
                         println!("probe-cli: already paused (interception stopped).");
                     } else {
-                        windows::suspend();
-                        println!("probe-cli: paused; held input flushed, interception stopped.");
+                        match windows::suspend() {
+                            Ok(report) => println!(
+                                "probe-cli: paused; held_events={} inserted={} requested={} output_complete={} last_error={}; interception stopped.",
+                                report.held_events,
+                                report.inserted_inputs,
+                                report.requested_inputs,
+                                report.output_complete,
+                                report.last_error
+                            ),
+                            Err(error) => {
+                                eprintln!("probe-cli: pause failed: {error}");
+                            }
+                        }
                     }
                 }
                 "resume" => {
                     if windows::is_suspended() {
-                        windows::resume();
-                        println!("probe-cli: resumed; interception active.");
+                        match windows::resume() {
+                            Ok(()) => println!("probe-cli: resumed; interception active."),
+                            Err(error) => eprintln!("probe-cli: resume failed: {error}"),
+                        }
                     } else {
                         println!("probe-cli: already running.");
                     }
@@ -267,17 +280,21 @@ fn run_console_loop() {
 }
 
 fn print_stats() {
-    match windows::callback_latency_stats() {
+    let query_start = Instant::now();
+    let callback = windows::callback_latency_stats();
+    let hold = windows::hold_delay_stats();
+    let query_micros = query_start.elapsed().as_micros();
+    match callback {
         Some((total, p50, p95, p99, max)) => println!(
-            "probe-cli: callback wall time (us): total={total} p50={} p95={} p99={} max={}",
+            "probe-cli: callback observed duration (us): total={total} p50={} p95={} p99={} max={}",
             fmt_opt(p50),
             fmt_opt(p95),
             fmt_opt(p99),
             fmt_opt(max)
         ),
-        None => println!("probe-cli: callback wall time: no samples."),
+        None => println!("probe-cli: callback observed duration: no samples."),
     }
-    match windows::hold_delay_stats() {
+    match hold {
         Some((total, p50, p95, p99, max)) => println!(
             "probe-cli: hold delay (us): total={total} p50={} p95={} p99={} max={}",
             fmt_opt(p50),
@@ -287,6 +304,7 @@ fn print_stats() {
         ),
         None => println!("probe-cli: hold delay: no samples."),
     }
+    println!("probe-cli: stats query duration (us): {}", query_micros);
 }
 
 fn fmt_opt(value: Option<u64>) -> String {

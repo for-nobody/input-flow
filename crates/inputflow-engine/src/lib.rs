@@ -21,4 +21,4 @@ pub use matcher::{Clock, Command, Decision, ManualClock, Matcher, Resolution, Sy
 pub use pending::{Overflow, PendingQueue};
 pub use rules::{Action, Rule, RuleError, RuleIndex, Trigger};
 pub use state::{KeyState, MouseState};
-pub use stats::PercentileTracker;
+pub use stats::{PercentileSnapshot, PercentileSummary, PercentileTracker};

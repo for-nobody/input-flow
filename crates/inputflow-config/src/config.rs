@@ -23,6 +23,13 @@ pub const DEFAULT_EMERGENCY_KEY: Key = Key::F12;
 pub const MIN_TIMEOUT_MS: u64 = 1;
 /// Upper bound (inclusive) for a rule's `timeout_ms`.
 pub const MAX_TIMEOUT_MS: u64 = 60_000;
+/// Number of previously committed configurations retained after successful
+/// replacements. Five generations cost little for the current small JSON file
+/// while bounding autosave growth.
+const RECOVERY_BACKUP_LIMIT: usize = 5;
+/// Number of uncommitted save attempts retained. These are lower-priority than
+/// committed backups during recovery.
+const RECOVERY_TEMP_LIMIT: usize = 3;
 
 /// Serialize commits within this process. Unique artifact names prevent file
 /// clobbering, while this lock makes the intended last-writer-wins order clear.
@@ -131,11 +138,16 @@ pub fn load(path: &Path) -> LoadedConfig {
     };
     for candidate in recovery_candidates(path) {
         if let Ok(resolved) = load_resolved(&candidate) {
+            let artifact_kind = if recovery_kind(path, &candidate) == Some(RecoveryKind::Backup) {
+                "committed backup"
+            } else {
+                "uncommitted temporary save"
+            };
             return LoadedConfig {
                 emergency_key: resolved.emergency_key,
                 rules: resolved.rules,
                 problems: vec![format!(
-                    "config `{}` could not be used; recovered a valid copy from `{}`. Save once to make the recovery official. Primary error: {}",
+                    "config `{}` could not be used; recovered a valid {artifact_kind} from `{}`. Save once to make the recovery official. Primary error: {}",
                     path.display(),
                     candidate.display(),
                     primary_errors.join("; ")
@@ -182,37 +194,73 @@ fn load_resolved(path: &Path) -> Result<Resolved, Vec<String>> {
     })
 }
 
-/// Return newest recovery artifacts first. They are siblings so a rename or
-/// ReplaceFile operation never crosses volumes.
-fn recovery_candidates(path: &Path) -> Vec<PathBuf> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecoveryKind {
+    Backup,
+    Temp,
+}
+
+#[derive(Debug)]
+struct RecoveryArtifact {
+    kind: RecoveryKind,
+    modified: std::time::SystemTime,
+    path: PathBuf,
+}
+
+fn recovery_kind(path: &Path, candidate: &Path) -> Option<RecoveryKind> {
+    let file_name = path.file_name()?.to_string_lossy();
+    let candidate_name = candidate.file_name()?.to_string_lossy();
+    if candidate_name.starts_with(&format!("{file_name}.bak.")) {
+        Some(RecoveryKind::Backup)
+    } else if candidate_name.starts_with(&format!("{file_name}.tmp.")) {
+        Some(RecoveryKind::Temp)
+    } else {
+        None
+    }
+}
+
+fn recovery_artifacts(path: &Path) -> Vec<RecoveryArtifact> {
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let Some(file_name) = path.file_name().map(|name| name.to_string_lossy()) else {
-        return Vec::new();
-    };
-    let tmp_prefix = format!("{file_name}.tmp.");
-    let backup_prefix = format!("{file_name}.bak.");
-    let mut candidates: Vec<(std::time::SystemTime, PathBuf)> = fs::read_dir(parent)
+    let mut artifacts: Vec<RecoveryArtifact> = fs::read_dir(parent)
         .into_iter()
         .flatten()
         .filter_map(Result::ok)
         .filter_map(|entry| {
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            if !name.starts_with(&tmp_prefix) && !name.starts_with(&backup_prefix) {
-                return None;
-            }
+            let kind = recovery_kind(path, &entry.path())?;
             let modified = entry
                 .metadata()
                 .and_then(|metadata| metadata.modified())
                 .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-            Some((modified, entry.path()))
+            Some(RecoveryArtifact {
+                kind,
+                modified,
+                path: entry.path(),
+            })
         })
         .collect();
-    candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
-    candidates.into_iter().map(|(_, path)| path).collect()
+    artifacts.sort_by(|a, b| {
+        let priority = |kind| match kind {
+            RecoveryKind::Backup => 0,
+            RecoveryKind::Temp => 1,
+        };
+        priority(a.kind)
+            .cmp(&priority(b.kind))
+            .then_with(|| b.modified.cmp(&a.modified))
+            .then_with(|| b.path.cmp(&a.path))
+    });
+    artifacts
+}
+
+/// Return committed backups newest-first, followed by uncommitted temporary
+/// saves newest-first. They are siblings so replacement never crosses volumes.
+fn recovery_candidates(path: &Path) -> Vec<PathBuf> {
+    recovery_artifacts(path)
+        .into_iter()
+        .map(|artifact| artifact.path)
+        .collect()
 }
 /// The validated, resolved form of a config.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -435,13 +483,52 @@ fn save_with_committer(
         committer.promote_new(&tmp, path)
     };
     if let Err(error) = commit {
+        let cleanup_warnings =
+            prune_recovery_artifacts(path, RecoveryKind::Temp, RECOVERY_TEMP_LIMIT);
+        let cleanup_note = if cleanup_warnings.is_empty() {
+            String::new()
+        } else {
+            format!("; cleanup warning: {}", cleanup_warnings.join("; "))
+        };
         return Err(format!(
-            "failed to commit config `{}`: {error}; recovery artifact retained at `{}`",
+            "failed to commit config `{}`: {error}; recovery artifact retained at `{}`{cleanup_note}",
             path.display(),
             tmp.display()
         ));
     }
+    // Retention is best-effort after the new primary has been committed. It
+    // never changes a successful save into a reported failure; a future UI
+    // should expose cleanup warnings through its diagnostics channel.
+    let _ = prune_recovery_artifacts(path, RecoveryKind::Backup, RECOVERY_BACKUP_LIMIT);
+    let _ = prune_recovery_artifacts(path, RecoveryKind::Temp, RECOVERY_TEMP_LIMIT);
     Ok(())
+}
+
+/// Retain the newest `limit` artifacts of one kind and, if they are all corrupt,
+/// additionally protect the newest known-valid artifact. Therefore cleanup can
+/// never remove the only valid recovery copy merely because it is older.
+fn prune_recovery_artifacts(path: &Path, kind: RecoveryKind, limit: usize) -> Vec<String> {
+    let artifacts: Vec<RecoveryArtifact> = recovery_artifacts(path)
+        .into_iter()
+        .filter(|artifact| artifact.kind == kind)
+        .collect();
+    let protected_valid = artifacts
+        .iter()
+        .find(|artifact| load_resolved(&artifact.path).is_ok())
+        .map(|artifact| artifact.path.clone());
+    let mut warnings = Vec::new();
+    for (index, artifact) in artifacts.into_iter().enumerate() {
+        if index < limit || protected_valid.as_ref() == Some(&artifact.path) {
+            continue;
+        }
+        if let Err(error) = fs::remove_file(&artifact.path) {
+            warnings.push(format!(
+                "failed to remove `{}`: {error}",
+                artifact.path.display()
+            ));
+        }
+    }
+    warnings
 }
 
 #[cfg(windows)]
@@ -875,6 +962,90 @@ mod tests {
                 .problems
                 .iter()
                 .any(|problem| problem.contains("recovered"))
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn committed_backup_is_preferred_over_newer_uncommitted_temp() {
+        let dir = std::env::temp_dir().join(format!(
+            "inputflow-config-recovery-priority-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        fs::write(&path, "{ invalid").unwrap();
+
+        let mut committed = sample_config();
+        committed.emergency_bypass_key = "F1".to_string();
+        let backup = path.with_file_name("config.json.bak.test.0");
+        fs::write(&backup, serde_json::to_vec_pretty(&committed).unwrap()).unwrap();
+
+        let mut uncommitted = sample_config();
+        uncommitted.emergency_bypass_key = "F2".to_string();
+        let temp = path.with_file_name("config.json.tmp.test.1");
+        fs::write(&temp, serde_json::to_vec_pretty(&uncommitted).unwrap()).unwrap();
+
+        let loaded = load(&path);
+        assert_eq!(loaded.emergency_key, Key::F1);
+        assert!(loaded.problems[0].contains("committed backup"));
+        assert_eq!(recovery_candidates(&path)[0], backup);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn successful_saves_bound_committed_backup_generations() {
+        let dir = std::env::temp_dir().join(format!(
+            "inputflow-config-retention-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        for key in ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10"] {
+            let config = Config {
+                schema_version: SCHEMA_VERSION,
+                emergency_bypass_key: key.to_string(),
+                rules: Vec::new(),
+            };
+            save(&path, &config).unwrap();
+        }
+        let backups = recovery_artifacts(&path)
+            .into_iter()
+            .filter(|artifact| artifact.kind == RecoveryKind::Backup)
+            .count();
+        assert_eq!(backups, RECOVERY_BACKUP_LIMIT);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn retention_never_deletes_the_only_valid_artifact() {
+        let dir = std::env::temp_dir().join(format!(
+            "inputflow-config-retention-valid-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        let valid = path.with_file_name("config.json.tmp.test.0");
+        fs::write(&valid, serde_json::to_vec_pretty(&sample_config()).unwrap()).unwrap();
+        for suffix in 1..=4 {
+            fs::write(
+                path.with_file_name(format!("config.json.tmp.test.{suffix}")),
+                "{ corrupt",
+            )
+            .unwrap();
+        }
+
+        assert!(prune_recovery_artifacts(&path, RecoveryKind::Temp, 3).is_empty());
+        assert!(valid.exists());
+        assert_eq!(
+            recovery_artifacts(&path)
+                .into_iter()
+                .filter(|artifact| artifact.kind == RecoveryKind::Temp)
+                .count(),
+            4
         );
         let _ = fs::remove_dir_all(&dir);
     }
