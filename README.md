@@ -77,7 +77,8 @@ inputflow/
 │       └── ADR-004-Rust常驻Agent与WinUI3设置程序.md
 └── check-fix-debug-list/
     ├── M6-可靠性基线摘要.md
-    └── tag_5_InputFlow-M7-WinUI3架构与输入扩展任务.md
+    ├── tag_5_InputFlow-M7-WinUI3架构与输入扩展任务.md
+    └── archive/              # 已废弃的历史任务与修复记录
 ```
 
 计划目录尚未创建不表示功能已经完成；Codex 应按 tag_5 的阶段和进入条件逐步建立。
