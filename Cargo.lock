@@ -3,6 +3,14 @@
 version = 4
 
 [[package]]
+name = "inputflow-agent"
+version = "0.1.0"
+dependencies = [
+ "inputflow-runtime",
+ "inputflow-windows",
+]
+
+[[package]]
 name = "inputflow-config"
 version = "0.1.0"
 dependencies = [
@@ -15,6 +23,15 @@ dependencies = [
 [[package]]
 name = "inputflow-engine"
 version = "0.1.0"
+
+[[package]]
+name = "inputflow-runtime"
+version = "0.1.0"
+dependencies = [
+ "inputflow-config",
+ "inputflow-engine",
+ "inputflow-windows",
+]
 
 [[package]]
 name = "inputflow-windows"
@@ -41,8 +58,7 @@ name = "probe-cli"
 version = "0.1.0"
 dependencies = [
  "inputflow-config",
- "inputflow-engine",
- "inputflow-windows",
+ "inputflow-runtime",
 ]
 
 [[package]]

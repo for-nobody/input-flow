@@ -1,0 +1,9 @@
+[package]
+name = "inputflow-runtime"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+inputflow-config = { path = "../inputflow-config" }
+inputflow-engine = { path = "../inputflow-engine" }
+inputflow-windows = { path = "../inputflow-windows" }

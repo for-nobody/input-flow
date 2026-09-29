@@ -282,10 +282,12 @@
 > 2026-09-29 Phase A：在 x64 本机验证 unpackaged + framework-dependent WinUI 3 smoke 的 restore、Debug/Release build、原生窗口启动和正常关闭后进程退出。页面未接 Hook、配置或 agent。self-contained 已作为 fallback 验证；packaged 构建成功但因当前会话无法启用 Developer Mode 而未验证启动。证据见 `check-fix-debug-list/tag_5_InputFlow-M7-WinUI3架构与输入扩展记录.md`。
 
 ### 7.2 Rust agent 与 Named Pipe
-- [ ] 建立 `apps/inputflow-agent/`，复用现有 engine/config/windows crate，不复制 Hook 实现。
-- [ ] agent 是唯一 Hook、托盘、规则验证/保存/应用和正式配置所有者。
+- [x] 建立 `apps/inputflow-agent/`，复用现有 engine/config/windows crate，不复制 Hook 实现。
+- [x] agent 是唯一 Hook、托盘、规则验证/保存/应用和正式配置所有者。
 - [ ] 定义版本化 IPC：handshake、status、validate/apply、pause/resume、recording、diagnostics、request ID、超时与错误码。
 - [ ] Named Pipe 只允许当前交互用户访问；断开设置程序不影响 agent 和已启用规则。
+
+> 2026-09-30 Phase C：新增 probe/agent 共用 `inputflow-runtime`，实现 Hook-owner 规则热替换、结构化 save/apply、capture session、Win32 托盘/Explorer 恢复、单实例和无控制台 Release。124 项自动测试、lifecycle/resource smoke 与 Active/Pause/Resume/Open Settings/Exit 人工托盘验收通过；真实 Explorer 重启仍未执行。版本化 Named Pipe 明确保留给 Phase D。
 
 ### 7.3 完整键盘与 Schema v2
 - [x] ADR-005 明确 logical VK 与 physical scan code + extended、布局显示、输出和 Unknown 策略。

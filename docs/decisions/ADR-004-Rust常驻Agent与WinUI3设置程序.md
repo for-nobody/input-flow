@@ -2,7 +2,7 @@
 
 - 状态：已接受（Accepted）
 - 日期：2026-09-27
-- 涉及模块：`apps/inputflow-agent`、`apps/settings-winui`、`inputflow-windows`、`inputflow-config`、未来 IPC 协议模块
+- 涉及模块：`apps/inputflow-agent`、`apps/settings-winui`、`inputflow-runtime`、`inputflow-windows`、`inputflow-config`、未来 IPC 协议模块
 - 取代：ADR-000 中“Tauri 2 + React + TypeScript”桌面 GUI 决策；ADR-000 的其余决定继续有效
 
 ## 背景（Context）
@@ -104,6 +104,15 @@ InputFlow 是输入基础设施，不是需要长期显示内容的普通桌面�
 
 该决定只覆盖 Phase A 开发基线。最终安装器、干净机首次运行、升级和卸载仍需单独验收；不得由本次 smoke 推断已经具备产品部署能力。详细版本、命令和输出位置见 `docs/BUILD_WINDOWS.md`。
 
+### 5. Phase C runtime 落地（2026-09-30）
+
+- `inputflow-runtime` 是 probe 与产品 agent 共用的唯一生命周期编排层；薄入口不得复制 Hook 安装、ready、暂停、退出或配置事务。
+- 进程唯一 Win32 callback bridge 仍由 `OnceLock` 承载，但 cell 内保存的是可替换值。callback 只在 Hook 线程存活时读取这些进程期 cell，不保存调用者借用，因此不存在跨 callback 的悬垂引用；重复 start 前必须确认旧 Hook 线程已经退出并重置运行状态。
+- 所有影响 matcher 时序状态的 pause/resume/rule replacement/capture begin/cancel 都发到 Hook owner 串行执行。规则替换先冲刷 pending，进入 bypass；冲刷不完整即停止替换并报告恢复需求。成功替换保留旧规则已经产生的 consumed release tombstone，再按替换前状态决定是否恢复 interception。
+- `apply_config` 固定为“权威验证与编译 → 原子保存 → Hook-owner 替换”。保存成功但运行时替换失败时尝试把旧配置重新原子写回，同时返回包含 save/runtime/rollback、cleanup warning 和 `recovery_required` 的结构化报告；不能以模糊布尔值隐藏部分提交。
+- capture 是有界且一次一个的 immutable observation；它不暂停 matcher、不预消费输入、不改变现有规则，排除本程序注入与紧急旁路键，并在取消、超时或 shutdown 时给出终态。
+- agent 使用 Win32 notification icon，托盘 pause/resume 复用上述控制路径；`TaskbarCreated` 会重加图标。当前用户会话以 named mutex 保证单实例，第二实例请求启动设置程序。Release PE subsystem 为 Windows GUI，默认日志只记录聚合/生命周期信息；逐输入 identity 需显式 `--debug-input`。
+
 ## 关键不变量（Invariants）
 
 1. agent 是唯一 Hook 和输入状态所有者。
@@ -127,7 +136,7 @@ InputFlow 是输入基础设施，不是需要长期显示内容的普通桌面�
 - 需要维护 Rust 与 C# 两套构建环境。
 - 需要设计并测试跨进程协议、DTO 兼容和 ACL。
 - WinUI 3 设置程序打开时仍有其运行时成本；本 ADR 的目标是避免它长期常驻，而不是声称打开时零开销。
-- 当前 `inputflow-windows` 使用进程全局 `OnceLock` 安装 matcher/紧急键，尚不支持产品级热更新与重复生命周期；M7 必须先封装 agent runtime 和 Hook 线程控制命令。
+- `OnceLock` bridge 仍是进程全局，因此同一进程同一时刻只允许一个 runtime/Hook owner；Phase C 支持安全值替换与 shutdown 后重启，但不把它伪装成多 runtime 并存模型。
 
 ## 验收证据（Acceptance Evidence）
 

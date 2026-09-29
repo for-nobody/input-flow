@@ -26,7 +26,7 @@
 
 use std::collections::{BTreeSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
-use std::sync::mpsc::{SyncSender, sync_channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -87,7 +87,7 @@ static HOOK_THREAD_ID: AtomicU32 = AtomicU32::new(0);
 static CONTROL_REQUESTS: OnceLock<Mutex<VecDeque<ControlRequest>>> = OnceLock::new();
 static CONTROL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 /// Sender for human-readable diagnostics consumed by the logger thread.
-static LOG_TX: OnceLock<SyncSender<String>> = OnceLock::new();
+static LOG_TX: OnceLock<Mutex<Option<SyncSender<String>>>> = OnceLock::new();
 /// When `true`, no input is intercepted (emergency bypass / output failure).
 static BYPASS: AtomicBool = AtomicBool::new(false);
 /// Clean shutdown is draining consumed releases; emergency toggles are disabled.
@@ -101,8 +101,8 @@ static OUTPUT_FAILED: AtomicU64 = AtomicU64::new(0);
 /// Output commands dropped (retained for API compatibility; synchronous output
 /// no longer drops commands — failures instead enter bypass).
 static OUTPUT_DROPPED: AtomicU64 = AtomicU64::new(0);
-/// The emergency bypass key (default `F12`), set once before the hook thread.
-static EMERGENCY_KEY: OnceLock<Key> = OnceLock::new();
+/// One-based index into `Key::NAMED`; zero selects the default `F12`.
+static EMERGENCY_KEY_INDEX: AtomicU32 = AtomicU32::new(0);
 /// Whether per-event debug logging is enabled (off by default; NFR-05).
 static DEBUG_LOG: AtomicBool = AtomicBool::new(false);
 /// Reservoir of matcher-decision latency samples, in microseconds.
@@ -115,16 +115,34 @@ static HOLD_START: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
 /// no repeat bit). Only ever touched from the hook thread.
 static HELD_KEYS: OnceLock<Mutex<BTreeSet<Key>>> = OnceLock::new();
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The single explicit recording session. It observes one physical down without
+/// modifying matcher state or suppressing input.
+static CAPTURE_STATE: OnceLock<Mutex<Option<CaptureState>>> = OnceLock::new();
+static CAPTURE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+static CAPTURE_ACTIVE: AtomicBool = AtomicBool::new(false);
+
 enum ControlAction {
     Suspend,
     Resume,
+    ReplaceRules {
+        index: inputflow_engine::RuleIndex,
+        emergency_key: Key,
+        rule_count: usize,
+    },
+    BeginCapture {
+        timeout: Duration,
+    },
+    CancelCapture {
+        session_id: u64,
+    },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ControlResult {
     Suspended(PauseReport),
     Resumed,
+    Replaced(ReplaceReport),
+    CaptureStarted(CaptureSession),
+    CaptureCancelled,
 }
 
 struct ControlRequest {
@@ -144,20 +162,139 @@ pub struct PauseReport {
     pub last_error: u32,
 }
 
-/// Install the matcher used by the hook callbacks. Call before the hook thread.
-pub fn install_matcher(matcher: Matcher) {
-    // Only the first call wins; the probe installs it exactly once.
-    let _ = MATCHER.set(Mutex::new(matcher));
+/// Result of replacing the live rules at one Hook-owner serialization point.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReplaceReport {
+    pub pause: PauseReport,
+    pub was_suspended: bool,
+    pub rule_count: usize,
+    pub emergency_key: Key,
+}
+
+/// Stable recording payload forwarded to the future IPC layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CapturedInput {
+    Key { logical: Key, physical: Option<Key> },
+    MouseButton(MouseButton),
+}
+
+/// Terminal result for one bounded capture session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureOutcome {
+    Captured(CapturedInput),
+    Cancelled,
+    TimedOut,
+    Shutdown,
+}
+
+/// Receiver owned by the caller that began a capture session.
+pub struct CaptureSession {
+    id: u64,
+    receiver: Receiver<CaptureOutcome>,
+}
+
+impl CaptureSession {
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
+    pub fn recv_timeout(&self, timeout: Duration) -> Result<CaptureOutcome, RecvTimeoutError> {
+        self.receiver.recv_timeout(timeout)
+    }
+}
+
+struct CaptureState {
+    id: u64,
+    deadline: Instant,
+    response: SyncSender<CaptureOutcome>,
+}
+
+/// Install or replace the matcher before a hook thread starts. This process-wide
+/// cell is only a stable callback bridge; the value behind it is restartable.
+pub fn install_matcher(matcher: Matcher) -> Result<(), String> {
+    if HOOK_THREAD_ID.load(Ordering::Acquire) != 0 {
+        return Err("cannot install a matcher while the hook thread is running".to_string());
+    }
+    if let Some(cell) = MATCHER.get() {
+        *cell
+            .lock()
+            .map_err(|_| "matcher lock is poisoned".to_string())? = matcher;
+    } else {
+        MATCHER
+            .set(Mutex::new(matcher))
+            .map_err(|_| "failed to initialize matcher bridge".to_string())?;
+    }
+    Ok(())
 }
 
 /// Install the diagnostic-log sender. Call before the hook thread.
-pub fn install_log_sender(tx: SyncSender<String>) {
-    let _ = LOG_TX.set(tx);
+pub fn install_log_sender(tx: SyncSender<String>) -> Result<(), String> {
+    let cell = LOG_TX.get_or_init(|| Mutex::new(None));
+    *cell
+        .lock()
+        .map_err(|_| "diagnostic sender lock is poisoned".to_string())? = Some(tx);
+    Ok(())
 }
 
-/// Install the emergency bypass key. Call before the hook thread starts.
-pub fn install_emergency_key(key: Key) {
-    let _ = EMERGENCY_KEY.set(key);
+/// Detach the current diagnostic sender after the hook and logger stop.
+pub fn clear_log_sender() {
+    if let Some(cell) = LOG_TX.get()
+        && let Ok(mut sender) = cell.lock()
+    {
+        *sender = None;
+    }
+}
+
+/// Install the logical emergency bypass key. Call before the hook thread starts
+/// or through the serialized replace-rules control request.
+pub fn install_emergency_key(key: Key) -> Result<(), String> {
+    let Some(index) = Key::NAMED.iter().position(|candidate| *candidate == key) else {
+        return Err("emergency key must be a named logical key".to_string());
+    };
+    EMERGENCY_KEY_INDEX.store(index as u32 + 1, Ordering::Release);
+    Ok(())
+}
+
+/// Reset process-level counters and transient state before a new runtime start.
+/// This is legal only while no hook thread is live.
+pub fn reset_runtime_state() -> Result<(), String> {
+    if HOOK_THREAD_ID.load(Ordering::Acquire) != 0 {
+        return Err("cannot reset state while the hook thread is running".to_string());
+    }
+    BYPASS.store(false, Ordering::Relaxed);
+    SHUTTING_DOWN.store(false, Ordering::Relaxed);
+    SEQ.store(0, Ordering::Relaxed);
+    OUTPUT_SENT.store(0, Ordering::Relaxed);
+    OUTPUT_FAILED.store(0, Ordering::Relaxed);
+    OUTPUT_DROPPED.store(0, Ordering::Relaxed);
+    CAPTURE_ACTIVE.store(false, Ordering::Relaxed);
+    if let Ok(mut requests) = control_requests().lock() {
+        requests.clear();
+    }
+    if let Ok(mut held) = held_keys().lock() {
+        held.clear();
+    }
+    if let Some(cell) = CAPTURE_STATE.get()
+        && let Ok(mut capture) = cell.lock()
+    {
+        *capture = None;
+    }
+    if let Some(tracker) = CALLBACK_LATENCY.get()
+        && let Ok(mut tracker) = tracker.lock()
+    {
+        *tracker = PercentileTracker::new(100_000);
+    }
+    if let Some(tracker) = HOLD_DELAY.get()
+        && let Ok(mut tracker) = tracker.lock()
+    {
+        *tracker = PercentileTracker::new(100_000);
+    }
+    if let Some(start) = HOLD_START.get()
+        && let Ok(mut start) = start.lock()
+    {
+        *start = None;
+    }
+    Ok(())
 }
 
 /// Enable or disable per-event debug logging (off by default).
@@ -172,7 +309,15 @@ pub fn is_bypassed() -> bool {
 
 /// The configured emergency bypass key (default `F12`).
 fn emergency_key() -> Key {
-    EMERGENCY_KEY.get().copied().unwrap_or(Key::F12)
+    let encoded = EMERGENCY_KEY_INDEX.load(Ordering::Acquire);
+    if encoded == 0 {
+        Key::F12
+    } else {
+        Key::NAMED
+            .get(encoded as usize - 1)
+            .copied()
+            .unwrap_or(Key::F12)
+    }
 }
 
 /// Whether per-event debug logging is enabled.
@@ -203,6 +348,55 @@ fn track_held_key(key: Key, up: bool) -> bool {
 
 fn control_requests() -> &'static Mutex<VecDeque<ControlRequest>> {
     CONTROL_REQUESTS.get_or_init(|| Mutex::new(VecDeque::new()))
+}
+
+fn capture_state() -> &'static Mutex<Option<CaptureState>> {
+    CAPTURE_STATE.get_or_init(|| Mutex::new(None))
+}
+
+fn finish_capture(outcome: CaptureOutcome) {
+    let state = capture_state()
+        .lock()
+        .ok()
+        .and_then(|mut state| state.take());
+    CAPTURE_ACTIVE.store(false, Ordering::Release);
+    if let Some(state) = state {
+        let _ = state.response.try_send(outcome);
+    }
+}
+
+fn observe_capture(event: InputEvent) {
+    if event.injected || event.is_repeat() || event.is_key_up() || event.is_button_up() {
+        return;
+    }
+    let captured = match event.source {
+        InputSource::Keyboard { key, .. } if key != emergency_key() => CapturedInput::Key {
+            logical: key,
+            physical: event.physical_key(),
+        },
+        InputSource::Keyboard { .. } => return,
+        InputSource::Mouse {
+            kind: MouseKind::ButtonDown(button),
+            ..
+        } => CapturedInput::MouseButton(button),
+        InputSource::Mouse { .. } => return,
+    };
+    finish_capture(CaptureOutcome::Captured(captured));
+}
+
+fn expire_capture() {
+    let expired = capture_state()
+        .lock()
+        .ok()
+        .and_then(|state| {
+            state
+                .as_ref()
+                .map(|capture| Instant::now() >= capture.deadline)
+        })
+        .unwrap_or(false);
+    if expired {
+        finish_capture(CaptureOutcome::TimedOut);
+    }
 }
 
 /// Pause the matcher and synchronously deliver its held events. This function
@@ -275,12 +469,108 @@ fn resume_on_hook_thread() {
     send_log("resumed: interception active".to_string());
 }
 
-fn execute_control(action: ControlAction) -> ControlResult {
+fn replace_rules_on_hook_thread(
+    index: inputflow_engine::RuleIndex,
+    emergency_key: Key,
+    rule_count: usize,
+) -> Result<ReplaceReport, String> {
+    let was_suspended = is_bypassed();
+    let pause = flush_held_events_on_hook_thread();
+    BYPASS.store(true, Ordering::Relaxed);
+    if !pause.output_complete {
+        return Err(format!(
+            "cannot replace rules because pending replay was incomplete (inserted={} requested={} last_error={})",
+            pause.inserted_inputs, pause.requested_inputs, pause.last_error
+        ));
+    }
+
+    let matcher = MATCHER
+        .get()
+        .ok_or_else(|| "matcher is not installed".to_string())?;
+    let mut matcher = matcher
+        .lock()
+        .map_err(|_| "matcher lock is poisoned".to_string())?;
+    matcher
+        .replace_rules(index)
+        .map_err(|error| error.to_string())?;
+    install_emergency_key(emergency_key)?;
+    if !was_suspended {
+        matcher.set_paused(false);
+        matcher.set_bypassed(false);
+        BYPASS.store(false, Ordering::Relaxed);
+    }
+    drop(matcher);
+    send_log(format!(
+        "rules replaced: rule_count={rule_count} emergency_key={emergency_key} suspended={was_suspended}"
+    ));
+    Ok(ReplaceReport {
+        pause,
+        was_suspended,
+        rule_count,
+        emergency_key,
+    })
+}
+
+fn begin_capture_on_hook_thread(timeout: Duration) -> Result<CaptureSession, String> {
+    if timeout.is_zero() {
+        return Err("capture timeout must be greater than zero".to_string());
+    }
+    let mut state = capture_state()
+        .lock()
+        .map_err(|_| "capture state lock is poisoned".to_string())?;
+    if state.is_some() {
+        return Err("a capture session is already active".to_string());
+    }
+    let id = CAPTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let (response, receiver) = sync_channel(1);
+    *state = Some(CaptureState {
+        id,
+        deadline: Instant::now() + timeout,
+        response,
+    });
+    CAPTURE_ACTIVE.store(true, Ordering::Release);
+    send_log(format!("capture started: session_id={id}"));
+    Ok(CaptureSession { id, receiver })
+}
+
+fn cancel_capture_on_hook_thread(session_id: u64) -> Result<(), String> {
+    let active_id = capture_state()
+        .lock()
+        .map_err(|_| "capture state lock is poisoned".to_string())?
+        .as_ref()
+        .map(|capture| capture.id);
+    match active_id {
+        Some(id) if id == session_id => {
+            finish_capture(CaptureOutcome::Cancelled);
+            send_log(format!("capture cancelled: session_id={session_id}"));
+            Ok(())
+        }
+        Some(id) => Err(format!(
+            "capture session {session_id} is not active (active session is {id})"
+        )),
+        None => Err("no capture session is active".to_string()),
+    }
+}
+
+fn execute_control(action: ControlAction) -> Result<ControlResult, String> {
     match action {
-        ControlAction::Suspend => ControlResult::Suspended(suspend_on_hook_thread()),
+        ControlAction::Suspend => Ok(ControlResult::Suspended(suspend_on_hook_thread())),
         ControlAction::Resume => {
             resume_on_hook_thread();
-            ControlResult::Resumed
+            Ok(ControlResult::Resumed)
+        }
+        ControlAction::ReplaceRules {
+            index,
+            emergency_key,
+            rule_count,
+        } => replace_rules_on_hook_thread(index, emergency_key, rule_count)
+            .map(ControlResult::Replaced),
+        ControlAction::BeginCapture { timeout } => {
+            begin_capture_on_hook_thread(timeout).map(ControlResult::CaptureStarted)
+        }
+        ControlAction::CancelCapture { session_id } => {
+            cancel_capture_on_hook_thread(session_id)?;
+            Ok(ControlResult::CaptureCancelled)
         }
     }
 }
@@ -294,7 +584,7 @@ fn request_control(action: ControlAction) -> Result<ControlResult, String> {
     // avoid posting to and waiting on the current thread.
     let current_thread_id = unsafe { GetCurrentThreadId() };
     if current_thread_id == hook_thread_id {
-        return Ok(execute_control(action));
+        return execute_control(action);
     }
 
     let id = CONTROL_SEQUENCE.fetch_add(1, Ordering::Relaxed);
@@ -393,7 +683,7 @@ fn handle_control_requests() {
         }
         let result = execute_control(request.action);
         request.state.store(CONTROL_COMPLETE, Ordering::Release);
-        let _ = request.response.try_send(Ok(result));
+        let _ = request.response.try_send(result);
     }
 }
 
@@ -411,7 +701,7 @@ fn fail_pending_control_requests(reason: &str) {
 pub fn suspend() -> Result<PauseReport, String> {
     match request_control(ControlAction::Suspend)? {
         ControlResult::Suspended(report) => Ok(report),
-        ControlResult::Resumed => Err("unexpected resume acknowledgement".to_string()),
+        _ => Err("unexpected control acknowledgement for suspend".to_string()),
     }
 }
 
@@ -419,8 +709,44 @@ pub fn suspend() -> Result<PauseReport, String> {
 pub fn resume() -> Result<(), String> {
     match request_control(ControlAction::Resume)? {
         ControlResult::Resumed => Ok(()),
-        ControlResult::Suspended(_) => Err("unexpected suspend acknowledgement".to_string()),
+        _ => Err("unexpected control acknowledgement for resume".to_string()),
     }
+}
+
+/// Flush pending input and replace rules/emergency key on the Hook owner.
+pub fn replace_rules(
+    index: inputflow_engine::RuleIndex,
+    emergency_key: Key,
+    rule_count: usize,
+) -> Result<ReplaceReport, String> {
+    match request_control(ControlAction::ReplaceRules {
+        index,
+        emergency_key,
+        rule_count,
+    })? {
+        ControlResult::Replaced(report) => Ok(report),
+        _ => Err("unexpected control acknowledgement for rule replacement".to_string()),
+    }
+}
+
+/// Begin a bounded recording session without changing interception state.
+pub fn begin_capture(timeout: Duration) -> Result<CaptureSession, String> {
+    match request_control(ControlAction::BeginCapture { timeout })? {
+        ControlResult::CaptureStarted(session) => Ok(session),
+        _ => Err("unexpected control acknowledgement for capture start".to_string()),
+    }
+}
+
+/// Cancel the named capture session on the Hook owner.
+pub fn cancel_capture(session_id: u64) -> Result<(), String> {
+    match request_control(ControlAction::CancelCapture { session_id })? {
+        ControlResult::CaptureCancelled => Ok(()),
+        _ => Err("unexpected control acknowledgement for capture cancel".to_string()),
+    }
+}
+
+pub fn is_capture_active() -> bool {
+    CAPTURE_ACTIVE.load(Ordering::Acquire)
 }
 
 /// Toggle suspension and return the new state (`true` = interception stopped).
@@ -639,8 +965,11 @@ fn next_seq() -> u64 {
 }
 
 fn send_log(line: String) {
-    if let Some(tx) = LOG_TX.get() {
-        let _ = tx.try_send(line);
+    if let Some(cell) = LOG_TX.get()
+        && let Ok(sender) = cell.lock()
+        && let Some(sender) = sender.as_ref()
+    {
+        let _ = sender.try_send(line);
     }
 }
 
@@ -744,7 +1073,11 @@ fn decision_after_output_failure(
 fn dispatch_command(command: &Command) -> OutputReport {
     match command {
         Command::Emit { rule_id, action } => {
-            send_log(format!("matched rule `{rule_id}` with {action:?}"));
+            if debug_log_enabled() {
+                send_log(format!("matched rule `{rule_id}` with {action:?}"));
+            } else {
+                send_log("matched rule; detailed identity disabled".to_string());
+            }
         }
         Command::Replay { events } => {
             send_log(format!("replay {} held event(s)", events.len()));
@@ -762,6 +1095,7 @@ fn dispatch_command(command: &Command) -> OutputReport {
 /// Drive any elapsed matcher deadline (Hold / Hold+MouseButton). Called from the
 /// message loop on `WM_TIMER`; runs on the hook thread but outside the callback.
 fn drive_timeouts() {
+    expire_capture();
     let Some(matcher) = MATCHER.get() else {
         return;
     };
@@ -1008,6 +1342,7 @@ pub fn run_hook_thread(ready: std::sync::mpsc::Sender<Result<u32, String>>) {
 
     // Best-effort flush any held events before removing the hooks.
     SHUTTING_DOWN.store(true, Ordering::Relaxed);
+    finish_capture(CaptureOutcome::Shutdown);
     flush_held();
     BYPASS.store(true, Ordering::Relaxed);
     if matcher_has_release_tombstones() {
@@ -1191,6 +1526,11 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
             ));
         }
 
+        // Capture is an immutable observation only. It neither pauses nor
+        // pre-consumes the event, and the emergency key is excluded inside the
+        // observer.
+        observe_capture(event);
+
         // The emergency key toggles suspension on its first (non-repeat) down and
         // is itself never intercepted.
         if !up && !repeat && key == emergency_key() && !SHUTTING_DOWN.load(Ordering::Relaxed) {
@@ -1261,6 +1601,8 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
                 let result = unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
                 return finish_callback(callback_start, result);
             }
+
+            observe_capture(event);
 
             match process(event) {
                 Decision::Suppress { .. } => finish_callback(callback_start, 1),
@@ -1352,6 +1694,59 @@ mod tests {
         assert_eq!((down_ki.wVk, down_ki.wScan), (0, 0x3a));
         assert_eq!(down_ki.dwFlags, KEYEVENTF_SCANCODE);
         assert_eq!(up_ki.dwFlags, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP);
+    }
+
+    #[test]
+    fn capture_observes_one_down_without_suppressing_or_recording_emergency() {
+        reset_runtime_state().unwrap();
+        install_emergency_key(Key::F12).unwrap();
+        let session = begin_capture_on_hook_thread(Duration::from_secs(1)).unwrap();
+        let emergency = InputEvent {
+            seq: 0,
+            time_ms: 0,
+            injected: false,
+            source: InputSource::Keyboard {
+                key: Key::F12,
+                scan_code: 0x58,
+                extended: false,
+                down: true,
+                repeat: false,
+            },
+        };
+        observe_capture(emergency);
+        assert!(is_capture_active());
+
+        let key = InputEvent {
+            seq: 1,
+            time_ms: 1,
+            injected: false,
+            source: InputSource::Keyboard {
+                key: Key::Oem1,
+                scan_code: 0x27,
+                extended: false,
+                down: true,
+                repeat: false,
+            },
+        };
+        observe_capture(key);
+        assert_eq!(
+            session.recv_timeout(Duration::from_millis(10)),
+            Ok(CaptureOutcome::Captured(CapturedInput::Key {
+                logical: Key::Oem1,
+                physical: Some(Key::Physical {
+                    scan_code: 0x27,
+                    extended: false,
+                }),
+            }))
+        );
+        assert!(!is_capture_active());
+
+        let cancelled = begin_capture_on_hook_thread(Duration::from_secs(1)).unwrap();
+        cancel_capture_on_hook_thread(cancelled.id()).unwrap();
+        assert_eq!(
+            cancelled.recv_timeout(Duration::from_millis(10)),
+            Ok(CaptureOutcome::Cancelled)
+        );
     }
 
     #[test]

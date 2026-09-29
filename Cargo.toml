@@ -4,16 +4,21 @@ members = [
     "crates/inputflow-engine",
     "crates/inputflow-windows",
     "crates/inputflow-config",
+    "crates/inputflow-runtime",
     "apps/probe-cli",
+    "apps/inputflow-agent",
 ]
 
 [workspace.dependencies]
 windows-sys = { version = "0.61.2", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
     "Win32_Storage_FileSystem",
     "Win32_System_LibraryLoader",
     "Win32_System_Threading",
     "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
 serde = { version = "1", features = ["derive"] }

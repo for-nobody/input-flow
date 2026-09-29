@@ -1,8 +1,8 @@
 [package]
-name = "probe-cli"
+name = "inputflow-agent"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-inputflow-config = { path = "../../crates/inputflow-config" }
 inputflow-runtime = { path = "../../crates/inputflow-runtime" }
+inputflow-windows = { path = "../../crates/inputflow-windows" }

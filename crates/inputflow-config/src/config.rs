@@ -198,6 +198,22 @@ pub struct LoadedConfig {
     pub problems: Vec<String>,
 }
 
+/// A validated current-schema document resolved into runtime identities.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidatedConfig {
+    pub config: Config,
+    pub emergency_key: Key,
+    pub rules: Vec<Rule>,
+}
+
+/// Structured result of an atomic configuration commit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaveReport {
+    pub path: PathBuf,
+    pub backup_path: Option<PathBuf>,
+    pub cleanup_warnings: Vec<String>,
+}
+
 impl Default for LoadedConfig {
     fn default() -> Self {
         Self {
@@ -551,6 +567,15 @@ fn validate(config: &Config) -> Result<Resolved, Vec<ConfigError>> {
     }
 }
 
+/// Validate and resolve a schema-v2 document without reading or writing disk.
+pub fn validate_config(config: &Config) -> Result<ValidatedConfig, Vec<ConfigError>> {
+    validate(config).map(|resolved| ValidatedConfig {
+        config: resolved.config,
+        emergency_key: resolved.emergency_key,
+        rules: resolved.rules,
+    })
+}
+
 /// Resolve one on-disk rule into an engine [`Rule`].
 fn resolve_rule(rule: &RuleConfig) -> Result<Rule, String> {
     if rule.id.trim().is_empty() {
@@ -638,6 +663,12 @@ fn check_timeout(timeout_ms: u64) -> Result<u64, String> {
 /// replaced with `ReplaceFileW`, which can also retain the old file as a unique
 /// recovery backup. Failed commits deliberately keep their valid temp artifact.
 pub fn save(path: &Path, config: &Config) -> Result<(), String> {
+    save_with_report(path, config).map(|_| ())
+}
+
+/// Atomically save a validated document and retain post-commit cleanup
+/// warnings for agent diagnostics instead of silently discarding them.
+pub fn save_with_report(path: &Path, config: &Config) -> Result<SaveReport, String> {
     let _guard = SAVE_LOCK
         .lock()
         .map_err(|_| "config save lock is poisoned".to_string())?;
@@ -665,7 +696,7 @@ fn save_with_committer(
     path: &Path,
     config: &Config,
     committer: &dyn FileCommitter,
-) -> Result<(), String> {
+) -> Result<SaveReport, String> {
     if let Err(errors) = validate(config) {
         return Err(format!(
             "refusing to save invalid config: {}",
@@ -699,7 +730,8 @@ fn save_with_committer(
     file.sync_all().map_err(|e| e.to_string())?;
     drop(file);
 
-    let commit = if path.exists() {
+    let replaced_existing = path.exists();
+    let commit = if replaced_existing {
         committer.replace_existing(path, &tmp, &backup)
     } else {
         committer.promote_new(&tmp, path)
@@ -721,9 +753,18 @@ fn save_with_committer(
     // Retention is best-effort after the new primary has been committed. It
     // never changes a successful save into a reported failure; a future UI
     // should expose cleanup warnings through its diagnostics channel.
-    let _ = prune_recovery_artifacts(path, RecoveryKind::Backup, RECOVERY_BACKUP_LIMIT);
-    let _ = prune_recovery_artifacts(path, RecoveryKind::Temp, RECOVERY_TEMP_LIMIT);
-    Ok(())
+    let mut cleanup_warnings =
+        prune_recovery_artifacts(path, RecoveryKind::Backup, RECOVERY_BACKUP_LIMIT);
+    cleanup_warnings.extend(prune_recovery_artifacts(
+        path,
+        RecoveryKind::Temp,
+        RECOVERY_TEMP_LIMIT,
+    ));
+    Ok(SaveReport {
+        path: path.to_path_buf(),
+        backup_path: replaced_existing.then_some(backup),
+        cleanup_warnings,
+    })
 }
 
 /// Retain the newest `limit` artifacts of one kind and, if they are all corrupt,
@@ -1123,6 +1164,34 @@ mod tests {
         assert!(loaded.problems.is_empty());
         assert_eq!(loaded.emergency_key, Key::F12);
         assert_eq!(loaded.rules, validate(&config).unwrap().rules);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn structured_save_report_exposes_commit_backup_and_cleanup_warnings() {
+        let dir = std::env::temp_dir().join(format!(
+            "inputflow-config-save-report-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        let path = dir.join("config.json");
+        let config = sample_config();
+
+        let first = save_with_report(&path, &config).unwrap();
+        assert_eq!(first.path, path);
+        assert_eq!(first.backup_path, None);
+        assert!(first.cleanup_warnings.is_empty());
+
+        let second = save_with_report(&path, &config).unwrap();
+        assert!(
+            second
+                .backup_path
+                .as_ref()
+                .is_some_and(|backup| backup.exists())
+        );
+        assert!(second.cleanup_warnings.is_empty());
+        assert_eq!(validate_config(&config).unwrap().rules.len(), 1);
 
         let _ = fs::remove_dir_all(&dir);
     }

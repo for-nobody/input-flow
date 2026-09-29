@@ -322,6 +322,21 @@ impl Matcher {
         }
     }
 
+    /// Replace the compiled rules after the owner has paused the matcher and
+    /// delivered every event returned by [`Matcher::set_paused`]. Consumed
+    /// release tombstones are deliberately preserved so a down owned by the
+    /// old rules still owns its later physical up.
+    pub fn replace_rules(&mut self, index: RuleIndex) -> Result<(), &'static str> {
+        if !self.paused {
+            return Err("matcher must be paused before replacing rules");
+        }
+        if self.active.is_some() || !self.pending.is_empty() {
+            return Err("matcher still has pending input during rule replacement");
+        }
+        self.index = index;
+        Ok(())
+    }
+
     /// Whether the matcher has entered bypass (overflow) and should stop
     /// intercepting input.
     pub fn is_bypassed(&self) -> bool {
@@ -1268,6 +1283,43 @@ mod tests {
             m.on_event(up(3, 3, Key::LeftCtrl)).0,
             Decision::Suppress { event_id: 3 }
         );
+    }
+
+    #[test]
+    fn replacing_rules_preserves_old_release_tombstones_and_uses_new_prefixes() {
+        let clock = ManualClock::new(0);
+        let mut matcher = matcher_with(clock, vec![chord_rule("old", Key::CapsLock, Key::A)], 8);
+        let new = RuleIndex::compile(vec![chord_rule("new", Key::B, Key::C)]).unwrap();
+
+        assert!(matches!(
+            matcher.on_event(down(0, 0, Key::CapsLock)).0,
+            Decision::Suppress { .. }
+        ));
+        assert!(matches!(
+            matcher.on_event(down(1, 1, Key::A)).0,
+            Decision::Suppress { .. }
+        ));
+
+        assert!(matcher.set_paused(true).is_empty());
+        matcher.replace_rules(new).unwrap();
+        matcher.set_paused(false);
+
+        assert!(matches!(
+            matcher.on_event(up(2, 2, Key::A)).0,
+            Decision::Suppress { .. }
+        ));
+        assert!(matches!(
+            matcher.on_event(up(3, 3, Key::CapsLock)).0,
+            Decision::Suppress { .. }
+        ));
+        assert_eq!(
+            matcher.on_event(down(4, 4, Key::CapsLock)).0,
+            Decision::PassThrough
+        );
+        assert!(matches!(
+            matcher.on_event(down(5, 5, Key::B)).0,
+            Decision::Suppress { .. }
+        ));
     }
 
     #[test]
