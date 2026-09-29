@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "emergency_bypass_key": "F12",
+  "rules": [
+    {
+      "id": "legacy-copy",
+      "trigger": {
+        "type": "key_chord",
+        "first": "LeftCtrl",
+        "second": "C"
+      },
+      "action": {
+        "type": "key_chord",
+        "keys": ["LeftCtrl", "C"]
+      }
+    }
+  ]
+}

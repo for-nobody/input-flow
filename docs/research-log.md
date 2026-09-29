@@ -144,6 +144,29 @@
 - 自动验证：`cargo test --workspace` 为 92/92（engine 61 + config 18 + windows 13）；`cargo clippy --workspace --all-targets -- -D warnings` 通过。Windows lifecycle smoke 实际执行 `pause → resume → stats → quit`，Hook/timer/控制消息/确认/清理均成功，退出码 0；无物理输入，callback 样本仍为 0，因此不作为桌面输入或性能验收。
 - 详细事件交错、方案取舍、命令原始结果和待人工矩阵见 `check-fix-debug-list/tag_4_InputFlow-M6-四轮后端修复记录.md`。
 
+## 13. M7 Phase A：WinUI 3 构建与生命周期 smoke（2026-09-29）
+
+- 当前工作区重新探测为内核 10.0.26200.9457 x64、Rust 1.98.1、.NET SDK 10.0.401、MSBuild 18.9.11、Windows SDK 10.0.26100.0。存在 Visual Studio Build Tools 2022 17.14.41 和 2026 18.10.2，但没有 WinUI workload；通过官方 `Microsoft.WindowsAppSDK.WinUI.CSharp.Templates` CLI 模板建立工程。
+- Windows App SDK 固定为稳定版 2.5.1，Windows SDK BuildTools 固定为 10.0.28000.2705；仓库根 `global.json` 固定 .NET SDK 10.0.401。WinUI 工程不进入 Cargo workspace。
+- 比较三种可行路径：packaged + framework-dependent 能构建，但启动被未启用的 Developer Mode 阻止；unpackaged + self-contained 可构建、启动、关闭；安装 Windows App Runtime 2.5.1 x64 后，unpackaged + framework-dependent 同样可构建、启动、关闭。选择最后一项作为 Phase A 基线，self-contained 保留为 fallback。
+- Debug/Release solution build 均为 0 warning、0 error。实测出现标题为 `InputFlow.Settings` 的原生窗口；正常发送 `WM_CLOSE` 后进程退出码 0。页面仅说明 build smoke，不安装 Hook、不写配置、不连接 IPC、不伪造 agent 在线或保存成功。
+- 重新执行 Rust 基线：fmt、92/92 workspace tests、Clippy `-D warnings`、probe build 均通过；`pause → resume → stats → quit` 无输入 lifecycle smoke 退出码 0。它没有物理输入样本，不能补齐 M6 菜单/墓碑、repeat、UIPI、布局或高负载矩阵。
+- 未执行：x86/ARM64、packaged 启动、干净机首次安装/升级/卸载、运行库缺失体验、agent/Named Pipe/托盘/正式设置页面。下一阶段只进入 Phase B：ADR-005、完整键盘身份和 Schema v1→v2 迁移设计。
+
+## 14. M7 Phase B：完整键盘身份与 Schema v2（2026-09-29）
+
+- 比较了“仅扩展 VK 枚举”“仅 scan code + extended”“事件保留双身份且规则声明 match mode”。ADR-005 选择第三项：普通录制默认 logical，advanced 可切 physical；同一事件的 exact physical 规则优先。Hook 归一化只增加定长字段和最多两个候选，不新增线程、IPC、磁盘访问或无界容器。
+- `Key` 补齐 lock、navigation、Windows OEM、numpad/keypad Enter、PrintScreen/Pause/Apps、volume/media/browser；低级 Hook 对左右修饰、右 Shift scan 和 keypad Enter extended 作显式区分。Unknown 保留原 VK 用于放行/失败回放，但 schema logical 配置拒绝 Unknown；非零 scan 可显式配置为 physical。
+- matcher 的规则身份与 held/repeat/release tracking 分离：规则按 logical 或 physical 匹配，tracking 优先 scan+extended。修复了布局在按住期间改变时 logical key-up 可能不再等于 key-down 的问题：活动前缀也用同一 physical tracking identity 识别 release，避免泄漏孤立 up 或遗留 active state。
+- 捕获事件失败回放优先使用原始 scan + `KEYEVENTF_SCANCODE`，修正原 `event_to_input` 把 down/up 参数反向传递的缺陷；logical action 用 VK，physical action用 scan，extended 独立保留。自动测试验证 Caps down/up 只生成一对正确方向 INPUT，控制冲刷只重发一个 pending Caps down。
+- Schema 版本提升到 2；键值为 `{match:logical,key:...}` 或 `{match:physical,scan_code,extended}`。v1 字符串键严格读取后确定迁移为 logical，不猜布局；加载返回 source version 和 compatibility warning，读取本身不覆盖。新保存只接受 v2，已有 `ReplaceFileW` committed backup 保留 v1 回滚副本。
+- 新增 `fixtures/config/v1-valid.json` 和 `v2-valid.json` 作为未来 Rust/C# 跨语言 golden contract；测试覆盖 v1 语义不变、v2 logical/physical 往返、未知字段、未知 logical、scan 0、physical emergency、v1/v2 混合形状拒绝，以及正式 v2 + v1 backup。
+- Caps engine 测试覆盖无规则 down/up、候选失败 FIFO、命中与 release tombstone、repeat、pause/control flush 和 overflow；平台输出测试覆盖 scan 模式和精确 down/up。真实物理验收进一步验证了失败回放、命中消费、toggle 次数和 `F12` pending 冲刷。
+- 当前用户语言列表实际为 `en-US`（`0409:00000409`）和 `zh-Hans-CN` Microsoft Pinyin。两种输入状态都实际观察到 `Oem1 scan=0x27 extended=false`、`CapsLock scan=0x3A` 和 `A scan=0x1E`；记事本字符正确。Microsoft Pinyin 下单独 `Oem1` 候选失败回放为 2/2，目标只出现一个分号；英文下 physical `Oem1 + F9` 命中只输出一个 `c`，没有分号或其他快捷动作。
+- Caps 以关闭状态开始：两轮失败回放均为 2/2，记事本依次显示大写/小写且键盘灯正确；`CapsLock + F9` 在含 repeat 的真实序列中只匹配一次、只输出一个 `c`，Caps 灯保持关闭。pending Caps 时按 `F12` 回放 1/1 并进入旁路，释放后显示大写；再次 `F12` 恢复后 Caps 失败回放 2/2，显示小写并回到灯灭。验收探针最终 clean quit：7 个输出批次，0 failed、0 dropped。
+- Phase D/E 的正式 capture/display session 尚不存在；本轮通过 probe 的显式 debug observation 完成 identity 记录，不能冒充正式设置 UI 录制。
+- 自动验证：`cargo test --workspace` 为 113/113（engine 72 + config 24 + windows 17）；fmt、Clippy `-D warnings` 和 probe build 通过。Phase C agent、Phase D IPC、Phase E 正式设置和 Phase F/M8 鼠标方向均未开始。
+
 ## 变更记录
 
 - 2026-09-26（M0）：建立四条主线的初始调研结论，均标注“待验证”；尚未进行 Windows 实机实验。
@@ -155,3 +178,5 @@
 - 2026-09-26（M6）：实现可靠性——新增 `inputflow-config`（版本化 JSON 配置、校验、原子保存、坏文件回退）、暂停/旁路（冲刷已暂扣）、可配置紧急键、匿名化诊断日志、崩溃标记、性能采样；引擎 48 + 配置 9 + keymap 3 共 60 项单测通过；`cargo clippy` 无警告；`echo quit | probe-cli.exe` 实机回归通过；交互实机验证待做。
 - 2026-09-27（M6 三轮复查）：加入释放墓碑、完整重复事件暂扣/溢出语义、可注入输出结果、定时器启动门槛、`ReplaceFileW` 配置提交与恢复发现、完整回调墙钟采样；85 项测试与 Clippy 通过，Hook 启停 smoke 通过；真实键鼠/菜单/UIPI/高负载性能仍待人工验收。
 - 2026-09-27（M6 四轮复查）：外部暂停/恢复改由 Hook 线程串行执行并确认；统计改为锁内快照、锁外单次排序并校正计时口径；配置恢复采用 backup 优先和有效性保护的 5/3 代保留；92 项测试、Clippy 和 pause/resume lifecycle smoke 通过，真实键鼠/UIPI/高负载验收仍待人工执行。
+- 2026-09-29（M7 Phase A）：安装并固定 .NET 10/WinUI 3 构建链，建立不接 Hook/配置/IPC 的原生设置 smoke；选择 unpackaged + framework-dependent，验证 x64 Debug/Release 构建和窗口正常退出；packaged 启动及 Phase B–F 明确保持未完成。
+- 2026-09-29（M7 Phase B）：接受 logical/physical 双身份 ADR-005，补齐键映射、physical-first matcher 与 scan-code 回放，升级严格 Schema v2 并保留 v1 golden/迁移/回滚；113 项自动测试通过。en-US/Microsoft Pinyin OEM 观察与回放、Caps 失败/命中/指示灯及 `F12` pending 恢复均通过真实物理验收，Phase B 完成。

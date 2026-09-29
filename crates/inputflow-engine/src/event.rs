@@ -1,264 +1,149 @@
 //! Platform-independent input event model.
 //!
 //! These types are intentionally free of any Windows dependency. A [`Key`]
-//! carries semantic key identity (with left/right modifiers distinguished); the
-//! mapping from Win32 virtual-key codes to [`Key`] lives in the Windows
+//! carries either a logical key identity or an explicit physical scan identity.
+//! The mapping from Win32 virtual-key codes to logical keys lives in the Windows
 //! integration crate (`inputflow-windows`), not here. `Unknown(u16)` preserves
-//! the raw platform key code for keys that are not modelled yet, so no
-//! information is lost during normalization.
+//! an unmapped raw platform virtual-key code during normalization; it is not a
+//! valid stable configuration identity.
 
 use std::fmt;
 
-/// A platform-independent key identifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum Key {
-    // Modifiers (left/right distinguished).
-    LeftCtrl,
-    RightCtrl,
-    LeftShift,
-    RightShift,
-    LeftAlt,
-    RightAlt,
-    LeftWin,
-    RightWin,
-    // Letters.
-    A,
-    B,
-    C,
-    D,
-    E,
-    F,
-    G,
-    H,
-    I,
-    J,
-    K,
-    L,
-    M,
-    N,
-    O,
-    P,
-    Q,
-    R,
-    S,
-    T,
-    U,
-    V,
-    W,
-    X,
-    Y,
-    Z,
-    // Main-row digits.
-    Digit0,
-    Digit1,
-    Digit2,
-    Digit3,
-    Digit4,
-    Digit5,
-    Digit6,
-    Digit7,
-    Digit8,
-    Digit9,
-    // Function keys.
-    F1,
-    F2,
-    F3,
-    F4,
-    F5,
-    F6,
-    F7,
-    F8,
-    F9,
-    F10,
-    F11,
-    F12,
-    F13,
-    F14,
-    F15,
-    F16,
-    F17,
-    F18,
-    F19,
-    F20,
-    F21,
-    F22,
-    F23,
-    F24,
-    // Common editing / navigation keys.
-    Space,
-    Enter,
-    Escape,
-    Tab,
-    Backspace,
-    /// Any key not modelled yet, carrying the raw platform key code.
-    Unknown(u16),
+macro_rules! define_keys {
+    ($($variant:ident => $name:literal),+ $(,)?) => {
+        /// A key identity used by rules and events.
+        ///
+        /// Named variants are logical Windows virtual-key identities. `Physical`
+        /// is a layout-independent scan-code identity selected explicitly by a
+        /// rule. `Unknown` is an observation-only raw virtual-key fallback.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        pub enum Key {
+            $($variant,)+
+            Physical { scan_code: u16, extended: bool },
+            Unknown(u16),
+        }
+
+        impl Key {
+            /// Every named logical key accepted by configuration schema v2.
+            pub const NAMED: &'static [Key] = &[$(Key::$variant,)+];
+
+            /// Parse a canonical logical-key name. Physical and unknown
+            /// identities must use their explicit schema representations.
+            pub fn from_name(name: &str) -> Option<Key> {
+                match name {
+                    $($name => Some(Key::$variant),)+
+                    _ => None,
+                }
+            }
+
+            /// Build a physical identity. Scan code zero is not stable enough
+            /// to configure and therefore has no physical representation.
+            pub fn physical(scan_code: u16, extended: bool) -> Option<Key> {
+                (scan_code != 0).then_some(Key::Physical { scan_code, extended })
+            }
+        }
+
+        impl fmt::Display for Key {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                match self {
+                    $(Key::$variant => f.write_str($name),)+
+                    Key::Physical { scan_code, extended } => write!(
+                        f,
+                        "Physical(scan=0x{scan_code:02X},extended={extended})"
+                    ),
+                    Key::Unknown(vk) => write!(f, "Unknown(0x{vk:X})"),
+                }
+            }
+        }
+    };
 }
 
-impl fmt::Display for Key {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let name = match self {
-            Key::LeftCtrl => "LeftCtrl",
-            Key::RightCtrl => "RightCtrl",
-            Key::LeftShift => "LeftShift",
-            Key::RightShift => "RightShift",
-            Key::LeftAlt => "LeftAlt",
-            Key::RightAlt => "RightAlt",
-            Key::LeftWin => "LeftWin",
-            Key::RightWin => "RightWin",
-            Key::A => "A",
-            Key::B => "B",
-            Key::C => "C",
-            Key::D => "D",
-            Key::E => "E",
-            Key::F => "F",
-            Key::G => "G",
-            Key::H => "H",
-            Key::I => "I",
-            Key::J => "J",
-            Key::K => "K",
-            Key::L => "L",
-            Key::M => "M",
-            Key::N => "N",
-            Key::O => "O",
-            Key::P => "P",
-            Key::Q => "Q",
-            Key::R => "R",
-            Key::S => "S",
-            Key::T => "T",
-            Key::U => "U",
-            Key::V => "V",
-            Key::W => "W",
-            Key::X => "X",
-            Key::Y => "Y",
-            Key::Z => "Z",
-            Key::Digit0 => "Digit0",
-            Key::Digit1 => "Digit1",
-            Key::Digit2 => "Digit2",
-            Key::Digit3 => "Digit3",
-            Key::Digit4 => "Digit4",
-            Key::Digit5 => "Digit5",
-            Key::Digit6 => "Digit6",
-            Key::Digit7 => "Digit7",
-            Key::Digit8 => "Digit8",
-            Key::Digit9 => "Digit9",
-            Key::F1 => "F1",
-            Key::F2 => "F2",
-            Key::F3 => "F3",
-            Key::F4 => "F4",
-            Key::F5 => "F5",
-            Key::F6 => "F6",
-            Key::F7 => "F7",
-            Key::F8 => "F8",
-            Key::F9 => "F9",
-            Key::F10 => "F10",
-            Key::F11 => "F11",
-            Key::F12 => "F12",
-            Key::F13 => "F13",
-            Key::F14 => "F14",
-            Key::F15 => "F15",
-            Key::F16 => "F16",
-            Key::F17 => "F17",
-            Key::F18 => "F18",
-            Key::F19 => "F19",
-            Key::F20 => "F20",
-            Key::F21 => "F21",
-            Key::F22 => "F22",
-            Key::F23 => "F23",
-            Key::F24 => "F24",
-            Key::Space => "Space",
-            Key::Enter => "Enter",
-            Key::Escape => "Escape",
-            Key::Tab => "Tab",
-            Key::Backspace => "Backspace",
-            Key::Unknown(vk) => return write!(f, "Unknown(0x{vk:X})"),
-        };
-        f.write_str(name)
-    }
-}
-
-impl Key {
-    /// Parse a canonical key name (the reverse of [`Key`]'s `Display`). Returns
-    /// `None` for unrecognized names, including the `Unknown(..)` fallback, so
-    /// config validation can reject unmapped keys instead of accepting them.
-    pub fn from_name(name: &str) -> Option<Key> {
-        let key = match name {
-            "LeftCtrl" => Key::LeftCtrl,
-            "RightCtrl" => Key::RightCtrl,
-            "LeftShift" => Key::LeftShift,
-            "RightShift" => Key::RightShift,
-            "LeftAlt" => Key::LeftAlt,
-            "RightAlt" => Key::RightAlt,
-            "LeftWin" => Key::LeftWin,
-            "RightWin" => Key::RightWin,
-            "A" => Key::A,
-            "B" => Key::B,
-            "C" => Key::C,
-            "D" => Key::D,
-            "E" => Key::E,
-            "F" => Key::F,
-            "G" => Key::G,
-            "H" => Key::H,
-            "I" => Key::I,
-            "J" => Key::J,
-            "K" => Key::K,
-            "L" => Key::L,
-            "M" => Key::M,
-            "N" => Key::N,
-            "O" => Key::O,
-            "P" => Key::P,
-            "Q" => Key::Q,
-            "R" => Key::R,
-            "S" => Key::S,
-            "T" => Key::T,
-            "U" => Key::U,
-            "V" => Key::V,
-            "W" => Key::W,
-            "X" => Key::X,
-            "Y" => Key::Y,
-            "Z" => Key::Z,
-            "Digit0" => Key::Digit0,
-            "Digit1" => Key::Digit1,
-            "Digit2" => Key::Digit2,
-            "Digit3" => Key::Digit3,
-            "Digit4" => Key::Digit4,
-            "Digit5" => Key::Digit5,
-            "Digit6" => Key::Digit6,
-            "Digit7" => Key::Digit7,
-            "Digit8" => Key::Digit8,
-            "Digit9" => Key::Digit9,
-            "F1" => Key::F1,
-            "F2" => Key::F2,
-            "F3" => Key::F3,
-            "F4" => Key::F4,
-            "F5" => Key::F5,
-            "F6" => Key::F6,
-            "F7" => Key::F7,
-            "F8" => Key::F8,
-            "F9" => Key::F9,
-            "F10" => Key::F10,
-            "F11" => Key::F11,
-            "F12" => Key::F12,
-            "F13" => Key::F13,
-            "F14" => Key::F14,
-            "F15" => Key::F15,
-            "F16" => Key::F16,
-            "F17" => Key::F17,
-            "F18" => Key::F18,
-            "F19" => Key::F19,
-            "F20" => Key::F20,
-            "F21" => Key::F21,
-            "F22" => Key::F22,
-            "F23" => Key::F23,
-            "F24" => Key::F24,
-            "Space" => Key::Space,
-            "Enter" => Key::Enter,
-            "Escape" => Key::Escape,
-            "Tab" => Key::Tab,
-            "Backspace" => Key::Backspace,
-            _ => return None,
-        };
-        Some(key)
-    }
+define_keys! {
+    LeftCtrl => "LeftCtrl",
+    RightCtrl => "RightCtrl",
+    LeftShift => "LeftShift",
+    RightShift => "RightShift",
+    LeftAlt => "LeftAlt",
+    RightAlt => "RightAlt",
+    LeftWin => "LeftWin",
+    RightWin => "RightWin",
+    A => "A", B => "B", C => "C", D => "D", E => "E", F => "F", G => "G",
+    H => "H", I => "I", J => "J", K => "K", L => "L", M => "M", N => "N",
+    O => "O", P => "P", Q => "Q", R => "R", S => "S", T => "T", U => "U",
+    V => "V", W => "W", X => "X", Y => "Y", Z => "Z",
+    Digit0 => "Digit0", Digit1 => "Digit1", Digit2 => "Digit2", Digit3 => "Digit3",
+    Digit4 => "Digit4", Digit5 => "Digit5", Digit6 => "Digit6", Digit7 => "Digit7",
+    Digit8 => "Digit8", Digit9 => "Digit9",
+    F1 => "F1", F2 => "F2", F3 => "F3", F4 => "F4", F5 => "F5", F6 => "F6",
+    F7 => "F7", F8 => "F8", F9 => "F9", F10 => "F10", F11 => "F11", F12 => "F12",
+    F13 => "F13", F14 => "F14", F15 => "F15", F16 => "F16", F17 => "F17",
+    F18 => "F18", F19 => "F19", F20 => "F20", F21 => "F21", F22 => "F22",
+    F23 => "F23", F24 => "F24",
+    Space => "Space",
+    Enter => "Enter",
+    NumpadEnter => "NumpadEnter",
+    Escape => "Escape",
+    Tab => "Tab",
+    Backspace => "Backspace",
+    CapsLock => "CapsLock",
+    NumLock => "NumLock",
+    ScrollLock => "ScrollLock",
+    Left => "Left",
+    Right => "Right",
+    Up => "Up",
+    Down => "Down",
+    Home => "Home",
+    End => "End",
+    PageUp => "PageUp",
+    PageDown => "PageDown",
+    Insert => "Insert",
+    Delete => "Delete",
+    Oem1 => "Oem1",
+    OemPlus => "OemPlus",
+    OemComma => "OemComma",
+    OemMinus => "OemMinus",
+    OemPeriod => "OemPeriod",
+    Oem2 => "Oem2",
+    Oem3 => "Oem3",
+    Oem4 => "Oem4",
+    Oem5 => "Oem5",
+    Oem6 => "Oem6",
+    Oem7 => "Oem7",
+    Oem8 => "Oem8",
+    Oem102 => "Oem102",
+    Numpad0 => "Numpad0",
+    Numpad1 => "Numpad1",
+    Numpad2 => "Numpad2",
+    Numpad3 => "Numpad3",
+    Numpad4 => "Numpad4",
+    Numpad5 => "Numpad5",
+    Numpad6 => "Numpad6",
+    Numpad7 => "Numpad7",
+    Numpad8 => "Numpad8",
+    Numpad9 => "Numpad9",
+    NumpadMultiply => "NumpadMultiply",
+    NumpadAdd => "NumpadAdd",
+    NumpadSeparator => "NumpadSeparator",
+    NumpadSubtract => "NumpadSubtract",
+    NumpadDecimal => "NumpadDecimal",
+    NumpadDivide => "NumpadDivide",
+    PrintScreen => "PrintScreen",
+    Pause => "Pause",
+    Apps => "Apps",
+    BrowserBack => "BrowserBack",
+    BrowserForward => "BrowserForward",
+    BrowserRefresh => "BrowserRefresh",
+    BrowserStop => "BrowserStop",
+    BrowserSearch => "BrowserSearch",
+    BrowserFavorites => "BrowserFavorites",
+    BrowserHome => "BrowserHome",
+    VolumeMute => "VolumeMute",
+    VolumeDown => "VolumeDown",
+    VolumeUp => "VolumeUp",
+    MediaNextTrack => "MediaNextTrack",
+    MediaPreviousTrack => "MediaPreviousTrack",
+    MediaStop => "MediaStop",
+    MediaPlayPause => "MediaPlayPause",
 }
 
 /// A mouse button, distinguished by identity (not by side).
@@ -354,6 +239,41 @@ impl InputEvent {
         match self.source {
             InputSource::Keyboard { key, .. } => Some(key),
             InputSource::Mouse { .. } => None,
+        }
+    }
+
+    /// The physical scan-code identity, when the hook supplied a nonzero scan
+    /// code. This identity is independent of the current keyboard layout.
+    pub fn physical_key(&self) -> Option<Key> {
+        match self.source {
+            InputSource::Keyboard {
+                scan_code,
+                extended,
+                ..
+            } => Key::physical(scan_code, extended),
+            InputSource::Mouse { .. } => None,
+        }
+    }
+
+    /// Identity used for held/repeat/release-tombstone state. Prefer the
+    /// physical identity so a layout change cannot strand a consumed down; use
+    /// the logical identity only when the platform reported no scan code.
+    pub fn tracking_key(&self) -> Option<Key> {
+        self.physical_key().or_else(|| self.key())
+    }
+
+    /// Candidate identities in deterministic rule-selection order. An exact
+    /// physical rule takes precedence over a logical rule for the same event.
+    pub fn key_identities(&self) -> [Option<Key>; 2] {
+        [self.physical_key(), self.key()]
+    }
+
+    /// Whether this keyboard event matches a configured logical or physical
+    /// identity.
+    pub fn matches_key(&self, identity: Key) -> bool {
+        match identity {
+            Key::Physical { .. } => self.physical_key() == Some(identity),
+            _ => self.key() == Some(identity),
         }
     }
 
@@ -472,28 +392,7 @@ mod tests {
 
     #[test]
     fn key_and_button_names_round_trip() {
-        for key in [
-            Key::LeftCtrl,
-            Key::RightCtrl,
-            Key::LeftShift,
-            Key::RightShift,
-            Key::LeftAlt,
-            Key::RightAlt,
-            Key::LeftWin,
-            Key::RightWin,
-            Key::A,
-            Key::Z,
-            Key::Digit0,
-            Key::Digit9,
-            Key::F1,
-            Key::F12,
-            Key::F24,
-            Key::Space,
-            Key::Enter,
-            Key::Escape,
-            Key::Tab,
-            Key::Backspace,
-        ] {
+        for &key in Key::NAMED {
             assert_eq!(Key::from_name(&key.to_string()), Some(key));
         }
         for button in [
@@ -506,7 +405,42 @@ mod tests {
             assert_eq!(MouseButton::from_name(&button.to_string()), Some(button));
         }
         assert_eq!(Key::from_name("NotAKey"), None);
+        assert_eq!(Key::from_name("Unknown(0xFF)"), None);
+        assert_eq!(Key::from_name("Physical(scan=0x1E,extended=false)"), None);
         assert_eq!(MouseButton::from_name("NotAButton"), None);
+    }
+
+    #[test]
+    fn keyboard_event_exposes_physical_then_logical_identity() {
+        let event = InputEvent {
+            seq: 7,
+            time_ms: 10,
+            injected: false,
+            source: InputSource::Keyboard {
+                key: Key::A,
+                scan_code: 0x1e,
+                extended: false,
+                down: true,
+                repeat: false,
+            },
+        };
+        let physical = Key::Physical {
+            scan_code: 0x1e,
+            extended: false,
+        };
+        assert_eq!(event.key_identities(), [Some(physical), Some(Key::A)]);
+        assert_eq!(event.tracking_key(), Some(physical));
+        assert!(event.matches_key(physical));
+        assert!(event.matches_key(Key::A));
+        assert!(!event.matches_key(Key::B));
+    }
+
+    #[test]
+    fn zero_scan_code_falls_back_to_logical_tracking() {
+        let event = kbd(Key::MediaPlayPause, true, false);
+        assert_eq!(event.physical_key(), None);
+        assert_eq!(event.tracking_key(), Some(Key::MediaPlayPause));
+        assert_eq!(event.key_identities(), [None, Some(Key::MediaPlayPause)]);
     }
 
     #[test]

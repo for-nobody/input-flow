@@ -1,0 +1,56 @@
+{
+  "schema_version": 2,
+  "emergency_bypass_key": {
+    "match": "logical",
+    "key": "F12"
+  },
+  "rules": [
+    {
+      "id": "accept-physical-oem1-then-f9",
+      "trigger": {
+        "type": "key_chord",
+        "first": {
+          "match": "physical",
+          "scan_code": 39,
+          "extended": false
+        },
+        "second": {
+          "match": "logical",
+          "key": "F9"
+        }
+      },
+      "action": {
+        "type": "key_chord",
+        "keys": [
+          {
+            "match": "logical",
+            "key": "C"
+          }
+        ]
+      }
+    },
+    {
+      "id": "accept-caps-lock-then-f9",
+      "trigger": {
+        "type": "key_chord",
+        "first": {
+          "match": "logical",
+          "key": "CapsLock"
+        },
+        "second": {
+          "match": "logical",
+          "key": "F9"
+        }
+      },
+      "action": {
+        "type": "key_chord",
+        "keys": [
+          {
+            "match": "logical",
+            "key": "C"
+          }
+        ]
+      }
+    }
+  ]
+}

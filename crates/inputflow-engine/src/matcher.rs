@@ -113,7 +113,10 @@ impl Clock for SystemClock {
 /// A single-key `Hold` rule currently running its timeout.
 struct ActiveHold {
     rule_id: String,
+    /// Logical or physical identity selected by the rule index.
     key: Key,
+    /// Physical-first identity used for state and release tombstones.
+    tracking_key: Key,
     deadline_ms: u64,
     action: Action,
 }
@@ -121,6 +124,7 @@ struct ActiveHold {
 /// A `Key+Key` / `Key+MouseButton` chord awaiting its second input.
 struct ActiveChord {
     first: Key,
+    first_tracking_key: Key,
 }
 
 /// A `Hold+MouseButton` rule: first wait for the key's threshold, then wait for
@@ -129,6 +133,7 @@ struct ActiveChord {
 struct ActiveHoldButton {
     rule_id: String,
     key: Key,
+    tracking_key: Key,
     button: MouseButton,
     deadline_ms: u64,
     /// `true` once the threshold has elapsed and the key is still held; the
@@ -184,7 +189,7 @@ impl Matcher {
         // consumed too (NFR-04), including while paused/bypassed. These entries
         // are release tombstones: retaining this tiny set is the deliberate
         // exception to "bypass intercepts nothing".
-        if let Some(key) = event.key()
+        if let Some(key) = event.tracking_key()
             && self.keys.is_consumed(key)
         {
             return self.consume_key(key, event);
@@ -225,11 +230,11 @@ impl Matcher {
                     return Vec::new();
                 }
 
-                if self.keys.is_physically_held(active.key) {
+                if self.keys.is_physically_held(active.tracking_key) {
                     // Held past the threshold: matched. Consume the held down (and
                     // any repeats) and emit the action once.
                     self.pending.clear();
-                    self.keys.mark_consumed(active.key);
+                    self.keys.mark_consumed(active.tracking_key);
                     vec![Command::Emit {
                         rule_id: active.rule_id,
                         action: active.action,
@@ -255,7 +260,7 @@ impl Matcher {
                     self.active = Some(Active::HoldToButton(active));
                     return Vec::new();
                 }
-                if self.keys.is_physically_held(active.key) {
+                if self.keys.is_physically_held(active.tracking_key) {
                     // Threshold reached and the key is still held: arm and wait for
                     // the button down. No command yet.
                     active.armed = true;
@@ -340,16 +345,23 @@ impl Matcher {
     }
 
     fn on_key_event(&mut self, event: InputEvent) -> (Decision, Resolution) {
-        let key = event.key().expect("keyboard event carries a key");
-        let (active_first, is_hold_like) = match &self.active {
-            Some(Active::Holding(hold)) => (Some(hold.key), true),
-            Some(Active::HoldToButton(hb)) => (Some(hb.key), true),
-            Some(Active::Chording(chord)) => (Some(chord.first), false),
-            None => (None, false),
+        let (active_first, active_tracking_key, is_hold_like) = match &self.active {
+            Some(Active::Holding(hold)) => (Some(hold.key), Some(hold.tracking_key), true),
+            Some(Active::HoldToButton(hb)) => (Some(hb.key), Some(hb.tracking_key), true),
+            Some(Active::Chording(chord)) => {
+                (Some(chord.first), Some(chord.first_tracking_key), false)
+            }
+            None => (None, None, false),
         };
+        let is_active_physical_key = active_tracking_key
+            .is_some_and(|tracking_key| event.tracking_key() == Some(tracking_key));
 
         match active_first {
-            Some(first) if first == key => self.on_first_key_event(key, event),
+            Some(first) if event.matches_key(first) || is_active_physical_key => self
+                .on_first_key_event(
+                    active_tracking_key.expect("active prefix has a tracking key"),
+                    event,
+                ),
             Some(_) if is_hold_like => {
                 // A non-matching key during a hold-like prefix fails the hold so
                 // the held key and this key are replayed in their original order
@@ -362,20 +374,24 @@ impl Matcher {
                     self.pass_through(event)
                 }
             }
-            Some(first) => self.on_chord_second_key(first, key, event),
-            None => self.on_idle_key(key, event),
+            Some(first) => self.on_chord_second_key(
+                first,
+                active_tracking_key.expect("active chord has a tracking key"),
+                event,
+            ),
+            None => self.on_idle_key(event),
         }
     }
 
     fn on_button_event(&mut self, event: InputEvent) -> (Decision, Resolution) {
         let button = event.button().expect("button event carries a button");
         let (chord_first, hold_button) = match &self.active {
-            Some(Active::Chording(chord)) => (Some(chord.first), None),
+            Some(Active::Chording(chord)) => (Some((chord.first, chord.first_tracking_key)), None),
             Some(Active::HoldToButton(hb)) => (None, Some(hb.clone())),
             _ => (None, None),
         };
-        if let Some(first) = chord_first {
-            self.on_chord_button(first, button, event)
+        if let Some((first, tracking_key)) = chord_first {
+            self.on_chord_button(first, tracking_key, button, event)
         } else if let Some(hb) = hold_button {
             self.on_hold_button(hb, button, event)
         } else {
@@ -383,17 +399,24 @@ impl Matcher {
         }
     }
 
-    fn on_idle_key(&mut self, key: Key, event: InputEvent) -> (Decision, Resolution) {
+    fn on_idle_key(&mut self, event: InputEvent) -> (Decision, Resolution) {
         // Only a non-repeat key-down can start a prefix.
         if event.is_key_down() && !event.is_repeat() {
-            if let Some((id, timeout_ms, action)) = self.index.hold(key).cloned() {
-                return self.start_hold(key, event, id, timeout_ms, action);
-            }
-            if let Some((id, timeout_ms, button, action)) = self.index.hold_button(key).cloned() {
-                return self.start_hold_button(key, button, event, id, timeout_ms, action);
-            }
-            if self.index.is_first_candidate(key) {
-                return self.start_chord(key, event);
+            let tracking_key = event
+                .tracking_key()
+                .expect("keyboard event carries a tracking key");
+            // Physical is first, so an exact-position rule deterministically
+            // wins over a logical rule when both could start on this event.
+            for key in event.key_identities().into_iter().flatten() {
+                if let Some((id, timeout_ms, action)) = self.index.hold(key).cloned() {
+                    return self.start_hold(key, tracking_key, event, id, timeout_ms, action);
+                }
+                if let Some(rule) = self.index.hold_button(key).cloned() {
+                    return self.start_hold_button(key, tracking_key, event, rule);
+                }
+                if self.index.is_first_candidate(key) {
+                    return self.start_chord(key, tracking_key, event);
+                }
             }
         }
         self.pass_through(event)
@@ -402,6 +425,7 @@ impl Matcher {
     fn start_hold(
         &mut self,
         key: Key,
+        tracking_key: Key,
         event: InputEvent,
         id: String,
         timeout_ms: u64,
@@ -410,11 +434,12 @@ impl Matcher {
         if self.pending.push(event).is_err() {
             return self.overflow_flush();
         }
-        self.keys.mark_physical_down(key);
+        self.keys.mark_physical_down(tracking_key);
         let deadline_ms = self.clock.now_ms() + timeout_ms;
         self.active = Some(Active::Holding(ActiveHold {
             rule_id: id,
             key,
+            tracking_key,
             deadline_ms,
             action,
         }));
@@ -429,20 +454,20 @@ impl Matcher {
     fn start_hold_button(
         &mut self,
         key: Key,
-        button: MouseButton,
+        tracking_key: Key,
         event: InputEvent,
-        id: String,
-        timeout_ms: u64,
-        action: Action,
+        rule: (String, u64, MouseButton, Action),
     ) -> (Decision, Resolution) {
+        let (id, timeout_ms, button, action) = rule;
         if self.pending.push(event).is_err() {
             return self.overflow_flush();
         }
-        self.keys.mark_physical_down(key);
+        self.keys.mark_physical_down(tracking_key);
         let deadline_ms = self.clock.now_ms() + timeout_ms;
         self.active = Some(Active::HoldToButton(ActiveHoldButton {
             rule_id: id,
             key,
+            tracking_key,
             button,
             deadline_ms,
             armed: false,
@@ -456,12 +481,20 @@ impl Matcher {
         )
     }
 
-    fn start_chord(&mut self, key: Key, event: InputEvent) -> (Decision, Resolution) {
+    fn start_chord(
+        &mut self,
+        key: Key,
+        tracking_key: Key,
+        event: InputEvent,
+    ) -> (Decision, Resolution) {
         if self.pending.push(event).is_err() {
             return self.overflow_flush();
         }
-        self.keys.mark_physical_down(key);
-        self.active = Some(Active::Chording(ActiveChord { first: key }));
+        self.keys.mark_physical_down(tracking_key);
+        self.active = Some(Active::Chording(ActiveChord {
+            first: key,
+            first_tracking_key: tracking_key,
+        }));
         (
             Decision::Suppress {
                 event_id: event.seq,
@@ -471,10 +504,14 @@ impl Matcher {
     }
 
     /// Handle a key event belonging to the active first key (Hold or Chord).
-    fn on_first_key_event(&mut self, key: Key, event: InputEvent) -> (Decision, Resolution) {
+    fn on_first_key_event(
+        &mut self,
+        tracking_key: Key,
+        event: InputEvent,
+    ) -> (Decision, Resolution) {
         if event.is_key_up() {
             // First key released before completion: fail and replay in order.
-            self.keys.mark_physical_up(key);
+            self.keys.mark_physical_up(tracking_key);
             if self.pending.push(event).is_err() {
                 return self.overflow_flush();
             }
@@ -521,12 +558,24 @@ impl Matcher {
     fn on_chord_second_key(
         &mut self,
         first: Key,
-        second: Key,
+        first_tracking_key: Key,
         event: InputEvent,
     ) -> (Decision, Resolution) {
         if event.is_key_down() && !event.is_repeat() {
-            if let Some((rule_id, action)) = self.index.second_key(first, second).cloned() {
-                return self.match_chord(rule_id, action, event, first, Some(second), None);
+            for second in event.key_identities().into_iter().flatten() {
+                if let Some((rule_id, action)) = self.index.second_key(first, second).cloned() {
+                    let second_tracking_key = event
+                        .tracking_key()
+                        .expect("keyboard event carries a tracking key");
+                    return self.match_chord(
+                        rule_id,
+                        action,
+                        event,
+                        first_tracking_key,
+                        Some(second_tracking_key),
+                        None,
+                    );
+                }
             }
             return self.fail_active(event);
         }
@@ -536,12 +585,20 @@ impl Matcher {
     fn on_chord_button(
         &mut self,
         first: Key,
+        first_tracking_key: Key,
         button: MouseButton,
         event: InputEvent,
     ) -> (Decision, Resolution) {
         if event.is_button_down() {
             if let Some((rule_id, action)) = self.index.second_button(first, button).cloned() {
-                return self.match_chord(rule_id, action, event, first, None, Some(button));
+                return self.match_chord(
+                    rule_id,
+                    action,
+                    event,
+                    first_tracking_key,
+                    None,
+                    Some(button),
+                );
             }
             return self.fail_active(event);
         }
@@ -575,7 +632,7 @@ impl Matcher {
     ) -> (Decision, Resolution) {
         // Held key downs are consumed, not replayed.
         self.pending.take_replay();
-        self.keys.mark_consumed(active.key);
+        self.keys.mark_consumed(active.tracking_key);
         self.buttons.mark_consumed(active.button);
         self.active = None;
         (
@@ -613,13 +670,13 @@ impl Matcher {
         rule_id: String,
         action: Action,
         event: InputEvent,
-        first: Key,
+        first_tracking_key: Key,
         second_key: Option<Key>,
         second_button: Option<MouseButton>,
     ) -> (Decision, Resolution) {
         // The held first-key downs are consumed, not replayed.
         self.pending.take_replay();
-        self.keys.mark_consumed(first);
+        self.keys.mark_consumed(first_tracking_key);
         if let Some(key) = second_key {
             self.keys.mark_consumed(key);
         }
@@ -663,9 +720,10 @@ impl Matcher {
 
     fn pass_through(&mut self, event: InputEvent) -> (Decision, Resolution) {
         match event.source {
-            InputSource::Keyboard {
-                key, down, repeat, ..
-            } => {
+            InputSource::Keyboard { down, repeat, .. } => {
+                let key = event
+                    .tracking_key()
+                    .expect("keyboard event carries a tracking key");
                 if down {
                     if !repeat {
                         self.keys.mark_physical_down(key);
@@ -711,9 +769,10 @@ impl Matcher {
     fn mark_replay_seen(&mut self, events: &[InputEvent]) {
         for event in events {
             match event.source {
-                InputSource::Keyboard {
-                    key, down, repeat, ..
-                } => {
+                InputSource::Keyboard { down, repeat, .. } => {
+                    let key = event
+                        .tracking_key()
+                        .expect("keyboard event carries a tracking key");
                     if down {
                         if !repeat {
                             self.keys.mark_seen_down(key);
@@ -747,14 +806,26 @@ mod tests {
     use crate::rules::{Rule, RuleIndex, Trigger};
 
     fn key_event(seq: u64, time_ms: u64, key: Key, down: bool, repeat: bool) -> InputEvent {
+        key_event_at(seq, time_ms, key, 0, false, down, repeat)
+    }
+
+    fn key_event_at(
+        seq: u64,
+        time_ms: u64,
+        key: Key,
+        scan_code: u16,
+        extended: bool,
+        down: bool,
+        repeat: bool,
+    ) -> InputEvent {
         InputEvent {
             seq,
             time_ms,
             injected: false,
             source: InputSource::Keyboard {
                 key,
-                scan_code: 0,
-                extended: false,
+                scan_code,
+                extended,
                 down,
                 repeat,
             },
@@ -817,6 +888,225 @@ mod tests {
     fn matcher_with(clock: ManualClock, rules: Vec<Rule>, capacity: usize) -> Matcher {
         let index = RuleIndex::compile(rules).expect("valid rules");
         Matcher::new(Box::new(clock), index, capacity)
+    }
+
+    #[test]
+    fn caps_lock_without_a_rule_never_suppresses_down_or_up() {
+        let clock = ManualClock::new(0);
+        let mut matcher = matcher_with(clock, vec![], 8);
+        let caps_down = key_event_at(0, 0, Key::CapsLock, 0x3a, false, true, false);
+        let caps_up = key_event_at(1, 1, Key::CapsLock, 0x3a, false, false, false);
+
+        assert_eq!(matcher.on_event(caps_down).0, Decision::PassThrough);
+        assert_eq!(matcher.on_event(caps_up).0, Decision::PassThrough);
+    }
+
+    #[test]
+    fn observing_caps_lock_for_recording_does_not_change_matcher_state() {
+        let clock = ManualClock::new(0);
+        let mut matcher = matcher_with(clock, vec![chord_rule("caps-a", Key::CapsLock, Key::A)], 8);
+        let caps_down = key_event_at(0, 0, Key::CapsLock, 0x3a, false, true, false);
+
+        // Phase D/E may forward this immutable identity snapshot to a recording
+        // session. Reading it must not pause, replace, or pre-consume rules.
+        assert_eq!(
+            caps_down.key_identities(),
+            [
+                Some(Key::Physical {
+                    scan_code: 0x3a,
+                    extended: false,
+                }),
+                Some(Key::CapsLock),
+            ]
+        );
+        assert_eq!(
+            matcher.on_event(caps_down).0,
+            Decision::Suppress { event_id: 0 }
+        );
+        assert!(matches!(
+            matcher.on_event(key_event_at(1, 1, Key::A, 0x1e, false, true, false)),
+            (_, Resolution::Matched { ref rule_id, .. }) if rule_id == "caps-a"
+        ));
+    }
+
+    #[test]
+    fn caps_lock_candidate_failure_replays_one_original_down_and_up() {
+        let clock = ManualClock::new(0);
+        let mut matcher = matcher_with(clock, vec![chord_rule("caps-a", Key::CapsLock, Key::A)], 8);
+        let caps_down = key_event_at(0, 0, Key::CapsLock, 0x3a, false, true, false);
+        let caps_up = key_event_at(1, 1, Key::CapsLock, 0x3a, false, false, false);
+
+        assert_eq!(
+            matcher.on_event(caps_down).0,
+            Decision::Suppress { event_id: 0 }
+        );
+        assert_eq!(
+            matcher.on_event(caps_up),
+            (
+                Decision::Suppress { event_id: 1 },
+                Resolution::Failed {
+                    replay: vec![caps_down, caps_up],
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn caps_lock_match_consumes_trigger_and_both_physical_releases() {
+        let clock = ManualClock::new(0);
+        let mut matcher = matcher_with(clock, vec![chord_rule("caps-a", Key::CapsLock, Key::A)], 8);
+        let caps_down = key_event_at(0, 0, Key::CapsLock, 0x3a, false, true, false);
+        let a_down = key_event_at(1, 1, Key::A, 0x1e, false, true, false);
+
+        matcher.on_event(caps_down);
+        assert!(matches!(
+            matcher.on_event(a_down),
+            (
+                Decision::Suppress { event_id: 1 },
+                Resolution::Matched { ref rule_id, .. }
+            ) if rule_id == "caps-a"
+        ));
+        assert_eq!(
+            matcher
+                .on_event(key_event_at(2, 2, Key::A, 0x1e, false, false, false))
+                .0,
+            Decision::Suppress { event_id: 2 }
+        );
+        assert_eq!(
+            matcher
+                .on_event(key_event_at(3, 3, Key::CapsLock, 0x3a, false, false, false,))
+                .0,
+            Decision::Suppress { event_id: 3 }
+        );
+        assert!(!matcher.has_release_tombstones());
+    }
+
+    #[test]
+    fn caps_lock_repeat_is_retained_for_failure_and_pause_flush() {
+        let clock = ManualClock::new(0);
+        let rules = vec![chord_rule("caps-a", Key::CapsLock, Key::A)];
+        let caps_down = key_event_at(0, 0, Key::CapsLock, 0x3a, false, true, false);
+        let caps_repeat = key_event_at(1, 1, Key::CapsLock, 0x3a, false, true, true);
+        let caps_up = key_event_at(2, 2, Key::CapsLock, 0x3a, false, false, false);
+
+        let mut failed = matcher_with(clock.clone(), rules.clone(), 8);
+        failed.on_event(caps_down);
+        failed.on_event(caps_repeat);
+        assert_eq!(
+            failed.on_event(caps_up).1,
+            Resolution::Failed {
+                replay: vec![caps_down, caps_repeat, caps_up]
+            }
+        );
+
+        let mut paused = matcher_with(clock, rules, 8);
+        paused.on_event(caps_down);
+        paused.on_event(caps_repeat);
+        assert_eq!(paused.set_paused(true), vec![caps_down, caps_repeat]);
+    }
+
+    #[test]
+    fn caps_lock_pending_overflow_replays_buffer_then_enters_bypass() {
+        let clock = ManualClock::new(0);
+        let mut matcher = matcher_with(clock, vec![chord_rule("caps-a", Key::CapsLock, Key::A)], 1);
+        let caps_down = key_event_at(0, 0, Key::CapsLock, 0x3a, false, true, false);
+        let caps_repeat = key_event_at(1, 1, Key::CapsLock, 0x3a, false, true, true);
+        matcher.on_event(caps_down);
+
+        assert_eq!(
+            matcher.on_event(caps_repeat),
+            (
+                Decision::PassThrough,
+                Resolution::Failed {
+                    replay: vec![caps_down]
+                }
+            )
+        );
+        assert!(matcher.is_bypassed());
+    }
+
+    #[test]
+    fn physical_rule_precedes_logical_rule_for_the_same_event() {
+        let clock = ManualClock::new(0);
+        let physical_a = Key::Physical {
+            scan_code: 0x1e,
+            extended: false,
+        };
+        let rules = vec![
+            Rule {
+                id: "logical".to_string(),
+                trigger: Trigger::Hold {
+                    key: Key::A,
+                    timeout_ms: 100,
+                },
+                action: Action::KeyChord(vec![Key::B]),
+            },
+            Rule {
+                id: "physical".to_string(),
+                trigger: Trigger::Hold {
+                    key: physical_a,
+                    timeout_ms: 100,
+                },
+                action: Action::KeyChord(vec![Key::C]),
+            },
+        ];
+        let mut matcher = matcher_with(clock.clone(), rules, 8);
+        matcher.on_event(key_event_at(0, 0, Key::A, 0x1e, false, true, false));
+        clock.advance(100);
+
+        assert_eq!(
+            matcher.on_timeout(),
+            vec![Command::Emit {
+                rule_id: "physical".to_string(),
+                action: Action::KeyChord(vec![Key::C]),
+            }]
+        );
+    }
+
+    #[test]
+    fn physical_tracking_consumes_release_after_logical_layout_identity_changes() {
+        let clock = ManualClock::new(0);
+        let physical_a = Key::Physical {
+            scan_code: 0x1e,
+            extended: false,
+        };
+        let mut matcher = matcher_with(clock.clone(), vec![hold_rule(physical_a, 100)], 8);
+        matcher.on_event(key_event_at(0, 0, Key::A, 0x1e, false, true, false));
+        clock.advance(100);
+        assert!(matches!(
+            matcher.on_timeout().as_slice(),
+            [Command::Emit { .. }]
+        ));
+
+        // Model a layout switch while the physical key is held: the logical VK
+        // changes, but the scan identity still clears the consumed tombstone.
+        assert_eq!(
+            matcher
+                .on_event(key_event_at(1, 100, Key::Q, 0x1e, false, false, false))
+                .0,
+            Decision::Suppress { event_id: 1 }
+        );
+        assert!(!matcher.has_release_tombstones());
+    }
+
+    #[test]
+    fn logical_prefix_release_uses_physical_tracking_after_layout_change() {
+        let clock = ManualClock::new(0);
+        let mut matcher = matcher_with(clock, vec![hold_rule(Key::A, 100)], 8);
+        let a_down = key_event_at(0, 0, Key::A, 0x1e, false, true, false);
+        let q_up = key_event_at(1, 10, Key::Q, 0x1e, false, false, false);
+        matcher.on_event(a_down);
+
+        assert_eq!(
+            matcher.on_event(q_up),
+            (
+                Decision::Suppress { event_id: 1 },
+                Resolution::Failed {
+                    replay: vec![a_down, q_up]
+                }
+            )
+        );
+        assert_eq!(matcher.next_deadline(), None);
     }
 
     #[test]

@@ -1,30 +1,116 @@
-//! Mapping between Win32 virtual-key codes / mouse messages and the
+//! Mapping between Win32 virtual-key codes / low-level-hook metadata and the
 //! platform-independent [`inputflow_engine`] types.
 //!
-//! Pure logic with no `unsafe`; unit-testable without installing a hook. The
-//! [`Key::Unknown`] fallback preserves the raw platform key code for keys that
-//! are not modelled yet, so no key identity is lost.
+//! Pure logic with no `unsafe`; unit-testable without installing a hook. Every
+//! keyboard event retains both its logical [`Key`] and the scan-code/extended
+//! fields carried by the event itself. [`Key::Unknown`] preserves an unmapped
+//! raw virtual-key code for pass-through/replay, but configuration rejects it.
 
 use inputflow_engine::{Key, MouseButton};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse as kb;
 use windows_sys::Win32::UI::WindowsAndMessaging as wm;
 
-/// Convert a Win32 virtual-key code to a platform-independent [`Key`].
-pub fn vk_to_key(vk: u16) -> Key {
+/// Convert low-level-hook keyboard metadata to a logical key identity.
+///
+/// Most keys are determined by `vk`. Generic modifier VKs use scan/extended
+/// metadata to preserve left/right identity. Keypad Enter shares `VK_RETURN`
+/// with main Enter and is distinguished by the extended flag.
+pub fn hook_key(vk: u16, scan_code: u16, extended: bool) -> Key {
     match vk {
-        kb::VK_LCONTROL | kb::VK_CONTROL => Key::LeftCtrl,
+        kb::VK_LCONTROL => Key::LeftCtrl,
         kb::VK_RCONTROL => Key::RightCtrl,
-        kb::VK_LSHIFT | kb::VK_SHIFT => Key::LeftShift,
+        kb::VK_CONTROL => {
+            if extended {
+                Key::RightCtrl
+            } else {
+                Key::LeftCtrl
+            }
+        }
+        kb::VK_LSHIFT => Key::LeftShift,
         kb::VK_RSHIFT => Key::RightShift,
-        kb::VK_LMENU | kb::VK_MENU => Key::LeftAlt,
+        kb::VK_SHIFT => {
+            if scan_code == 0x36 {
+                Key::RightShift
+            } else {
+                Key::LeftShift
+            }
+        }
+        kb::VK_LMENU => Key::LeftAlt,
         kb::VK_RMENU => Key::RightAlt,
+        kb::VK_MENU => {
+            if extended {
+                Key::RightAlt
+            } else {
+                Key::LeftAlt
+            }
+        }
         kb::VK_LWIN => Key::LeftWin,
         kb::VK_RWIN => Key::RightWin,
         kb::VK_SPACE => Key::Space,
+        kb::VK_RETURN if extended => Key::NumpadEnter,
         kb::VK_RETURN => Key::Enter,
         kb::VK_ESCAPE => Key::Escape,
         kb::VK_TAB => Key::Tab,
         kb::VK_BACK => Key::Backspace,
+        kb::VK_CAPITAL => Key::CapsLock,
+        kb::VK_NUMLOCK => Key::NumLock,
+        kb::VK_SCROLL => Key::ScrollLock,
+        kb::VK_LEFT => Key::Left,
+        kb::VK_RIGHT => Key::Right,
+        kb::VK_UP => Key::Up,
+        kb::VK_DOWN => Key::Down,
+        kb::VK_HOME => Key::Home,
+        kb::VK_END => Key::End,
+        kb::VK_PRIOR => Key::PageUp,
+        kb::VK_NEXT => Key::PageDown,
+        kb::VK_INSERT => Key::Insert,
+        kb::VK_DELETE => Key::Delete,
+        kb::VK_OEM_1 => Key::Oem1,
+        kb::VK_OEM_PLUS => Key::OemPlus,
+        kb::VK_OEM_COMMA => Key::OemComma,
+        kb::VK_OEM_MINUS => Key::OemMinus,
+        kb::VK_OEM_PERIOD => Key::OemPeriod,
+        kb::VK_OEM_2 => Key::Oem2,
+        kb::VK_OEM_3 => Key::Oem3,
+        kb::VK_OEM_4 => Key::Oem4,
+        kb::VK_OEM_5 => Key::Oem5,
+        kb::VK_OEM_6 => Key::Oem6,
+        kb::VK_OEM_7 => Key::Oem7,
+        kb::VK_OEM_8 => Key::Oem8,
+        kb::VK_OEM_102 => Key::Oem102,
+        kb::VK_NUMPAD0 => Key::Numpad0,
+        kb::VK_NUMPAD1 => Key::Numpad1,
+        kb::VK_NUMPAD2 => Key::Numpad2,
+        kb::VK_NUMPAD3 => Key::Numpad3,
+        kb::VK_NUMPAD4 => Key::Numpad4,
+        kb::VK_NUMPAD5 => Key::Numpad5,
+        kb::VK_NUMPAD6 => Key::Numpad6,
+        kb::VK_NUMPAD7 => Key::Numpad7,
+        kb::VK_NUMPAD8 => Key::Numpad8,
+        kb::VK_NUMPAD9 => Key::Numpad9,
+        kb::VK_MULTIPLY => Key::NumpadMultiply,
+        kb::VK_ADD => Key::NumpadAdd,
+        kb::VK_SEPARATOR => Key::NumpadSeparator,
+        kb::VK_SUBTRACT => Key::NumpadSubtract,
+        kb::VK_DECIMAL => Key::NumpadDecimal,
+        kb::VK_DIVIDE => Key::NumpadDivide,
+        kb::VK_SNAPSHOT => Key::PrintScreen,
+        kb::VK_PAUSE => Key::Pause,
+        kb::VK_APPS => Key::Apps,
+        kb::VK_BROWSER_BACK => Key::BrowserBack,
+        kb::VK_BROWSER_FORWARD => Key::BrowserForward,
+        kb::VK_BROWSER_REFRESH => Key::BrowserRefresh,
+        kb::VK_BROWSER_STOP => Key::BrowserStop,
+        kb::VK_BROWSER_SEARCH => Key::BrowserSearch,
+        kb::VK_BROWSER_FAVORITES => Key::BrowserFavorites,
+        kb::VK_BROWSER_HOME => Key::BrowserHome,
+        kb::VK_VOLUME_MUTE => Key::VolumeMute,
+        kb::VK_VOLUME_DOWN => Key::VolumeDown,
+        kb::VK_VOLUME_UP => Key::VolumeUp,
+        kb::VK_MEDIA_NEXT_TRACK => Key::MediaNextTrack,
+        kb::VK_MEDIA_PREV_TRACK => Key::MediaPreviousTrack,
+        kb::VK_MEDIA_STOP => Key::MediaStop,
+        kb::VK_MEDIA_PLAY_PAUSE => Key::MediaPlayPause,
         0x41 => Key::A,
         0x42 => Key::B,
         0x43 => Key::C,
@@ -89,10 +175,11 @@ pub fn vk_to_key(vk: u16) -> Key {
     }
 }
 
-/// Convert a platform-independent [`Key`] back to its Win32 virtual-key code,
-/// used when synthesizing output. [`Key::Unknown`] round-trips its raw code.
-pub fn key_to_vk(key: Key) -> u16 {
-    match key {
+/// Convert a named logical key back to its Win32 virtual-key code. Physical
+/// identities deliberately return `None` because they must use scan-code
+/// output. Unknown observed VKs remain replayable.
+pub fn key_to_vk(key: Key) -> Option<u16> {
+    Some(match key {
         Key::LeftCtrl => kb::VK_LCONTROL,
         Key::RightCtrl => kb::VK_RCONTROL,
         Key::LeftShift => kb::VK_LSHIFT,
@@ -102,10 +189,69 @@ pub fn key_to_vk(key: Key) -> u16 {
         Key::LeftWin => kb::VK_LWIN,
         Key::RightWin => kb::VK_RWIN,
         Key::Space => kb::VK_SPACE,
-        Key::Enter => kb::VK_RETURN,
+        Key::Enter | Key::NumpadEnter => kb::VK_RETURN,
         Key::Escape => kb::VK_ESCAPE,
         Key::Tab => kb::VK_TAB,
         Key::Backspace => kb::VK_BACK,
+        Key::CapsLock => kb::VK_CAPITAL,
+        Key::NumLock => kb::VK_NUMLOCK,
+        Key::ScrollLock => kb::VK_SCROLL,
+        Key::Left => kb::VK_LEFT,
+        Key::Right => kb::VK_RIGHT,
+        Key::Up => kb::VK_UP,
+        Key::Down => kb::VK_DOWN,
+        Key::Home => kb::VK_HOME,
+        Key::End => kb::VK_END,
+        Key::PageUp => kb::VK_PRIOR,
+        Key::PageDown => kb::VK_NEXT,
+        Key::Insert => kb::VK_INSERT,
+        Key::Delete => kb::VK_DELETE,
+        Key::Oem1 => kb::VK_OEM_1,
+        Key::OemPlus => kb::VK_OEM_PLUS,
+        Key::OemComma => kb::VK_OEM_COMMA,
+        Key::OemMinus => kb::VK_OEM_MINUS,
+        Key::OemPeriod => kb::VK_OEM_PERIOD,
+        Key::Oem2 => kb::VK_OEM_2,
+        Key::Oem3 => kb::VK_OEM_3,
+        Key::Oem4 => kb::VK_OEM_4,
+        Key::Oem5 => kb::VK_OEM_5,
+        Key::Oem6 => kb::VK_OEM_6,
+        Key::Oem7 => kb::VK_OEM_7,
+        Key::Oem8 => kb::VK_OEM_8,
+        Key::Oem102 => kb::VK_OEM_102,
+        Key::Numpad0 => kb::VK_NUMPAD0,
+        Key::Numpad1 => kb::VK_NUMPAD1,
+        Key::Numpad2 => kb::VK_NUMPAD2,
+        Key::Numpad3 => kb::VK_NUMPAD3,
+        Key::Numpad4 => kb::VK_NUMPAD4,
+        Key::Numpad5 => kb::VK_NUMPAD5,
+        Key::Numpad6 => kb::VK_NUMPAD6,
+        Key::Numpad7 => kb::VK_NUMPAD7,
+        Key::Numpad8 => kb::VK_NUMPAD8,
+        Key::Numpad9 => kb::VK_NUMPAD9,
+        Key::NumpadMultiply => kb::VK_MULTIPLY,
+        Key::NumpadAdd => kb::VK_ADD,
+        Key::NumpadSeparator => kb::VK_SEPARATOR,
+        Key::NumpadSubtract => kb::VK_SUBTRACT,
+        Key::NumpadDecimal => kb::VK_DECIMAL,
+        Key::NumpadDivide => kb::VK_DIVIDE,
+        Key::PrintScreen => kb::VK_SNAPSHOT,
+        Key::Pause => kb::VK_PAUSE,
+        Key::Apps => kb::VK_APPS,
+        Key::BrowserBack => kb::VK_BROWSER_BACK,
+        Key::BrowserForward => kb::VK_BROWSER_FORWARD,
+        Key::BrowserRefresh => kb::VK_BROWSER_REFRESH,
+        Key::BrowserStop => kb::VK_BROWSER_STOP,
+        Key::BrowserSearch => kb::VK_BROWSER_SEARCH,
+        Key::BrowserFavorites => kb::VK_BROWSER_FAVORITES,
+        Key::BrowserHome => kb::VK_BROWSER_HOME,
+        Key::VolumeMute => kb::VK_VOLUME_MUTE,
+        Key::VolumeDown => kb::VK_VOLUME_DOWN,
+        Key::VolumeUp => kb::VK_VOLUME_UP,
+        Key::MediaNextTrack => kb::VK_MEDIA_NEXT_TRACK,
+        Key::MediaPreviousTrack => kb::VK_MEDIA_PREV_TRACK,
+        Key::MediaStop => kb::VK_MEDIA_STOP,
+        Key::MediaPlayPause => kb::VK_MEDIA_PLAY_PAUSE,
         Key::A => 0x41,
         Key::B => 0x42,
         Key::C => 0x43,
@@ -167,7 +313,48 @@ pub fn key_to_vk(key: Key) -> u16 {
         Key::F23 => kb::VK_F23,
         Key::F24 => kb::VK_F24,
         Key::Unknown(vk) => vk,
-    }
+        Key::Physical { .. } => return None,
+    })
+}
+
+/// Whether VK-based output for this named key needs the enhanced-key flag.
+pub fn key_is_extended(key: Key) -> bool {
+    matches!(
+        key,
+        Key::RightCtrl
+            | Key::RightAlt
+            | Key::LeftWin
+            | Key::RightWin
+            | Key::NumpadEnter
+            | Key::NumLock
+            | Key::Left
+            | Key::Right
+            | Key::Up
+            | Key::Down
+            | Key::Home
+            | Key::End
+            | Key::PageUp
+            | Key::PageDown
+            | Key::Insert
+            | Key::Delete
+            | Key::NumpadDivide
+            | Key::PrintScreen
+            | Key::Apps
+            | Key::BrowserBack
+            | Key::BrowserForward
+            | Key::BrowserRefresh
+            | Key::BrowserStop
+            | Key::BrowserSearch
+            | Key::BrowserFavorites
+            | Key::BrowserHome
+            | Key::VolumeMute
+            | Key::VolumeDown
+            | Key::VolumeUp
+            | Key::MediaNextTrack
+            | Key::MediaPreviousTrack
+            | Key::MediaStop
+            | Key::MediaPlayPause
+    )
 }
 
 /// Map a `WH_MOUSE_LL` message id to a `(button, down)` pair, or `None` for
@@ -208,10 +395,9 @@ pub fn wheel_delta(value: u32) -> i32 {
 /// triple used to build an engine [`inputflow_engine::InputEvent`].
 ///
 /// Low-level keyboard hooks use the `LLKHF_*` bit positions (`LLKHF_UP = 0x80`,
-/// `LLKHF_EXTENDED = 0x01`, `LLKHF_INJECTED = 0x10`), *not* the `KF_*` masks
-/// (`KF_UP = 0x8000`, `KF_EXTENDED = 0x0100`) that `GetKeyState` / the
-/// `WM_KEYDOWN` `lParam` use. Mixing the two families up makes every key event
-/// look like a key-down (M6 P0).
+/// `LLKHF_EXTENDED = 0x01`, `LLKHF_INJECTED = 0x10`), not the `KF_*` masks used
+/// in window-message `lParam` values. Mixing those families makes releases look
+/// like key-downs.
 pub fn keyboard_flags(flags: u32) -> (bool, bool, bool) {
     (
         (flags & wm::LLKHF_UP) != 0,
@@ -225,37 +411,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn vk_key_round_trips_for_modelled_keys() {
-        let keys = [
-            Key::LeftCtrl,
-            Key::RightCtrl,
-            Key::LeftShift,
-            Key::RightShift,
-            Key::LeftAlt,
-            Key::RightAlt,
-            Key::LeftWin,
-            Key::RightWin,
-            Key::A,
-            Key::Z,
-            Key::Digit0,
-            Key::Digit9,
-            Key::F1,
-            Key::F24,
-            Key::Space,
-            Key::Enter,
-            Key::Escape,
-            Key::Tab,
-            Key::Backspace,
-        ];
-        for key in keys {
-            assert_eq!(vk_to_key(key_to_vk(key)), key);
+    fn every_named_key_round_trips_through_vk_mapping() {
+        for &key in Key::NAMED {
+            let vk = key_to_vk(key).unwrap_or_else(|| panic!("missing VK for {key}"));
+            let scan = if key == Key::RightShift { 0x36 } else { 0 };
+            assert_eq!(hook_key(vk, scan, key_is_extended(key)), key, "{key}");
         }
     }
 
     #[test]
-    fn unknown_key_round_trips_raw_code() {
-        assert_eq!(vk_to_key(0x1234), Key::Unknown(0x1234));
-        assert_eq!(key_to_vk(Key::Unknown(0x1234)), 0x1234);
+    fn generic_modifiers_and_keypad_enter_use_hook_metadata() {
+        assert_eq!(hook_key(kb::VK_CONTROL, 0x1d, false), Key::LeftCtrl);
+        assert_eq!(hook_key(kb::VK_CONTROL, 0x1d, true), Key::RightCtrl);
+        assert_eq!(hook_key(kb::VK_SHIFT, 0x2a, false), Key::LeftShift);
+        assert_eq!(hook_key(kb::VK_SHIFT, 0x36, false), Key::RightShift);
+        assert_eq!(hook_key(kb::VK_RETURN, 0x1c, false), Key::Enter);
+        assert_eq!(hook_key(kb::VK_RETURN, 0x1c, true), Key::NumpadEnter);
+        assert!(key_is_extended(Key::NumLock));
+        assert!(key_is_extended(Key::NumpadEnter));
+        assert!(!key_is_extended(Key::Enter));
+    }
+
+    #[test]
+    fn physical_and_unknown_identities_are_not_confused() {
+        assert_eq!(hook_key(0xE1, 0, false), Key::Unknown(0xE1));
+        assert_eq!(key_to_vk(Key::Unknown(0xE1)), Some(0xE1));
+        assert_eq!(
+            key_to_vk(Key::Physical {
+                scan_code: 0x1e,
+                extended: false,
+            }),
+            None
+        );
     }
 
     #[test]

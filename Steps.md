@@ -276,8 +276,10 @@
 
 ### 7.1 决策与构建基线
 - [x] 接受 ADR-004：Rust agent + WinUI 3 设置程序；不使用 Tauri、React、Node.js 或 WebView。
-- [ ] 按 `docs/BUILD_WINDOWS.md` 记录 Visual Studio、.NET SDK、Windows SDK、Windows App SDK、WinUI 3 模板和真实构建命令。
-- [ ] 先建立不启动 Hook 的 WinUI 3 smoke 窗口，验证构建、启动和关闭后进程退出。
+- [x] 按 `docs/BUILD_WINDOWS.md` 记录 Visual Studio、.NET SDK、Windows SDK、Windows App SDK、WinUI 3 模板和真实构建命令。
+- [x] 先建立不启动 Hook 的 WinUI 3 smoke 窗口，验证构建、启动和关闭后进程退出。
+
+> 2026-09-29 Phase A：在 x64 本机验证 unpackaged + framework-dependent WinUI 3 smoke 的 restore、Debug/Release build、原生窗口启动和正常关闭后进程退出。页面未接 Hook、配置或 agent。self-contained 已作为 fallback 验证；packaged 构建成功但因当前会话无法启用 Developer Mode 而未验证启动。证据见 `check-fix-debug-list/tag_5_InputFlow-M7-WinUI3架构与输入扩展记录.md`。
 
 ### 7.2 Rust agent 与 Named Pipe
 - [ ] 建立 `apps/inputflow-agent/`，复用现有 engine/config/windows crate，不复制 Hook 实现。
@@ -286,10 +288,11 @@
 - [ ] Named Pipe 只允许当前交互用户访问；断开设置程序不影响 agent 和已启用规则。
 
 ### 7.3 完整键盘与 Schema v2
-- [ ] 写输入身份 ADR，明确逻辑 VK 与 scan code + extended 的取舍及布局语义。
-- [ ] 至少覆盖 Caps/Num/Scroll Lock、导航/方向、OEM 符号、数字键盘、PrintScreen/Pause/Menu 和常见媒体键。
-- [ ] Schema v2 保持 v1 可读或提供显式迁移；未知键不能静默变成另一键。
-- [ ] Caps Lock 测试命中、失败回放、暂停、重复和 toggle 状态，确保一次物理操作不产生双重切换。
+- [x] ADR-005 明确 logical VK 与 physical scan code + extended、布局显示、输出和 Unknown 策略。
+- [x] 自动映射/往返覆盖 Caps/Num/Scroll Lock、导航/方向、OEM、numpad/keypad Enter、PrintScreen/Pause/Menu 和常见媒体键。
+- [x] Schema v2 严格表达 match mode；v1 可读、内存迁移、v2 保存和 v1 committed-backup 回滚均有 golden 测试。
+- [x] Caps Lock 自动测试覆盖无规则、候选失败、命中、repeat、pause/F12/quit 共用冲刷、overflow 和精确一对 down/up scan 回放。
+- [x] 用 en-US 和 Microsoft Pinyin 完成真实 OEM 观察/目标显示与 physical 失败回放/命中，并验证 Caps Lock 失败回放、命中消费、repeat、`F12` pending 恢复及键盘指示状态；完整序列见 tag_5 执行记录。正式设置 capture/display session 仍属于 7.2/7.4。
 
 ### 7.4 WinUI 3 设置程序
 - [ ] 建立 `apps/settings-winui/` 的 C# + WinUI 3 工程，不实现第二套 Hook 或规则校验器。

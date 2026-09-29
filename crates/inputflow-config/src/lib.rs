@@ -8,7 +8,7 @@
 mod config;
 
 pub use config::{
-    ActionConfig, Config, ConfigError, DEFAULT_EMERGENCY_KEY, LoadedConfig, MAX_TIMEOUT_MS,
-    MIN_TIMEOUT_MS, RuleConfig, SCHEMA_VERSION, TriggerConfig, default_config, load, save,
-    to_json_pretty,
+    ActionConfig, Config, ConfigError, DEFAULT_EMERGENCY_KEY, KeyConfig, LEGACY_SCHEMA_VERSION,
+    LoadedConfig, MAX_TIMEOUT_MS, MIN_TIMEOUT_MS, MigrationReport, RuleConfig, SCHEMA_VERSION,
+    TriggerConfig, default_config, load, parse_and_migrate_json, save, to_json_pretty,
 };

@@ -40,9 +40,9 @@ use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::GetCurrentThreadId;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP,
-    MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP,
-    MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_XDOWN, MOUSEEVENTF_XUP, MOUSEINPUT,
-    SendInput,
+    KEYEVENTF_SCANCODE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN,
+    MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_XDOWN,
+    MOUSEEVENTF_XUP, MOUSEINPUT, SendInput,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, HC_ACTION, KBDLLHOOKSTRUCT, KillTimer,
@@ -791,10 +791,10 @@ fn build_inputs(command: &Command) -> Vec<INPUT> {
             Action::KeyChord(keys) => {
                 let mut inputs = Vec::with_capacity(keys.len() * 2);
                 for &key in keys {
-                    inputs.push(make_key_input(key, 0, false, false));
+                    inputs.push(make_action_key_input(key, false));
                 }
                 for &key in keys.iter().rev() {
-                    inputs.push(make_key_input(key, 0, false, true));
+                    inputs.push(make_action_key_input(key, true));
                 }
                 inputs
             }
@@ -816,7 +816,7 @@ fn event_to_input(event: &InputEvent) -> Option<INPUT> {
             extended,
             down,
             ..
-        } => Some(make_key_input(key, scan_code, extended, down)),
+        } => Some(make_replay_key_input(key, scan_code, extended, !down)),
         InputSource::Mouse {
             kind: MouseKind::ButtonDown(button),
             ..
@@ -829,12 +829,9 @@ fn event_to_input(event: &InputEvent) -> Option<INPUT> {
     }
 }
 
-/// Build the `KEYBDINPUT.dwFlags` value for a synthesized key event. Replay is
-/// VK-based (`wVk` set, `KEYEVENTF_SCANCODE` not set): left/right modifiers are
-/// distinguished by their distinct VKs (`VK_LCONTROL` vs `VK_RCONTROL`, …), and
-/// the extended-key bit is preserved for replayed physical events so extended
-/// keys keep their identity. Pure so it can be unit-tested.
-fn keybd_flags(up: bool, extended: bool) -> u32 {
+/// Build `KEYBDINPUT.dwFlags`. Captured-event replay and physical actions use
+/// scan-code mode; logical actions use VK mode. Pure so it can be unit-tested.
+fn keybd_flags(up: bool, extended: bool, scan_code_mode: bool) -> u32 {
     let mut flags = 0u32;
     if up {
         flags |= KEYEVENTF_KEYUP;
@@ -842,20 +839,61 @@ fn keybd_flags(up: bool, extended: bool) -> u32 {
     if extended {
         flags |= KEYEVENTF_EXTENDEDKEY;
     }
+    if scan_code_mode {
+        flags |= KEYEVENTF_SCANCODE;
+    }
     flags
 }
 
-/// Build one keyboard `INPUT` from an engine key.
+/// Build one keyboard `INPUT` for a configured action identity.
+fn make_action_key_input(key: Key, up: bool) -> INPUT {
+    match key {
+        Key::Physical {
+            scan_code,
+            extended,
+        } => make_scan_key_input(scan_code, extended, up),
+        _ => make_logical_key_input(key, up),
+    }
+}
+
+/// Replay a captured event by scan code whenever possible. This preserves its
+/// physical position across layout changes. Events without a scan code (some
+/// media/vendor input) fall back to the observed logical VK.
+fn make_replay_key_input(key: Key, scan_code: u16, extended: bool, up: bool) -> INPUT {
+    if scan_code != 0 {
+        make_scan_key_input(scan_code, extended, up)
+    } else {
+        make_logical_key_input(key, up)
+    }
+}
+
+fn make_logical_key_input(key: Key, up: bool) -> INPUT {
+    let vk = keymap::key_to_vk(key).expect("logical action/replay key must have a VK");
+    make_key_input(vk, 0, keymap::key_is_extended(key), up, false)
+}
+
+fn make_scan_key_input(scan_code: u16, extended: bool, up: bool) -> INPUT {
+    debug_assert_ne!(scan_code, 0);
+    make_key_input(0, scan_code, extended, up, true)
+}
+
+/// Build one keyboard `INPUT` from already-selected VK/scan-code fields.
 // `INPUT` holds a union (`Anonymous`), so `Default` + field assignment is the
 // clearest way to set it; the lint is a false positive here.
 #[allow(clippy::field_reassign_with_default)]
-fn make_key_input(key: Key, scan_code: u16, extended: bool, up: bool) -> INPUT {
+fn make_key_input(
+    vk: u16,
+    scan_code: u16,
+    extended: bool,
+    up: bool,
+    scan_code_mode: bool,
+) -> INPUT {
     let mut input = INPUT::default();
     input.r#type = INPUT_KEYBOARD;
     input.Anonymous.ki = KEYBDINPUT {
-        wVk: keymap::key_to_vk(key),
+        wVk: vk,
         wScan: scan_code,
-        dwFlags: keybd_flags(up, extended),
+        dwFlags: keybd_flags(up, extended, scan_code_mode),
         time: 0,
         dwExtraInfo: SELF_EXTRA_INFO_TAG,
     };
@@ -1116,7 +1154,8 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
         // SAFETY: `code >= HC_ACTION` guarantees a valid KBDLLHOOKSTRUCT.
         let info = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
         let (up, extended, injected) = keymap::keyboard_flags(info.flags);
-        let key = keymap::vk_to_key(info.vkCode as u16);
+        let scan_code = info.scanCode as u16;
+        let key = keymap::hook_key(info.vkCode as u16, scan_code, extended);
 
         // Our own synthesized events pass through, so replay never recurses. Do
         // this before the held-key bookkeeping so replayed events do not affect
@@ -1129,7 +1168,8 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
 
         // Low-level hooks expose no repeat bit; derive auto-repeat from the
         // maintained physical held-key set (M6 P0 #2).
-        let repeat = track_held_key(key, up);
+        let tracking_key = Key::physical(scan_code, extended).unwrap_or(key);
+        let repeat = track_held_key(tracking_key, up);
 
         let event = InputEvent {
             seq: next_seq(),
@@ -1137,7 +1177,7 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
             injected,
             source: InputSource::Keyboard {
                 key,
-                scan_code: info.scanCode as u16,
+                scan_code,
                 extended,
                 down: !up,
                 repeat,
@@ -1145,7 +1185,7 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
         };
         if debug_log_enabled() {
             send_log(format!(
-                "[seq={:06}] kbd {} {key:?} injected={injected} repeat={repeat}",
+                "[seq={:06}] kbd {} logical={key} scan=0x{scan_code:02X} extended={extended} injected={injected} repeat={repeat}",
                 event.seq,
                 if up { "Up" } else { "Down" },
             ));
@@ -1248,6 +1288,7 @@ mod tests {
     use std::sync::Barrier;
 
     use inputflow_engine::{ManualClock, Rule, RuleIndex, Trigger};
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse as kb;
 
     fn key_event(seq: u64, key: Key, down: bool) -> InputEvent {
         InputEvent {
@@ -1266,12 +1307,123 @@ mod tests {
 
     #[test]
     fn keybd_flags_sets_up_and_extended_bits() {
-        assert_eq!(keybd_flags(false, false), 0);
-        assert_eq!(keybd_flags(true, false), KEYEVENTF_KEYUP);
-        assert_eq!(keybd_flags(false, true), KEYEVENTF_EXTENDEDKEY);
+        assert_eq!(keybd_flags(false, false, false), 0);
+        assert_eq!(keybd_flags(true, false, false), KEYEVENTF_KEYUP);
+        assert_eq!(keybd_flags(false, true, false), KEYEVENTF_EXTENDEDKEY);
         assert_eq!(
-            keybd_flags(true, true),
-            KEYEVENTF_KEYUP | KEYEVENTF_EXTENDEDKEY
+            keybd_flags(true, true, true),
+            KEYEVENTF_KEYUP | KEYEVENTF_EXTENDEDKEY | KEYEVENTF_SCANCODE
+        );
+    }
+
+    #[test]
+    fn captured_replay_uses_scan_code_and_preserves_down_up_direction() {
+        let down = InputEvent {
+            seq: 0,
+            time_ms: 0,
+            injected: false,
+            source: InputSource::Keyboard {
+                key: Key::CapsLock,
+                scan_code: 0x3a,
+                extended: false,
+                down: true,
+                repeat: false,
+            },
+        };
+        let up = InputEvent {
+            seq: 1,
+            time_ms: 1,
+            injected: false,
+            source: InputSource::Keyboard {
+                key: Key::CapsLock,
+                scan_code: 0x3a,
+                extended: false,
+                down: false,
+                repeat: false,
+            },
+        };
+
+        let down_input = event_to_input(&down).unwrap();
+        let up_input = event_to_input(&up).unwrap();
+        // SAFETY: both values were initialized above as INPUT_KEYBOARD.
+        let down_ki = unsafe { down_input.Anonymous.ki };
+        // SAFETY: both values were initialized above as INPUT_KEYBOARD.
+        let up_ki = unsafe { up_input.Anonymous.ki };
+        assert_eq!((down_ki.wVk, down_ki.wScan), (0, 0x3a));
+        assert_eq!(down_ki.dwFlags, KEYEVENTF_SCANCODE);
+        assert_eq!(up_ki.dwFlags, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP);
+    }
+
+    #[test]
+    fn caps_lock_pending_control_flush_emits_exactly_one_scan_down() {
+        let index = RuleIndex::compile(vec![Rule {
+            id: "caps-a".to_string(),
+            trigger: Trigger::KeyChord {
+                first: Key::CapsLock,
+                second: Key::A,
+            },
+            action: Action::KeyChord(vec![Key::C]),
+        }])
+        .unwrap();
+        let matcher = Mutex::new(Matcher::new(Box::new(ManualClock::new(0)), index, 8));
+        let caps_down = InputEvent {
+            seq: 0,
+            time_ms: 0,
+            injected: false,
+            source: InputSource::Keyboard {
+                key: Key::CapsLock,
+                scan_code: 0x3a,
+                extended: false,
+                down: true,
+                repeat: false,
+            },
+        };
+        assert_eq!(
+            matcher.lock().unwrap().on_event(caps_down).0,
+            Decision::Suppress { event_id: 0 }
+        );
+
+        // Pause, emergency F12, and clean quit all use this hook-owner flush.
+        let report = flush_held_events_on_hook_thread_with(Some(&matcher), |command| {
+            let inputs = build_inputs(command);
+            assert_eq!(inputs.len(), 1);
+            // SAFETY: build_inputs initialized this value as INPUT_KEYBOARD.
+            let ki = unsafe { inputs[0].Anonymous.ki };
+            assert_eq!((ki.wVk, ki.wScan), (0, 0x3a));
+            assert_eq!(ki.dwFlags, KEYEVENTF_SCANCODE);
+            OutputReport {
+                requested: 1,
+                inserted: 1,
+                last_error: 0,
+                status: OutputStatus::Complete,
+            }
+        });
+        assert_eq!(report.held_events, 1);
+        assert!(report.output_complete);
+    }
+
+    #[test]
+    fn actions_select_vk_or_scan_code_from_match_mode() {
+        let logical = make_action_key_input(Key::NumpadEnter, false);
+        let physical = make_action_key_input(
+            Key::Physical {
+                scan_code: 0x1c,
+                extended: true,
+            },
+            false,
+        );
+        // SAFETY: both values were initialized above as INPUT_KEYBOARD.
+        let logical_ki = unsafe { logical.Anonymous.ki };
+        // SAFETY: both values were initialized above as INPUT_KEYBOARD.
+        let physical_ki = unsafe { physical.Anonymous.ki };
+        assert_eq!(logical_ki.wVk, kb::VK_RETURN);
+        assert_eq!(logical_ki.wScan, 0);
+        assert_eq!(logical_ki.dwFlags, KEYEVENTF_EXTENDEDKEY);
+        assert_eq!(physical_ki.wVk, 0);
+        assert_eq!(physical_ki.wScan, 0x1c);
+        assert_eq!(
+            physical_ki.dwFlags,
+            KEYEVENTF_SCANCODE | KEYEVENTF_EXTENDEDKEY
         );
     }
 

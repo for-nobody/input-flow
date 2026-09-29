@@ -1,0 +1,37 @@
+{
+  "schema_version": 2,
+  "emergency_bypass_key": {
+    "match": "logical",
+    "key": "F12"
+  },
+  "rules": [
+    {
+      "id": "physical-a-then-copy",
+      "trigger": {
+        "type": "key_chord",
+        "first": {
+          "match": "physical",
+          "scan_code": 30,
+          "extended": false
+        },
+        "second": {
+          "match": "logical",
+          "key": "C"
+        }
+      },
+      "action": {
+        "type": "key_chord",
+        "keys": [
+          {
+            "match": "logical",
+            "key": "LeftCtrl"
+          },
+          {
+            "match": "logical",
+            "key": "C"
+          }
+        ]
+      }
+    }
+  ]
+}

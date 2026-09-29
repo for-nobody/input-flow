@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="InputFlow_Settings.MainPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:InputFlow_Settings"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid Padding="32">
+        <StackPanel MaxWidth="640" HorizontalAlignment="Left" Spacing="12">
+            <TextBlock
+                AutomationProperties.Name="InputFlow settings"
+                FontSize="28"
+                FontWeight="SemiBold"
+                Text="InputFlow" />
+            <TextBlock
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Text="Native settings shell" />
+            <InfoBar
+                IsClosable="False"
+                IsOpen="True"
+                Message="Agent connectivity, runtime status, and configuration editing are intentionally not connected in this Phase A smoke build."
+                Severity="Informational"
+                Title="Build smoke only" />
+        </StackPanel>
+    </Grid>
+</Page>

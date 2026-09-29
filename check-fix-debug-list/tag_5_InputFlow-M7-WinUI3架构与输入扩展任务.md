@@ -4,7 +4,7 @@
 >
 > 日期：2026-09-27
 >
-> 基线：当年本地代码git仓库，归档内 Git HEAD 为 `f958524`（`update with new develop path of this project`）。开始前必须核对你实际工作区的 HEAD 和未提交内容；不要覆盖用户改动。
+> 基线：当年本地代码git仓库，归档内 Git HEAD 为 `2ead0a9`（`update again with new develop path of this project`）。开始前必须核对你实际工作区的 HEAD 和未提交内容；不要覆盖用户改动。
 
 ## 0. 产品决定（不得重新改回旧方案）
 

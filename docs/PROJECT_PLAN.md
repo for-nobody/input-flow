@@ -103,14 +103,14 @@ Named Pipe 至少定义：handshake、协议版本、请求 ID、超时、status
 
 ## 6. 输入身份与配置
 
-完整键盘不能只扩充字符串白名单。先写输入身份 ADR，再实现 Schema v2：
+完整键盘不只扩充字符串白名单。ADR-005 已选择事件双身份和规则显式 match mode，Schema v2 已实现：
 
-- 明确“逻辑 VK”与“scan code + extended”的匹配场景。
-- 区分左右修饰、主键区/数字键盘、keypad Enter、PrintScreen、Pause、Menu 和媒体键。
-- OEM 符号键显示当前布局下可理解名称，同时持久化足够身份信息，避免换布局后静默变成另一键。
-- Caps/Num/Scroll Lock 覆盖命中、失败回放、暂停、自动重复和 toggle 状态；一次物理操作不能双重切换。
-- 未知键保留原始值并给出不支持提示，不静默映射。
-- Schema v1 保持可读或提供显式迁移、备份与回滚测试。
+- logical VK 与 physical scan code + extended 分开持久化；exact physical 匹配优先，内部 release tracking 优先 physical。
+- 已区分左右修饰、主键区/数字键盘、keypad Enter、PrintScreen、Pause、Menu 和媒体键。
+- OEM 保存稳定 `Oem*` 或 physical identity；当前布局名称由未来 UI 动态查询，不写入稳定配置。
+- Caps 自动测试覆盖命中、失败回放、暂停/控制冲刷、自动重复、overflow 和 down/up 数量；en-US/Microsoft Pinyin 目标字符、失败回放、命中消费、`F12` pending 恢复和键盘指示灯已有真实物理输入证据。
+- 未知 VK 在观察/回放路径保留原始值，不静默映射；配置只允许已知 logical 或非零 physical scan。
+- Schema v1 可读并内存迁移为 v2 logical；golden fixture、严格 v2 往返、backup 回滚测试已落地。
 
 鼠标方向第一版：
 
@@ -139,7 +139,7 @@ inputflow/
 ├── apps/
 │   ├── probe-cli/
 │   ├── inputflow-agent/       # M7 计划
-│   └── settings-winui/        # M7 计划
+│   └── settings-winui/        # M7 Phase A smoke 已建立；正式设置功能待 Phase E
 ├── crates/
 │   ├── inputflow-engine/
 │   ├── inputflow-config/
@@ -157,9 +157,11 @@ inputflow/
 |---|---|---|
 | M1–M5 | 探针、抑制/回放、状态机、组合与时序规则 | 已有原型与自动测试；真实行为以记录为准。 |
 | M6 | 暂停、配置恢复、诊断、可靠性修复 | 自动部分完成；真实键鼠/UIPI/高负载矩阵仍须核对。 |
-| M7-A | 构建 smoke、输入身份 ADR、agent 生命周期、IPC ADR | 先完成设计和最小可运行骨架。 |
-| M7-B | Rust agent、托盘、Named Pipe、WinUI 设置、完整键盘 | 关闭 UI 后仅 agent 常驻；无需手改 JSON。 |
-| M8 | 有激活条件的鼠标方向与其他独立研究 | 自动测试和真实高频移动证据齐全。 |
+| M7 Phase A | 固定工具链与 WinUI 原生 smoke | 2026-09-29 已完成 x64 unpackaged + framework-dependent 构建/启动/退出；无 Hook、配置或伪状态。 |
+| M7 Phase B | 输入身份与 Schema v2 | **已完成**；113 项自动测试通过，en-US/Microsoft Pinyin OEM 与 Caps 指示状态的真实物理验收通过。 |
+| M7 Phase C–D | Rust agent 生命周期、版本化 Named Pipe | 尚未执行；必须保持 ADR-003 的 Hook-owner 串行语义。 |
+| M7 Phase E | 正式 WinUI 设置、联合/资源/输入验收 | 尚未执行；关闭 UI 后仅 agent 常驻，无需手改 JSON。 |
+| Phase F / M8 | 有激活条件的鼠标方向与其他独立研究 | 尚未执行；需要自动测试和真实高频移动证据。 |
 
 ## 9. 验证矩阵
 
@@ -189,15 +191,15 @@ Windows 实机至少覆盖：
 - WinUI/IPC 故障不能拖垮 agent；协议需版本、超时、ACL 和重连策略。
 - 键盘布局变化会影响 OEM 键显示与语义；输入身份策略必须先于 UI 接线。
 
-M7/M8 开始前至少形成：
+M7/M8 设计 ADR 状态：
 
-1. ADR-005：完整按键身份与 Schema v2。
+1. ADR-005：完整按键身份与 Schema v2（已接受）。
 2. ADR-006：Named Pipe 协议、ACL、版本和配置事务。
 3. ADR-007：鼠标方向判定、直通策略和性能上界。
 
 ## 11. 交给 Codex 的执行约定
 
-1. 先阅读 README、本文、Steps、ADR-000～004、M6 修复记录和当前代码。
+1. 先阅读 README、本文、Steps、ADR-000～005、M6 修复记录和当前代码。
 2. 以 `check-fix-debug-list/tag_5_InputFlow-M7-WinUI3架构与输入扩展任务.md` 为主任务，按 Phase A→F 和完成门槛推进。
 3. 每阶段先确认基线和进入条件，再写测试、实现、Windows 实测与记录；不得一次跳到完整 UI。
 4. 保留现有 M6 正确性修复，不机械复制 `probe-cli/main.rs`，先抽取可复用生命周期。
@@ -206,5 +208,5 @@ M7/M8 开始前至少形成：
 
 ### 下一张任务卡
 
-执行 `check-fix-debug-list/tag_5_InputFlow-M7-WinUI3架构与输入扩展任务.md`。先核对 M6 人工验收门槛，然后完成 WinUI 构建 smoke、完整键盘/Schema v2 ADR、agent 生命周期与 Named Pipe 协议设计；鼠标方向按独立 Phase 实现和验收。
+继续执行 `check-fix-debug-list/tag_5_InputFlow-M7-WinUI3架构与输入扩展任务.md`。Phase A 与 Phase B 已完成。下一次最小任务进入 Phase C：先抽取可测试的 Rust runtime/lifecycle owner，让 probe-cli 共用该 runtime；不要同时开始 IPC 或正式 UI。M6 尚未完成的 UIPI、高负载、菜单/墓碑等真实矩阵仍是正式规则接线的门槛。
 

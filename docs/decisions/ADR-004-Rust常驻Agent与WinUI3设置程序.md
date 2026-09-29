@@ -94,6 +94,16 @@ InputFlow 是输入基础设施，不是需要长期显示内容的普通桌面�
 - 项目不再需要 Tauri、React、Node.js、npm 或 WebView2 作为应用技术栈。
 - 最终应提供一个可重复的联合构建入口，但不允许为了统一命令而把 Hook 放进 UI 进程。
 
+#### Phase A 部署决定（2026-09-29）
+
+本机比较后，初始开发模式固定为 **unpackaged + framework-dependent**：
+
+- unpackaged + framework-dependent 在安装 Windows App Runtime 2.5.1 x64 后完成 Debug/Release 构建、原生窗口启动和正常关闭，进程退出码 0；共享运行库可独立获得服务更新，但部署必须明确安装匹配的 .NET Desktop Runtime 和 Windows App Runtime。
+- unpackaged + self-contained 也完成构建、启动和退出，作为需要捆绑运行库时的已验证 fallback；代价是更大的输出与由应用承担运行库更新。
+- packaged + framework-dependent 能构建，但开发启动要求 Developer Mode/包注册；当前非管理员会话无法启用 Developer Mode，因此 packaged 启动仍是未验证项。
+
+该决定只覆盖 Phase A 开发基线。最终安装器、干净机首次运行、升级和卸载仍需单独验收；不得由本次 smoke 推断已经具备产品部署能力。详细版本、命令和输出位置见 `docs/BUILD_WINDOWS.md`。
+
 ## 关键不变量（Invariants）
 
 1. agent 是唯一 Hook 和输入状态所有者。

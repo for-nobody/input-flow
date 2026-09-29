@@ -1,9 +1,10 @@
 //! Configuration schema, validation, loading, and crash-recoverable saving.
 //!
 //! The on-disk format is a single JSON object with a `schema_version`, an
-//! `emergency_bypass_key`, and a list of `rules`. Key and mouse-button names use
-//! the canonical strings from `inputflow_engine::{Key, MouseButton}` (e.g.
-//! `"LeftCtrl"`, `"Right"`).
+//! `emergency_bypass_key`, and a list of `rules`. Schema v2 makes every key
+//! identity explicit: logical keys use canonical names and physical keys use a
+//! scan code plus extended flag. Schema v1 string keys remain readable and are
+//! migrated in memory; all writes use v2.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -14,9 +15,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use inputflow_engine::{Action, Key, MouseButton, Rule, RuleIndex, Trigger};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// Current on-disk schema version.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
+/// Old string-key schema accepted for compatibility and explicit migration.
+pub const LEGACY_SCHEMA_VERSION: u32 = 1;
 /// Default emergency bypass key used when no config is present.
 pub const DEFAULT_EMERGENCY_KEY: Key = Key::F12;
 /// Lower bound (inclusive) for a rule's `timeout_ms`.
@@ -40,15 +44,38 @@ static SAVE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    #[serde(default = "default_schema_version")]
     pub schema_version: u32,
-    #[serde(default = "default_emergency_key_name")]
-    pub emergency_bypass_key: String,
+    pub emergency_bypass_key: KeyConfig,
     #[serde(default)]
     pub rules: Vec<RuleConfig>,
 }
 
-/// A single rule in its on-disk (string-key) form.
+/// Explicit key match/output identity used by schema v2.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, tag = "match", rename_all = "snake_case")]
+pub enum KeyConfig {
+    /// Match/output the logical Windows virtual-key identity.
+    Logical { key: String },
+    /// Match/output a layout-independent physical scan position.
+    Physical { scan_code: u16, extended: bool },
+}
+
+impl KeyConfig {
+    pub fn logical(key: Key) -> Self {
+        Self::Logical {
+            key: key.to_string(),
+        }
+    }
+
+    pub const fn physical(scan_code: u16, extended: bool) -> Self {
+        Self::Physical {
+            scan_code,
+            extended,
+        }
+    }
+}
+
+/// A single rule in its schema-v2 form.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuleConfig {
@@ -61,6 +88,54 @@ pub struct RuleConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, tag = "type", rename_all = "snake_case")]
 pub enum TriggerConfig {
+    KeyChord {
+        first: KeyConfig,
+        second: KeyConfig,
+    },
+    KeyMouseButton {
+        key: KeyConfig,
+        button: String,
+    },
+    Hold {
+        key: KeyConfig,
+        timeout_ms: u64,
+    },
+    HoldMouseButton {
+        key: KeyConfig,
+        timeout_ms: u64,
+        button: String,
+    },
+}
+
+/// Action in its on-disk form, tagged by `type`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, tag = "type", rename_all = "snake_case")]
+pub enum ActionConfig {
+    KeyChord { keys: Vec<KeyConfig> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConfigV1 {
+    #[serde(default = "legacy_schema_version")]
+    schema_version: u32,
+    #[serde(default = "legacy_emergency_key_name")]
+    emergency_bypass_key: String,
+    #[serde(default)]
+    rules: Vec<RuleConfigV1>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RuleConfigV1 {
+    id: String,
+    trigger: TriggerConfigV1,
+    action: ActionConfigV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields, tag = "type", rename_all = "snake_case")]
+enum TriggerConfigV1 {
     KeyChord {
         first: String,
         second: String,
@@ -80,11 +155,25 @@ pub enum TriggerConfig {
     },
 }
 
-/// Action in its on-disk form, tagged by `type`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields, tag = "type", rename_all = "snake_case")]
-pub enum ActionConfig {
+enum ActionConfigV1 {
     KeyChord { keys: Vec<String> },
+}
+
+const fn legacy_schema_version() -> u32 {
+    LEGACY_SCHEMA_VERSION
+}
+
+fn legacy_emergency_key_name() -> String {
+    DEFAULT_EMERGENCY_KEY.to_string()
+}
+
+/// Result of parsing either supported schema into the current v2 document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MigrationReport {
+    pub source_schema_version: u32,
+    pub config: Config,
 }
 
 /// A single validation problem (non-fatal; loading falls back to defaults).
@@ -101,6 +190,9 @@ impl std::fmt::Display for ConfigError {
 /// non-fatal problems (a missing/invalid config yields empty rules).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoadedConfig {
+    /// Current-schema document, migrated in memory when the source was v1.
+    pub config: Config,
+    pub source_schema_version: u32,
     pub emergency_key: Key,
     pub rules: Vec<Rule>,
     pub problems: Vec<String>,
@@ -109,6 +201,8 @@ pub struct LoadedConfig {
 impl Default for LoadedConfig {
     fn default() -> Self {
         Self {
+            config: default_config(),
+            source_schema_version: SCHEMA_VERSION,
             emergency_key: DEFAULT_EMERGENCY_KEY,
             rules: Vec::new(),
             problems: Vec::new(),
@@ -116,22 +210,20 @@ impl Default for LoadedConfig {
     }
 }
 
-fn default_schema_version() -> u32 {
-    SCHEMA_VERSION
-}
-
-fn default_emergency_key_name() -> String {
-    DEFAULT_EMERGENCY_KEY.to_string()
-}
 /// Load and validate the config at `path`. Never fails: on any error it returns
 /// a default (empty rules) config and records the problems.
 pub fn load(path: &Path) -> LoadedConfig {
     let primary_errors = match load_resolved(path) {
         Ok(resolved) => {
+            let problems = migration_notice(resolved.source_schema_version)
+                .into_iter()
+                .collect();
             return LoadedConfig {
+                config: resolved.config,
+                source_schema_version: resolved.source_schema_version,
                 emergency_key: resolved.emergency_key,
                 rules: resolved.rules,
-                problems: Vec::new(),
+                problems,
             };
         }
         Err(errors) => errors,
@@ -143,15 +235,21 @@ pub fn load(path: &Path) -> LoadedConfig {
             } else {
                 "uncommitted temporary save"
             };
+            let mut problems = vec![format!(
+                "config `{}` could not be used; recovered a valid {artifact_kind} from `{}`. Save once to make the recovery official. Primary error: {}",
+                path.display(),
+                candidate.display(),
+                primary_errors.join("; ")
+            )];
+            if let Some(notice) = migration_notice(resolved.source_schema_version) {
+                problems.push(notice);
+            }
             return LoadedConfig {
+                config: resolved.config,
+                source_schema_version: resolved.source_schema_version,
                 emergency_key: resolved.emergency_key,
                 rules: resolved.rules,
-                problems: vec![format!(
-                    "config `{}` could not be used; recovered a valid {artifact_kind} from `{}`. Save once to make the recovery official. Primary error: {}",
-                    path.display(),
-                    candidate.display(),
-                    primary_errors.join("; ")
-                )],
+                problems,
             };
         }
     }
@@ -176,22 +274,128 @@ fn load_resolved(path: &Path) -> Result<Resolved, Vec<String>> {
         }]
     })?;
 
-    let config: Config = serde_json::from_str(&text).map_err(|err| {
-        vec![format!(
-            "config `{}` is not valid JSON: {err}",
-            path.display()
-        )]
+    let migrated = parse_and_migrate_json(&text).map_err(|errors| {
+        std::iter::once(format!("config `{}` is invalid", path.display()))
+            .chain(errors.into_iter().map(|error| error.0))
+            .collect::<Vec<_>>()
     })?;
 
-    validate(&config).map_err(|errors| {
-        std::iter::once(format!(
-            "config `{}` is invalid ({} problem(s))",
-            path.display(),
-            errors.len()
-        ))
-        .chain(errors.into_iter().map(|error| error.0))
-        .collect()
+    validate(&migrated.config)
+        .map_err(|errors| {
+            std::iter::once(format!(
+                "config `{}` is invalid ({} problem(s))",
+                path.display(),
+                errors.len()
+            ))
+            .chain(errors.into_iter().map(|error| error.0))
+            .collect()
+        })
+        .map(|mut resolved| {
+            resolved.config = migrated.config;
+            resolved.source_schema_version = migrated.source_schema_version;
+            resolved
+        })
+}
+
+fn migration_notice(source_schema_version: u32) -> Option<String> {
+    (source_schema_version == LEGACY_SCHEMA_VERSION).then(|| {
+        "loaded schema v1 in compatibility mode and migrated it in memory to schema v2; save the v2 document to make the migration official (the replacement backup preserves rollback)".to_string()
     })
+}
+
+/// Parse a v1 or v2 JSON document, reject unknown/unsupported structures, and
+/// return a validated current-schema document without writing to disk.
+pub fn parse_and_migrate_json(text: &str) -> Result<MigrationReport, Vec<ConfigError>> {
+    let value: Value = serde_json::from_str(text)
+        .map_err(|error| vec![ConfigError(format!("invalid JSON: {error}"))])?;
+    let source_schema_version = match value.get("schema_version") {
+        None => LEGACY_SCHEMA_VERSION,
+        Some(Value::Number(number)) => number
+            .as_u64()
+            .and_then(|number| u32::try_from(number).ok())
+            .ok_or_else(|| {
+                vec![ConfigError(
+                    "schema_version must be an unsigned 32-bit integer".to_string(),
+                )]
+            })?,
+        Some(_) => {
+            return Err(vec![ConfigError(
+                "schema_version must be an unsigned 32-bit integer".to_string(),
+            )]);
+        }
+    };
+
+    let config = match source_schema_version {
+        LEGACY_SCHEMA_VERSION => {
+            let legacy: ConfigV1 = serde_json::from_value(value).map_err(|error| {
+                vec![ConfigError(format!("invalid schema v1 document: {error}"))]
+            })?;
+            migrate_v1(legacy)
+        }
+        SCHEMA_VERSION => serde_json::from_value(value)
+            .map_err(|error| vec![ConfigError(format!("invalid schema v2 document: {error}"))])?,
+        other => {
+            return Err(vec![ConfigError(format!(
+                "unsupported schema_version {other} (supported: {LEGACY_SCHEMA_VERSION}, {SCHEMA_VERSION})"
+            ))]);
+        }
+    };
+
+    validate(&config)?;
+    Ok(MigrationReport {
+        source_schema_version,
+        config,
+    })
+}
+
+fn migrate_v1(legacy: ConfigV1) -> Config {
+    debug_assert_eq!(legacy.schema_version, LEGACY_SCHEMA_VERSION);
+    Config {
+        schema_version: SCHEMA_VERSION,
+        emergency_bypass_key: KeyConfig::Logical {
+            key: legacy.emergency_bypass_key,
+        },
+        rules: legacy
+            .rules
+            .into_iter()
+            .map(|rule| RuleConfig {
+                id: rule.id,
+                trigger: match rule.trigger {
+                    TriggerConfigV1::KeyChord { first, second } => TriggerConfig::KeyChord {
+                        first: KeyConfig::Logical { key: first },
+                        second: KeyConfig::Logical { key: second },
+                    },
+                    TriggerConfigV1::KeyMouseButton { key, button } => {
+                        TriggerConfig::KeyMouseButton {
+                            key: KeyConfig::Logical { key },
+                            button,
+                        }
+                    }
+                    TriggerConfigV1::Hold { key, timeout_ms } => TriggerConfig::Hold {
+                        key: KeyConfig::Logical { key },
+                        timeout_ms,
+                    },
+                    TriggerConfigV1::HoldMouseButton {
+                        key,
+                        timeout_ms,
+                        button,
+                    } => TriggerConfig::HoldMouseButton {
+                        key: KeyConfig::Logical { key },
+                        timeout_ms,
+                        button,
+                    },
+                },
+                action: match rule.action {
+                    ActionConfigV1::KeyChord { keys } => ActionConfig::KeyChord {
+                        keys: keys
+                            .into_iter()
+                            .map(|key| KeyConfig::Logical { key })
+                            .collect(),
+                    },
+                },
+            })
+            .collect(),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -265,6 +469,8 @@ fn recovery_candidates(path: &Path) -> Vec<PathBuf> {
 /// The validated, resolved form of a config.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Resolved {
+    config: Config,
+    source_schema_version: u32,
     emergency_key: Key,
     rules: Vec<Rule>,
 }
@@ -281,12 +487,17 @@ fn validate(config: &Config) -> Result<Resolved, Vec<ConfigError>> {
         )));
     }
 
-    let emergency_key = match Key::from_name(&config.emergency_bypass_key) {
-        Some(key) => key,
-        None => {
+    let emergency_key = match parse_key(&config.emergency_bypass_key) {
+        Ok(Key::Physical { .. }) => {
+            errors.push(ConfigError(
+                "emergency_bypass_key must use logical match mode".to_string(),
+            ));
+            DEFAULT_EMERGENCY_KEY
+        }
+        Ok(key) => key,
+        Err(error) => {
             errors.push(ConfigError(format!(
-                "unknown emergency_bypass_key `{}`",
-                config.emergency_bypass_key
+                "invalid emergency_bypass_key: {error}"
             )));
             DEFAULT_EMERGENCY_KEY
         }
@@ -330,6 +541,8 @@ fn validate(config: &Config) -> Result<Resolved, Vec<ConfigError>> {
 
     if errors.is_empty() {
         Ok(Resolved {
+            config: config.clone(),
+            source_schema_version: SCHEMA_VERSION,
             emergency_key,
             rules,
         })
@@ -394,8 +607,17 @@ fn resolve_rule(rule: &RuleConfig) -> Result<Rule, String> {
     })
 }
 
-fn parse_key(name: &str) -> Result<Key, String> {
-    Key::from_name(name).ok_or_else(|| format!("unknown key `{name}`"))
+fn parse_key(config: &KeyConfig) -> Result<Key, String> {
+    match config {
+        KeyConfig::Logical { key } => {
+            Key::from_name(key).ok_or_else(|| format!("unknown logical key `{key}`"))
+        }
+        KeyConfig::Physical {
+            scan_code,
+            extended,
+        } => Key::physical(*scan_code, *extended)
+            .ok_or_else(|| "physical scan_code must be nonzero".to_string()),
+    }
 }
 
 fn parse_button(name: &str) -> Result<MouseButton, String> {
@@ -583,11 +805,11 @@ fn temp_sibling(path: &Path, ext: &str) -> PathBuf {
     path.with_file_name(name)
 }
 
-/// A default config: schema version 1, default emergency key, no rules.
+/// A default config: schema version 2, logical F12 emergency key, no rules.
 pub fn default_config() -> Config {
     Config {
         schema_version: SCHEMA_VERSION,
-        emergency_bypass_key: DEFAULT_EMERGENCY_KEY.to_string(),
+        emergency_bypass_key: KeyConfig::logical(DEFAULT_EMERGENCY_KEY),
         rules: Vec::new(),
     }
 }
@@ -600,19 +822,25 @@ pub fn to_json_pretty(config: &Config) -> String {
 mod tests {
     use super::*;
 
+    fn logical(key: &str) -> KeyConfig {
+        KeyConfig::Logical {
+            key: key.to_string(),
+        }
+    }
+
     fn sample_config() -> Config {
         Config {
             schema_version: SCHEMA_VERSION,
-            emergency_bypass_key: "F12".to_string(),
+            emergency_bypass_key: logical("F12"),
             rules: vec![RuleConfig {
                 id: "hold-ctrl-right-click-copy".to_string(),
                 trigger: TriggerConfig::HoldMouseButton {
-                    key: "LeftCtrl".to_string(),
+                    key: logical("LeftCtrl"),
                     timeout_ms: 250,
                     button: "Right".to_string(),
                 },
                 action: ActionConfig::KeyChord {
-                    keys: vec!["LeftCtrl".to_string(), "C".to_string()],
+                    keys: vec![logical("LeftCtrl"), logical("C")],
                 },
             }],
         }
@@ -626,6 +854,141 @@ mod tests {
         let loaded = load(&path);
         let _ = fs::remove_dir_all(&dir);
         loaded
+    }
+
+    const V1_GOLDEN: &str = include_str!("../../../fixtures/config/v1-valid.json");
+    const V2_GOLDEN: &str = include_str!("../../../fixtures/config/v2-valid.json");
+
+    #[test]
+    fn v1_golden_migrates_without_changing_legacy_rule_meaning() {
+        let migrated = parse_and_migrate_json(V1_GOLDEN).expect("v1 fixture should migrate");
+        assert_eq!(migrated.source_schema_version, LEGACY_SCHEMA_VERSION);
+        assert_eq!(migrated.config.schema_version, SCHEMA_VERSION);
+        assert_eq!(migrated.config.emergency_bypass_key, logical("F12"));
+
+        let resolved = validate(&migrated.config).unwrap();
+        assert_eq!(resolved.emergency_key, Key::F12);
+        assert_eq!(resolved.rules.len(), 1);
+        assert_eq!(
+            resolved.rules[0].trigger,
+            Trigger::KeyChord {
+                first: Key::LeftCtrl,
+                second: Key::C,
+            }
+        );
+        assert_eq!(
+            resolved.rules[0].action,
+            Action::KeyChord(vec![Key::LeftCtrl, Key::C])
+        );
+    }
+
+    #[test]
+    fn v2_golden_round_trips_logical_and_physical_identities() {
+        let first = parse_and_migrate_json(V2_GOLDEN).expect("v2 fixture should parse");
+        assert_eq!(first.source_schema_version, SCHEMA_VERSION);
+        let text = serde_json::to_string_pretty(&first.config).unwrap();
+        let second = parse_and_migrate_json(&text).expect("serialized v2 should parse");
+        assert_eq!(second, first);
+
+        let resolved = validate(&second.config).unwrap();
+        assert_eq!(
+            resolved.rules[0].trigger,
+            Trigger::KeyChord {
+                first: Key::Physical {
+                    scan_code: 30,
+                    extended: false,
+                },
+                second: Key::C,
+            }
+        );
+    }
+
+    #[test]
+    fn loading_v1_reports_compatibility_mode_and_exposes_v2_document() {
+        let loaded = load_from(V1_GOLDEN);
+        assert_eq!(loaded.source_schema_version, LEGACY_SCHEMA_VERSION);
+        assert_eq!(loaded.config.schema_version, SCHEMA_VERSION);
+        assert_eq!(loaded.rules.len(), 1);
+        assert!(loaded.problems.iter().any(|problem| {
+            problem.contains("schema v1") && problem.contains("compatibility mode")
+        }));
+    }
+
+    #[test]
+    fn failed_v1_migration_does_not_modify_the_source_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "inputflow-config-bad-migration-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        let invalid = V1_GOLDEN.replace("\"C\"", "\"VendorMystery\"");
+        fs::write(&path, &invalid).unwrap();
+
+        let loaded = load(&path);
+        assert!(loaded.rules.is_empty());
+        assert!(
+            loaded
+                .problems
+                .iter()
+                .any(|problem| problem.contains("unknown logical key `VendorMystery`"))
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), invalid);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn v2_rejects_unknown_fields_illegal_keys_and_mixed_shapes() {
+        let cases = [
+            V2_GOLDEN.replace("\"key\": \"F12\"", "\"key\": \"F12\", \"unexpected\": true"),
+            V2_GOLDEN.replace("\"key\": \"F12\"", "\"key\": \"VendorMystery\""),
+            V2_GOLDEN.replace("\"scan_code\": 30", "\"scan_code\": 0"),
+            V2_GOLDEN.replace(
+                "{\n    \"match\": \"logical\",\n    \"key\": \"F12\"\n  }",
+                "{\"match\":\"physical\",\"scan_code\":88,\"extended\":false}",
+            ),
+            V2_GOLDEN.replace(
+                "{\n          \"match\": \"logical\",\n          \"key\": \"C\"\n        }",
+                "\"C\"",
+            ),
+        ];
+
+        for text in cases {
+            assert!(
+                parse_and_migrate_json(&text).is_err(),
+                "invalid v2 document was accepted: {text}"
+            );
+        }
+    }
+
+    #[test]
+    fn official_v2_save_keeps_v1_backup_for_rollback() {
+        let dir = std::env::temp_dir().join(format!(
+            "inputflow-config-migration-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        fs::write(&path, V1_GOLDEN).unwrap();
+
+        let loaded = load(&path);
+        assert_eq!(loaded.source_schema_version, LEGACY_SCHEMA_VERSION);
+        save(&path, &loaded.config).expect("migrated v2 save should succeed");
+
+        let official = parse_and_migrate_json(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(official.source_schema_version, SCHEMA_VERSION);
+        let backup = recovery_artifacts(&path)
+            .into_iter()
+            .find(|artifact| artifact.kind == RecoveryKind::Backup)
+            .expect("replacement should retain the v1 primary");
+        let backup_value: Value =
+            serde_json::from_str(&fs::read_to_string(backup.path).unwrap()).unwrap();
+        assert_eq!(backup_value["schema_version"], LEGACY_SCHEMA_VERSION);
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -648,14 +1011,14 @@ mod tests {
     fn unknown_key_is_rejected() {
         let mut config = sample_config();
         config.rules[0].trigger = TriggerConfig::Hold {
-            key: "NotAKey".to_string(),
+            key: logical("NotAKey"),
             timeout_ms: 250,
         };
         let problems = validate(&config).unwrap_err();
         assert!(
             problems
                 .iter()
-                .any(|e| e.0.contains("unknown key `NotAKey`"))
+                .any(|e| e.0.contains("unknown logical key `NotAKey`"))
         );
     }
 
@@ -663,7 +1026,7 @@ mod tests {
     fn timeout_out_of_range_is_rejected() {
         let mut config = sample_config();
         config.rules[0].trigger = TriggerConfig::Hold {
-            key: "LeftCtrl".to_string(),
+            key: logical("LeftCtrl"),
             timeout_ms: 0,
         };
         let problems = validate(&config).unwrap_err();
@@ -674,19 +1037,19 @@ mod tests {
     fn every_trigger_kind_accepts_a_repeating_prefix() {
         let triggers = [
             TriggerConfig::KeyChord {
-                first: "A".to_string(),
-                second: "B".to_string(),
+                first: logical("A"),
+                second: logical("B"),
             },
             TriggerConfig::KeyMouseButton {
-                key: "A".to_string(),
+                key: logical("A"),
                 button: "Right".to_string(),
             },
             TriggerConfig::Hold {
-                key: "A".to_string(),
+                key: logical("A"),
                 timeout_ms: 250,
             },
             TriggerConfig::HoldMouseButton {
-                key: "A".to_string(),
+                key: logical("A"),
                 timeout_ms: 250,
                 button: "Right".to_string(),
             },
@@ -705,11 +1068,11 @@ mod tests {
         config.rules.push(RuleConfig {
             id: "hold-ctrl-right-click-copy".to_string(),
             trigger: TriggerConfig::Hold {
-                key: "LeftCtrl".to_string(),
+                key: logical("LeftCtrl"),
                 timeout_ms: 250,
             },
             action: ActionConfig::KeyChord {
-                keys: vec!["LeftCtrl".to_string(), "C".to_string()],
+                keys: vec![logical("LeftCtrl"), logical("C")],
             },
         });
         let problems = validate(&config).unwrap_err();
@@ -719,7 +1082,7 @@ mod tests {
     #[test]
     fn emergency_key_collision_is_rejected() {
         let mut config = sample_config();
-        config.emergency_bypass_key = "LeftCtrl".to_string();
+        config.emergency_bypass_key = logical("LeftCtrl");
         let problems = validate(&config).unwrap_err();
         assert!(
             problems
@@ -733,11 +1096,11 @@ mod tests {
         config.rules.push(RuleConfig {
             id: "hold-ctrl-copy".to_string(),
             trigger: TriggerConfig::Hold {
-                key: "LeftCtrl".to_string(),
+                key: logical("LeftCtrl"),
                 timeout_ms: 250,
             },
             action: ActionConfig::KeyChord {
-                keys: vec!["LeftCtrl".to_string(), "C".to_string()],
+                keys: vec![logical("LeftCtrl"), logical("C")],
             },
         });
         let problems = validate(&config).unwrap_err();
@@ -978,12 +1341,12 @@ mod tests {
         fs::write(&path, "{ invalid").unwrap();
 
         let mut committed = sample_config();
-        committed.emergency_bypass_key = "F1".to_string();
+        committed.emergency_bypass_key = logical("F1");
         let backup = path.with_file_name("config.json.bak.test.0");
         fs::write(&backup, serde_json::to_vec_pretty(&committed).unwrap()).unwrap();
 
         let mut uncommitted = sample_config();
-        uncommitted.emergency_bypass_key = "F2".to_string();
+        uncommitted.emergency_bypass_key = logical("F2");
         let temp = path.with_file_name("config.json.tmp.test.1");
         fs::write(&temp, serde_json::to_vec_pretty(&uncommitted).unwrap()).unwrap();
 
@@ -1006,7 +1369,7 @@ mod tests {
         for key in ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10"] {
             let config = Config {
                 schema_version: SCHEMA_VERSION,
-                emergency_bypass_key: key.to_string(),
+                emergency_bypass_key: logical(key),
                 rules: Vec::new(),
             };
             save(&path, &config).unwrap();
@@ -1066,7 +1429,7 @@ mod tests {
             workers.push(std::thread::spawn(move || {
                 let config = Config {
                     schema_version: SCHEMA_VERSION,
-                    emergency_bypass_key: key.to_string(),
+                    emergency_bypass_key: logical(key),
                     rules: Vec::new(),
                 };
                 save(&path, &config)
