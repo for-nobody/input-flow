@@ -165,20 +165,30 @@
 - 当前用户语言列表实际为 `en-US`（`0409:00000409`）和 `zh-Hans-CN` Microsoft Pinyin。两种输入状态都实际观察到 `Oem1 scan=0x27 extended=false`、`CapsLock scan=0x3A` 和 `A scan=0x1E`；记事本字符正确。Microsoft Pinyin 下单独 `Oem1` 候选失败回放为 2/2，目标只出现一个分号；英文下 physical `Oem1 + F9` 命中只输出一个 `c`，没有分号或其他快捷动作。
 - Caps 以关闭状态开始：两轮失败回放均为 2/2，记事本依次显示大写/小写且键盘灯正确；`CapsLock + F9` 在含 repeat 的真实序列中只匹配一次、只输出一个 `c`，Caps 灯保持关闭。pending Caps 时按 `F12` 回放 1/1 并进入旁路，释放后显示大写；再次 `F12` 恢复后 Caps 失败回放 2/2，显示小写并回到灯灭。验收探针最终 clean quit：7 个输出批次，0 failed、0 dropped。
 - Phase D/E 的正式 capture/display session 尚不存在；本轮通过 probe 的显式 debug observation 完成 identity 记录，不能冒充正式设置 UI 录制。
-- 自动验证：`cargo test --workspace` 为 113/113（engine 72 + config 24 + windows 17）；fmt、Clippy `-D warnings` 和 probe build 通过。Phase C agent、Phase D IPC、Phase E 正式设置和 Phase F/M8 鼠标方向均未开始。
+- 自动验证：`cargo test --workspace` 为 113/113（engine 72 + config 24 + windows 17）；fmt、Clippy `-D warnings` 和 probe build 通过。Phase B 收口时，Phase C agent、Phase D IPC、Phase E 正式设置和 Phase F/M8 鼠标方向均未开始。
 
 ## 15. M7 Phase C：产品级 Rust agent runtime（2026-09-30）
 
 - 新增 `inputflow-runtime`，集中拥有配置、matcher、Hook/message-loop thread、bounded logger、crash marker、状态与 shutdown；`probe-cli` 和薄 `inputflow-agent` 共用它，原 probe 不再复制安装/ready/退出流程。
 - callback bridge 保留进程期 `OnceLock`，但 matcher、emergency key 和 logger sender 都可安全替换。所有 pause/resume、rule replacement、capture start/cancel 仍通过控制消息在 Hook owner 串行完成；shutdown 继续执行最多两秒 consumed-release tombstone drain。
 - 规则热替换先冲刷 pending 并进入 bypass；冲刷完整后，matcher 在 paused 状态更换 index，同时保留旧 consumed release tombstone。若替换前为 active 才恢复 interception。engine 新增确定性测试，验证旧 release 仍被消费而新 prefix 立即生效。
-- 配置层新增 `ValidatedConfig` 与结构化 `SaveReport`，把 committed path、backup 和成功后的 cleanup warning 保留下来。runtime 的 `ApplyReport` 明确区分 validation/persistence/runtime failure；顺序为验证/编译 → 原子保存 → Hook-owner replace。最后一步失败时尝试原子恢复旧配置并置 `recovery_required=true`。
+- 配置层新增 `ValidatedConfig` 与结构化 `SaveReport`，把 committed path、backup 和成功后的 cleanup warning 保留下来。runtime 的 `ApplyReport` 明确区分 validation/persistence/runtime failure；顺序为验证/编译 → 原子保存 → Hook-owner replace。后续审阅证实原实现会把“已开始但超时”错误当成确定失败立即回滚磁盘；现已结构化区分 cancelled/failed/outcome-unknown。只有前两者立即回滚，outcome-unknown 保留 draft、阻止后续 apply 并等待原请求：延迟成功时对齐内存状态，延迟失败时才回滚，无法取得终态时要求重启从已保存 draft 恢复。
 - capture session 一次只允许一个，显式 timeout/cancel；只观察首个非 injected、非 repeat 的 physical down，排除紧急键和本程序注入，不暂停、不抑制也不修改 matcher，shutdown 会返回终态。Phase D 只需在版本化 IPC 上承载该 API，不应复制录制状态机。
-- `inputflow-agent` 使用 `Shell_NotifyIconW`：状态文字/tooltip、打开设置、pause/resume 和 exit；`TaskbarCreated` 后重加图标。named mutex 保证当前会话单实例，第二实例明确请求启动设置。Release 使用 Windows GUI subsystem；本地日志默认只含聚合生命周期信息，逐输入 identity 需显式 `--debug-input`。
-- 自动验证为 124/124（engine 73、config 25、windows 20、runtime 3、agent 3），fmt 和 Clippy `-D warnings` 通过。Debug agent 的 100 次 pause/resume + apply + capture cancel smoke 退出码 0、marker 清除、0 output failed/dropped；Release PE subsystem 实测为 2。
+- `inputflow-agent` 使用 `Shell_NotifyIconW`：状态文字/tooltip、打开设置、pause/resume 和 exit；`TaskbarCreated` 后重加图标。后续审阅证实独立 `TRAY_PAUSED` 会在 F12 路径下失真；现已删除该双重状态，tooltip/菜单直接读取 runtime suspended，所有权威状态转换都发送非阻塞刷新消息。named mutex 保证当前会话单实例，第二实例明确请求启动设置。Release 使用 Windows GUI subsystem；本地日志默认只含聚合生命周期信息，逐输入 identity 需显式 `--debug-input`。
+- 自动验证为 128/128（engine 73、config 25、windows 22、runtime 5、agent 3），fmt 和 Clippy `-D warnings` 通过。新增故障注入覆盖 pending 取消、running 超时以及延迟成功后磁盘/内存对齐。Debug agent 的 100 次 pause/resume + apply + capture cancel smoke 退出码 0、marker 清除、0 output failed/dropped；Release PE subsystem 实测为 2。
 - Release 空闲短样本约为 10.3 MiB working set、1.6 MiB private bytes、6 threads、143 handles；1000 次 pause/resume 后约 10.0 MiB/1.7 MiB、7 threads、145 handles。随后 3 次第二实例打开设置请求均返回 0，并实际产生 3 个独立 Phase A 设置进程；正常 `WM_CLOSE` 后退出。agent 的 working set/private/thread/handle 在请求前后增长均为 0，最终 exit code 0。
 - 用户随后人工通过托盘 Active tooltip/status、Pause、Resume、Open Settings、关闭设置后 agent 继续常驻，以及 Exit。日志确认 pause flush 完整、resume、settings launch 和 clean shutdown；0 output failed/dropped、线程无 panic、marker 清除。
-- 尚未执行：真实 Explorer 进程重启后的图标观察、agent 路径下的新一轮物理规则回归，以及 M6 既有 UIPI/高负载矩阵。自动 smoke 与资源短样本不能替代这些人工证据。Phase D Named Pipe、正式 UI 和鼠标方向均未开始。
+- 尚未执行：真实 Explorer 进程重启后的图标观察、agent 路径下的新一轮物理规则回归，以及 M6 既有 UIPI/高负载矩阵。自动 smoke 与资源短样本不能替代这些人工证据。Phase C 收口时 Phase D Named Pipe、正式 UI 和鼠标方向尚未开始。
+
+## 16. M7 Phase D：版本化 Named Pipe（2026-09-30）
+
+- ADR-006 比较 JSON lines、4-byte little-endian length-prefix JSON 与 message-mode pipe，选择 1 MiB 上限的 length-prefix UTF-8 JSON v1。每个请求携带协议版本和字符串 request ID；首个请求必须 handshake。畸形消息、版本不匹配、重复 ID、超限、timeout、disconnect 与 shutdown 均有明确语义。
+- `inputflow-windows::platform::pipe` 集中 Win32 `unsafe`：pipe 名包含当前 session id，DACL 只允许当前进程 token 用户与 SYSTEM，拒绝远程客户端，使用 overlapped connect/read/write 和共享 shutdown event。Hook callback 不等待 pipe I/O。
+- 新增 `inputflow-protocol`：严格 DTO、frame codec、并发连接 server、有界订阅队列和单调 event ID。agent handler 只调用共享 runtime/config API，实现 handshake、get_status、get_config、validate_config、apply_config、pause、resume、get_stats、begin_capture、cancel_capture 与 subscribe_events；apply 继续保持验证/编译 → 原子保存 → Hook-owner replace/结构化回滚顺序。
+- capture 归连接所有；连接断开只取消该连接的 capture，不改变现有规则或 pause 状态。事件队列每订阅者容量 32、最多 8 个连接，慢客户端不会反压 Hook/runtime；event ID 间隙可检测丢弃。
+- 新增 .NET `InputFlow.Protocol` 客户端和无第三方测试框架的 contract runner。Rust 与 C# 共用 `fixtures/protocol/v1` golden；真实 agent live contract 覆盖状态、配置、校验、应用当前配置、pause/resume 事件、统计、capture cancel，以及第二客户端断线自动取消 capture。
+- 自动验证为 143/143（agent 4、config 25、engine 73、protocol 12、runtime 5、windows 24），fmt、Clippy `-D warnings`、probe/agent build 和 C# Debug/Release build 通过。C# fixture runner 与真实 agent live contract 均退出码 0。
+- 尚未执行：Phase E 页面绑定/UIA/无障碍/资源验收；x86/ARM64；跨用户或提升级别矩阵；M6 UIPI/高负载与既有人工回归。协议客户端存在不等于正式设置 UI 已完成。
 
 ## 变更记录
 
@@ -193,4 +203,5 @@
 - 2026-09-27（M6 四轮复查）：外部暂停/恢复改由 Hook 线程串行执行并确认；统计改为锁内快照、锁外单次排序并校正计时口径；配置恢复采用 backup 优先和有效性保护的 5/3 代保留；92 项测试、Clippy 和 pause/resume lifecycle smoke 通过，真实键鼠/UIPI/高负载验收仍待人工执行。
 - 2026-09-29（M7 Phase A）：安装并固定 .NET 10/WinUI 3 构建链，建立不接 Hook/配置/IPC 的原生设置 smoke；选择 unpackaged + framework-dependent，验证 x64 Debug/Release 构建和窗口正常退出；packaged 启动及 Phase B–F 明确保持未完成。
 - 2026-09-29（M7 Phase B）：接受 logical/physical 双身份 ADR-005，补齐键映射、physical-first matcher 与 scan-code 回放，升级严格 Schema v2 并保留 v1 golden/迁移/回滚；113 项自动测试通过。en-US/Microsoft Pinyin OEM 观察与回放、Caps 失败/命中/指示灯及 `F12` pending 恢复均通过真实物理验收，Phase B 完成。
-- 2026-09-30（M7 Phase C）：抽取 probe/agent 共用 `inputflow-runtime`，实现 Hook-owner 规则热替换、结构化 save/apply、capture session、Win32 托盘/Explorer 恢复、单实例与无控制台 Release；124 项测试、lifecycle/resource smoke 和托盘人工点击通过，Phase D IPC 未开始。
+- 2026-09-30（M7 Phase C）：抽取 probe/agent 共用 `inputflow-runtime`，实现 Hook-owner 规则热替换、结构化 save/apply、capture session、Win32 托盘/Explorer 恢复、单实例与无控制台 Release；后续审阅修复 F12 托盘同步和热替换超时一致性，128 项测试通过。lifecycle/resource smoke、原托盘人工点击以及修复后 F12 → Paused/Resume → Active 同步复验均通过；Phase C 收口时 Phase D IPC 尚未开始。
+- 2026-09-30（M7 Phase D）：接受 ADR-006，新增安全版本化 Named Pipe、Rust protocol/server、agent runtime adapter、C# client 和共享 golden fixtures；143 项 Rust 测试、C# fixture contract 与真实 agent 跨语言 live contract 通过。正式 WinUI 页面仍留给 Phase E。

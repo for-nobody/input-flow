@@ -109,9 +109,9 @@ InputFlow 是输入基础设施，不是需要长期显示内容的普通桌面�
 - `inputflow-runtime` 是 probe 与产品 agent 共用的唯一生命周期编排层；薄入口不得复制 Hook 安装、ready、暂停、退出或配置事务。
 - 进程唯一 Win32 callback bridge 仍由 `OnceLock` 承载，但 cell 内保存的是可替换值。callback 只在 Hook 线程存活时读取这些进程期 cell，不保存调用者借用，因此不存在跨 callback 的悬垂引用；重复 start 前必须确认旧 Hook 线程已经退出并重置运行状态。
 - 所有影响 matcher 时序状态的 pause/resume/rule replacement/capture begin/cancel 都发到 Hook owner 串行执行。规则替换先冲刷 pending，进入 bypass；冲刷不完整即停止替换并报告恢复需求。成功替换保留旧规则已经产生的 consumed release tombstone，再按替换前状态决定是否恢复 interception。
-- `apply_config` 固定为“权威验证与编译 → 原子保存 → Hook-owner 替换”。保存成功但运行时替换失败时尝试把旧配置重新原子写回，同时返回包含 save/runtime/rollback、cleanup warning 和 `recovery_required` 的结构化报告；不能以模糊布尔值隐藏部分提交。
+- `apply_config` 固定为“权威验证与编译 → 原子保存 → Hook-owner 替换”。Hook 控制结果必须区分“未开始且已取消”、“确定失败”与“已开始但超时，结果待核对”。前两者才立即尝试把旧配置原子写回；结果待定时保留已落盘的 draft，阻止后续 apply，并在后台等待原请求终态。延迟成功则把 `current_config` 与元数据对齐到 draft，延迟失败才回滚旧配置；如果永远无法确定终态，保留 draft 并要求重启 agent 从磁盘确定性恢复。`ApplyReport` 必须包含 outcome、request id、save/runtime/rollback、cleanup warning 和 `recovery_required`，不能以模糊布尔值隐藏部分提交。
 - capture 是有界且一次一个的 immutable observation；它不暂停 matcher、不预消费输入、不改变现有规则，排除本程序注入与紧急旁路键，并在取消、超时或 shutdown 时给出终态。
-- agent 使用 Win32 notification icon，托盘 pause/resume 复用上述控制路径；`TaskbarCreated` 会重加图标。当前用户会话以 named mutex 保证单实例，第二实例请求启动设置程序。Release PE subsystem 为 Windows GUI，默认日志只记录聚合/生命周期信息；逐输入 identity 需显式 `--debug-input`。
+- agent 使用 Win32 notification icon，托盘 pause/resume 复用上述控制路径；tooltip 和菜单直接读取 runtime 的权威 suspended 状态，F12、托盘、输出失败与 overflow 状态转换都通过同一通知路径刷新展示，不得另维护托盘布尔值。`TaskbarCreated` 会重加图标。当前用户会话以 named mutex 保证单实例，第二实例请求启动设置程序。Release PE subsystem 为 Windows GUI，默认日志只记录聚合/生命周期信息；逐输入 identity 需显式 `--debug-input`。
 
 ## 关键不变量（Invariants）
 

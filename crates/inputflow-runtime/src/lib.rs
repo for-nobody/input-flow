@@ -21,7 +21,8 @@ use inputflow_engine::{Key, Matcher, RuleIndex, SystemClock};
 use inputflow_windows::platform::windows;
 
 pub use inputflow_windows::platform::windows::{
-    CaptureOutcome, CaptureSession, CapturedInput, PauseReport, Percentiles, ReplaceReport,
+    CaptureOutcome, CaptureSession, CapturedInput, ControlFailure, ControlFailureKind, PauseReport,
+    Percentiles, ReplaceReport,
 };
 
 const LOG_QUEUE_CAPACITY: usize = 1024;
@@ -64,6 +65,7 @@ pub struct RuntimeStatus {
     pub suspended: bool,
     pub capture_active: bool,
     pub rule_count: usize,
+    pub observed_events: u64,
     pub emergency_key: Key,
     pub config_path: PathBuf,
     pub output_batches_sent: u64,
@@ -71,6 +73,8 @@ pub struct RuntimeStatus {
     pub output_batches_dropped: u64,
     pub callback_latency_us: Option<Percentiles>,
     pub hold_delay_us: Option<Percentiles>,
+    pub state_revision: u64,
+    pub apply_reconciliation: ApplyReconciliation,
     pub last_error: Option<String>,
 }
 
@@ -89,7 +93,19 @@ pub enum ApplyOutcome {
     Applied,
     ValidationFailed,
     PersistenceFailed,
+    RuntimeCancelled,
     RuntimeFailed,
+    RuntimeOutcomeUnknown,
+    RuntimeBusy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApplyReconciliation {
+    Settled,
+    Pending { request_id: u64 },
+    AppliedAfterTimeout { request_id: u64 },
+    RolledBackAfterTimeout { request_id: u64 },
+    RecoveryRequired { request_id: u64 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,6 +116,7 @@ pub struct ApplyReport {
     pub save: Option<SaveReport>,
     pub runtime: Option<ReplaceReport>,
     pub rollback: Option<SaveReport>,
+    pub runtime_request_id: Option<u64>,
     pub error: Option<String>,
     pub recovery_required: bool,
 }
@@ -118,6 +135,7 @@ pub struct ShutdownReport {
 struct RuntimeMetadata {
     phase: RuntimePhase,
     emergency_key: Key,
+    apply_reconciliation: ApplyReconciliation,
     last_error: Option<String>,
 }
 
@@ -128,13 +146,14 @@ struct RuntimeThreads {
 
 pub struct Runtime {
     config_path: PathBuf,
-    current_config: Mutex<Config>,
+    current_config: Arc<Mutex<Config>>,
     apply_lock: Mutex<()>,
-    metadata: Mutex<RuntimeMetadata>,
+    metadata: Arc<Mutex<RuntimeMetadata>>,
     hook_thread_id: AtomicU32,
-    rule_count: AtomicUsize,
+    rule_count: Arc<AtomicUsize>,
     logger_shutdown: Arc<AtomicBool>,
     threads: Mutex<Option<RuntimeThreads>>,
+    reconciliation_thread: Mutex<Option<JoinHandle<()>>>,
     marker: CrashMarker,
 }
 
@@ -216,17 +235,19 @@ impl Runtime {
         let config_problems = loaded.problems.clone();
         let runtime = Self {
             config_path: options.config_path.clone(),
-            current_config: Mutex::new(loaded.config),
+            current_config: Arc::new(Mutex::new(loaded.config)),
             apply_lock: Mutex::new(()),
-            metadata: Mutex::new(RuntimeMetadata {
+            metadata: Arc::new(Mutex::new(RuntimeMetadata {
                 phase: RuntimePhase::Ready,
                 emergency_key,
+                apply_reconciliation: ApplyReconciliation::Settled,
                 last_error: None,
-            }),
+            })),
             hook_thread_id: AtomicU32::new(hook_thread_id),
-            rule_count: AtomicUsize::new(rule_count),
+            rule_count: Arc::new(AtomicUsize::new(rule_count)),
             logger_shutdown,
             threads: Mutex::new(Some(RuntimeThreads { hook, logger })),
+            reconciliation_thread: Mutex::new(None),
             marker,
         };
         Ok((
@@ -243,6 +264,7 @@ impl Runtime {
     }
 
     pub fn status(&self) -> RuntimeStatus {
+        self.reap_reconciliation_thread();
         let metadata = self
             .metadata
             .lock()
@@ -253,6 +275,7 @@ impl Runtime {
             suspended: windows::is_suspended(),
             capture_active: windows::is_capture_active(),
             rule_count: self.rule_count.load(Ordering::Acquire),
+            observed_events: windows::seq_count(),
             emergency_key: metadata.emergency_key,
             config_path: self.config_path.clone(),
             output_batches_sent: windows::output_sent(),
@@ -260,11 +283,14 @@ impl Runtime {
             output_batches_dropped: windows::output_dropped(),
             callback_latency_us: windows::callback_latency_stats(),
             hold_delay_us: windows::hold_delay_stats(),
+            state_revision: windows::state_revision(),
+            apply_reconciliation: metadata.apply_reconciliation,
             last_error: metadata.last_error.clone(),
         }
     }
 
     pub fn current_config(&self) -> Config {
+        self.reap_reconciliation_thread();
         self.current_config
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -292,32 +318,78 @@ impl Runtime {
                 );
             }
         };
+        self.reap_reconciliation_thread();
         if let Err(error) = self.require_ready() {
             return ApplyReport::failure(ApplyOutcome::RuntimeFailed, error, true);
         }
+        let reconciliation = self
+            .metadata
+            .lock()
+            .map(|metadata| metadata.apply_reconciliation)
+            .unwrap_or(ApplyReconciliation::RecoveryRequired { request_id: 0 });
+        match reconciliation {
+            ApplyReconciliation::Pending { request_id } => {
+                return ApplyReport::failure_with_request(
+                    ApplyOutcome::RuntimeBusy,
+                    format!("rule replacement request {request_id} is still being reconciled"),
+                    true,
+                    Some(request_id),
+                );
+            }
+            ApplyReconciliation::RecoveryRequired { request_id } => {
+                return ApplyReport::failure_with_request(
+                    ApplyOutcome::RuntimeBusy,
+                    format!(
+                        "rule replacement request {request_id} needs agent restart before another apply"
+                    ),
+                    true,
+                    Some(request_id),
+                );
+            }
+            _ => {}
+        }
         let old = self.current_config();
-        let (report, applied) = apply_transaction(
+        let (report, disposition) = apply_transaction(
             &self.config_path,
             &old,
             draft,
             save_with_report,
-            |index, emergency_key, rule_count| {
-                windows::replace_rules(index, emergency_key, rule_count)
+            |index, emergency_key, rule_count| match windows::replace_rules(
+                index,
+                emergency_key,
+                rule_count,
+            ) {
+                windows::ReplaceRulesOutcome::Applied(report) => ReplaceAttempt::Applied(report),
+                windows::ReplaceRulesOutcome::Cancelled(failure) => {
+                    ReplaceAttempt::Cancelled(failure)
+                }
+                windows::ReplaceRulesOutcome::Failed(failure) => ReplaceAttempt::Failed(failure),
+                windows::ReplaceRulesOutcome::OutcomeUnknown(pending) => {
+                    ReplaceAttempt::OutcomeUnknown {
+                        request_id: pending.request_id(),
+                        pending,
+                    }
+                }
             },
         );
-        if let Some(config) = applied {
-            self.rule_count.store(config.rules.len(), Ordering::Release);
-            if let Ok(validated) = validate_config(&config)
-                && let Ok(mut metadata) = self.metadata.lock()
-            {
-                metadata.emergency_key = validated.emergency_key;
-                metadata.last_error = None;
+        match disposition {
+            ApplyDisposition::None => {
+                if let Some(error) = report.error.as_deref() {
+                    self.record_error(error);
+                }
             }
-            if let Ok(mut current) = self.current_config.lock() {
-                *current = config;
+            ApplyDisposition::Applied(config) => {
+                apply_live_config(
+                    &self.current_config,
+                    &self.metadata,
+                    &self.rule_count,
+                    config,
+                    ApplyReconciliation::Settled,
+                );
             }
-        } else if let Some(error) = report.error.as_deref() {
-            self.record_error(error);
+            ApplyDisposition::Reconcile(pending) => {
+                self.start_reconciliation(pending);
+            }
         }
         report
     }
@@ -330,6 +402,46 @@ impl Runtime {
     pub fn cancel_capture(&self, session_id: u64) -> Result<(), String> {
         self.require_ready()?;
         windows::cancel_capture(session_id).inspect_err(|error| self.record_error(error))
+    }
+
+    fn start_reconciliation(&self, pending: PendingApply<windows::PendingReplace>) {
+        let request_id = pending.request_id;
+        if let Ok(mut metadata) = self.metadata.lock() {
+            metadata.apply_reconciliation = ApplyReconciliation::Pending { request_id };
+            metadata.last_error = Some(format!(
+                "rule replacement request {request_id} timed out after starting; final outcome pending"
+            ));
+        }
+        let config_path = self.config_path.clone();
+        let current_config = Arc::clone(&self.current_config);
+        let metadata = Arc::clone(&self.metadata);
+        let rule_count = Arc::clone(&self.rule_count);
+        let thread = std::thread::spawn(move || {
+            reconcile_pending_apply(&config_path, current_config, metadata, rule_count, pending)
+        });
+        if let Ok(mut slot) = self.reconciliation_thread.lock()
+            && let Some(previous) = slot.replace(thread)
+        {
+            let _ = previous.join();
+        }
+    }
+
+    fn reap_reconciliation_thread(&self) {
+        let finished = self
+            .reconciliation_thread
+            .lock()
+            .ok()
+            .and_then(|slot| slot.as_ref().map(JoinHandle::is_finished))
+            .unwrap_or(false);
+        if finished
+            && let Some(thread) = self
+                .reconciliation_thread
+                .lock()
+                .ok()
+                .and_then(|mut slot| slot.take())
+        {
+            let _ = thread.join();
+        }
     }
 
     pub fn shutdown(&self) -> ShutdownReport {
@@ -349,6 +461,14 @@ impl Runtime {
             .and_then(|mut threads| threads.take());
         let (hook_thread_panicked, logger_thread_panicked) = if let Some(threads) = threads {
             let hook_thread_panicked = threads.hook.join().is_err();
+            if let Some(reconciliation) = self
+                .reconciliation_thread
+                .lock()
+                .ok()
+                .and_then(|mut slot| slot.take())
+            {
+                let _ = reconciliation.join();
+            }
             self.logger_shutdown.store(true, Ordering::Release);
             windows::clear_log_sender();
             let logger_thread_panicked = threads.logger.join().is_err();
@@ -408,6 +528,15 @@ impl Drop for Runtime {
 
 impl ApplyReport {
     fn failure(outcome: ApplyOutcome, error: String, recovery_required: bool) -> Self {
+        Self::failure_with_request(outcome, error, recovery_required, None)
+    }
+
+    fn failure_with_request(
+        outcome: ApplyOutcome,
+        error: String,
+        recovery_required: bool,
+        runtime_request_id: Option<u64>,
+    ) -> Self {
         Self {
             outcome,
             rule_count: 0,
@@ -415,19 +544,40 @@ impl ApplyReport {
             save: None,
             runtime: None,
             rollback: None,
+            runtime_request_id,
             error: Some(error),
             recovery_required,
         }
     }
 }
 
-fn apply_transaction(
+enum ReplaceAttempt<P> {
+    Applied(ReplaceReport),
+    Cancelled(ControlFailure),
+    Failed(ControlFailure),
+    OutcomeUnknown { request_id: u64, pending: P },
+}
+
+enum ApplyDisposition<P> {
+    None,
+    Applied(Config),
+    Reconcile(PendingApply<P>),
+}
+
+struct PendingApply<P> {
+    request_id: u64,
+    old: Config,
+    draft: Config,
+    pending: P,
+}
+
+fn apply_transaction<P>(
     config_path: &Path,
     old: &Config,
     draft: Config,
     mut persist: impl FnMut(&Path, &Config) -> Result<SaveReport, String>,
-    replace: impl FnOnce(RuleIndex, Key, usize) -> Result<ReplaceReport, String>,
-) -> (ApplyReport, Option<Config>) {
+    replace: impl FnOnce(RuleIndex, Key, usize) -> ReplaceAttempt<P>,
+) -> (ApplyReport, ApplyDisposition<P>) {
     let validated = match validate_config(&draft) {
         Ok(validated) => validated,
         Err(errors) => {
@@ -439,10 +589,11 @@ fn apply_transaction(
                     save: None,
                     runtime: None,
                     rollback: None,
+                    runtime_request_id: None,
                     error: None,
                     recovery_required: false,
                 },
-                None,
+                ApplyDisposition::None,
             );
         }
     };
@@ -458,10 +609,11 @@ fn apply_transaction(
                     save: None,
                     runtime: None,
                     rollback: None,
+                    runtime_request_id: None,
                     error: None,
                     recovery_required: false,
                 },
-                None,
+                ApplyDisposition::None,
             );
         }
     };
@@ -470,12 +622,12 @@ fn apply_transaction(
         Err(error) => {
             return (
                 ApplyReport::failure(ApplyOutcome::PersistenceFailed, error, false),
-                None,
+                ApplyDisposition::None,
             );
         }
     };
     match replace(index, validated.emergency_key, rule_count) {
-        Ok(runtime) => (
+        ReplaceAttempt::Applied(runtime) => (
             ApplyReport {
                 outcome: ApplyOutcome::Applied,
                 rule_count,
@@ -483,33 +635,166 @@ fn apply_transaction(
                 save: Some(save),
                 runtime: Some(runtime),
                 rollback: None,
+                runtime_request_id: None,
                 error: None,
                 recovery_required: false,
             },
-            Some(draft),
+            ApplyDisposition::Applied(draft),
         ),
-        Err(error) => {
+        ReplaceAttempt::Cancelled(failure) | ReplaceAttempt::Failed(failure) => {
+            let cancelled = failure.kind == ControlFailureKind::Cancelled;
             let rollback = persist(config_path, old);
             let rollback_error = rollback.as_ref().err().cloned();
+            let rollback_failed = rollback_error.is_some();
             let combined = match rollback_error {
                 Some(rollback_error) => {
-                    format!("{error}; failed to restore the previous config: {rollback_error}")
+                    format!(
+                        "{}; failed to restore the previous config: {rollback_error}",
+                        failure.message
+                    )
                 }
-                None => error,
+                None => failure.message,
             };
+            let recovery_required = !cancelled || rollback_failed;
             (
                 ApplyReport {
-                    outcome: ApplyOutcome::RuntimeFailed,
+                    outcome: if cancelled {
+                        ApplyOutcome::RuntimeCancelled
+                    } else {
+                        ApplyOutcome::RuntimeFailed
+                    },
                     rule_count,
                     validation_errors: Vec::new(),
                     save: Some(save),
                     runtime: None,
                     rollback: rollback.ok(),
+                    runtime_request_id: failure.request_id,
                     error: Some(combined),
-                    recovery_required: true,
+                    recovery_required,
                 },
-                None,
+                ApplyDisposition::None,
             )
+        }
+        ReplaceAttempt::OutcomeUnknown {
+            request_id,
+            pending,
+        } => (
+            ApplyReport {
+                outcome: ApplyOutcome::RuntimeOutcomeUnknown,
+                rule_count,
+                validation_errors: Vec::new(),
+                save: Some(save),
+                runtime: None,
+                rollback: None,
+                runtime_request_id: Some(request_id),
+                error: Some(format!(
+                    "rule replacement request {request_id} started but did not finish within the acknowledgement deadline; reconciliation is pending"
+                )),
+                recovery_required: true,
+            },
+            ApplyDisposition::Reconcile(PendingApply {
+                request_id,
+                old: old.clone(),
+                draft,
+                pending,
+            }),
+        ),
+    }
+}
+
+fn apply_live_config(
+    current_config: &Arc<Mutex<Config>>,
+    metadata: &Arc<Mutex<RuntimeMetadata>>,
+    rule_count: &Arc<AtomicUsize>,
+    config: Config,
+    reconciliation: ApplyReconciliation,
+) {
+    let validated = validate_config(&config).ok();
+    rule_count.store(config.rules.len(), Ordering::Release);
+    if let Ok(mut current) = current_config.lock() {
+        *current = config;
+    }
+    if let Ok(mut metadata) = metadata.lock() {
+        if let Some(validated) = validated {
+            metadata.emergency_key = validated.emergency_key;
+        }
+        metadata.apply_reconciliation = reconciliation;
+        metadata.last_error = None;
+    }
+}
+
+fn reconcile_pending_apply(
+    config_path: &Path,
+    current_config: Arc<Mutex<Config>>,
+    metadata: Arc<Mutex<RuntimeMetadata>>,
+    rule_count: Arc<AtomicUsize>,
+    pending: PendingApply<windows::PendingReplace>,
+) {
+    reconcile_pending_apply_with(
+        config_path,
+        current_config,
+        metadata,
+        rule_count,
+        pending,
+        windows::PendingReplace::wait,
+    );
+}
+
+fn reconcile_pending_apply_with<P>(
+    config_path: &Path,
+    current_config: Arc<Mutex<Config>>,
+    metadata: Arc<Mutex<RuntimeMetadata>>,
+    rule_count: Arc<AtomicUsize>,
+    pending: PendingApply<P>,
+    wait: impl FnOnce(P) -> windows::PendingReplaceOutcome,
+) {
+    let request_id = pending.request_id;
+    match wait(pending.pending) {
+        windows::PendingReplaceOutcome::Applied(_) => apply_live_config(
+            &current_config,
+            &metadata,
+            &rule_count,
+            pending.draft,
+            ApplyReconciliation::AppliedAfterTimeout { request_id },
+        ),
+        windows::PendingReplaceOutcome::Failed(error) => {
+            match save_with_report(config_path, &pending.old) {
+                Ok(rollback) => {
+                    let warning = if rollback.cleanup_warnings.is_empty() {
+                        String::new()
+                    } else {
+                        format!(
+                            "; rollback cleanup warnings: {}",
+                            rollback.cleanup_warnings.join("; ")
+                        )
+                    };
+                    if let Ok(mut metadata) = metadata.lock() {
+                        metadata.apply_reconciliation =
+                            ApplyReconciliation::RolledBackAfterTimeout { request_id };
+                        metadata.last_error = Some(format!(
+                            "late rule replacement request {request_id} failed and the previous config was restored: {error}{warning}"
+                        ));
+                    }
+                }
+                Err(rollback_error) => {
+                    if let Ok(mut metadata) = metadata.lock() {
+                        metadata.apply_reconciliation =
+                            ApplyReconciliation::RecoveryRequired { request_id };
+                        metadata.last_error = Some(format!(
+                            "late rule replacement request {request_id} failed ({error}); restoring the previous config also failed: {rollback_error}"
+                        ));
+                    }
+                }
+            }
+        }
+        windows::PendingReplaceOutcome::OutcomeUnknown(error) => {
+            if let Ok(mut metadata) = metadata.lock() {
+                metadata.apply_reconciliation =
+                    ApplyReconciliation::RecoveryRequired { request_id };
+                metadata.last_error = Some(format!(
+                    "rule replacement request {request_id} never produced a final result ({error}); persisted draft retained, restart the agent to recover deterministically"
+                ));
+            }
         }
     }
 }
@@ -619,7 +904,7 @@ mod tests {
         invalid.schema_version = 99;
         let mut persisted = false;
         let mut replaced = false;
-        let (report, applied) = apply_transaction(
+        let (report, applied) = apply_transaction::<()>(
             Path::new("ignored.json"),
             &old,
             invalid,
@@ -635,7 +920,7 @@ mod tests {
         assert_eq!(report.outcome, ApplyOutcome::ValidationFailed);
         assert!(!persisted);
         assert!(!replaced);
-        assert!(applied.is_none());
+        assert!(matches!(applied, ApplyDisposition::None));
     }
 
     #[test]
@@ -659,12 +944,12 @@ mod tests {
             },
             move |_, _, rule_count| {
                 replace_order.lock().unwrap().push("replace");
-                Ok(replace_report(rule_count))
+                ReplaceAttempt::<()>::Applied(replace_report(rule_count))
             },
         );
         assert_eq!(report.outcome, ApplyOutcome::Applied);
         assert_eq!(*order.lock().unwrap(), vec!["persist", "replace"]);
-        assert_eq!(applied, Some(draft));
+        assert!(matches!(applied, ApplyDisposition::Applied(config) if config == draft));
         assert_eq!(
             report.save.unwrap().cleanup_warnings,
             vec!["cleanup warning"]
@@ -689,12 +974,113 @@ mod tests {
                     cleanup_warnings: Vec::new(),
                 })
             },
-            |_, _, _| Err("injected runtime failure".to_string()),
+            |_, _, _| {
+                ReplaceAttempt::<()>::Failed(ControlFailure {
+                    kind: ControlFailureKind::Failed,
+                    request_id: Some(7),
+                    message: "injected runtime failure".to_string(),
+                })
+            },
         );
         assert_eq!(report.outcome, ApplyOutcome::RuntimeFailed);
         assert!(report.recovery_required);
         assert!(report.rollback.is_some());
-        assert!(applied.is_none());
+        assert!(matches!(applied, ApplyDisposition::None));
         assert_eq!(*persisted.lock().unwrap(), vec![draft, old]);
+    }
+
+    #[test]
+    fn cancelled_runtime_replace_is_structured_and_safely_rolled_back() {
+        let old = default_config();
+        let draft = config_with_rule("new");
+        let persisted = Arc::new(Mutex::new(Vec::<Config>::new()));
+        let persisted_copy = Arc::clone(&persisted);
+        let (report, disposition) = apply_transaction(
+            Path::new("config.json"),
+            &old,
+            draft.clone(),
+            move |path, config| {
+                persisted_copy.lock().unwrap().push(config.clone());
+                Ok(SaveReport {
+                    path: path.to_path_buf(),
+                    backup_path: None,
+                    cleanup_warnings: Vec::new(),
+                })
+            },
+            |_, _, _| {
+                ReplaceAttempt::<()>::Cancelled(ControlFailure {
+                    kind: ControlFailureKind::Cancelled,
+                    request_id: Some(8),
+                    message: "injected cancellation".to_string(),
+                })
+            },
+        );
+        assert_eq!(report.outcome, ApplyOutcome::RuntimeCancelled);
+        assert_eq!(report.runtime_request_id, Some(8));
+        assert!(!report.recovery_required);
+        assert!(matches!(disposition, ApplyDisposition::None));
+        assert_eq!(*persisted.lock().unwrap(), vec![draft, old]);
+    }
+
+    #[test]
+    fn delayed_success_after_timeout_never_rolls_disk_back_to_old_config() {
+        let old = default_config();
+        let draft = config_with_rule("late-success");
+        let persisted = Arc::new(Mutex::new(Vec::<Config>::new()));
+        let persisted_copy = Arc::clone(&persisted);
+        let (late_tx, late_rx) = mpsc::channel();
+        let (report, disposition) = apply_transaction(
+            Path::new("config.json"),
+            &old,
+            draft.clone(),
+            move |path, config| {
+                persisted_copy.lock().unwrap().push(config.clone());
+                Ok(SaveReport {
+                    path: path.to_path_buf(),
+                    backup_path: None,
+                    cleanup_warnings: Vec::new(),
+                })
+            },
+            |_, _, _| ReplaceAttempt::OutcomeUnknown {
+                request_id: 42,
+                pending: late_rx,
+            },
+        );
+        assert_eq!(report.outcome, ApplyOutcome::RuntimeOutcomeUnknown);
+        assert_eq!(report.runtime_request_id, Some(42));
+        assert!(report.rollback.is_none());
+        assert_eq!(*persisted.lock().unwrap(), vec![draft.clone()]);
+
+        let ApplyDisposition::Reconcile(pending) = disposition else {
+            panic!("unknown completion must be reconciled");
+        };
+        let current = Arc::new(Mutex::new(old));
+        let metadata = Arc::new(Mutex::new(RuntimeMetadata {
+            phase: RuntimePhase::Ready,
+            emergency_key: Key::F12,
+            apply_reconciliation: ApplyReconciliation::Pending { request_id: 42 },
+            last_error: None,
+        }));
+        let rule_count = Arc::new(AtomicUsize::new(0));
+
+        late_tx
+            .send(windows::PendingReplaceOutcome::Applied(replace_report(1)))
+            .unwrap();
+        reconcile_pending_apply_with(
+            Path::new("unused-on-success.json"),
+            Arc::clone(&current),
+            Arc::clone(&metadata),
+            Arc::clone(&rule_count),
+            pending,
+            |receiver| receiver.recv().unwrap(),
+        );
+
+        assert_eq!(*current.lock().unwrap(), draft.clone());
+        assert_eq!(rule_count.load(Ordering::Acquire), 1);
+        assert_eq!(
+            metadata.lock().unwrap().apply_reconciliation,
+            ApplyReconciliation::AppliedAfterTimeout { request_id: 42 }
+        );
+        assert_eq!(*persisted.lock().unwrap(), vec![draft]);
     }
 }

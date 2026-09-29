@@ -168,9 +168,11 @@ fn print_stats(status: &RuntimeStatus) {
         None => println!("probe-cli: hold delay: no samples."),
     }
     println!(
-        "probe-cli: status phase={:?} suspended={} capture_active={} rules={} output_sent={} output_failed={} output_dropped={}",
+        "probe-cli: status phase={:?} suspended={} state_revision={} apply_reconciliation={:?} capture_active={} rules={} output_sent={} output_failed={} output_dropped={}",
         status.phase,
         status.suspended,
+        status.state_revision,
+        status.apply_reconciliation,
         status.capture_active,
         status.rule_count,
         status.output_batches_sent,

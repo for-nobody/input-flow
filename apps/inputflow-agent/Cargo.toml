@@ -4,5 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+inputflow-config = { path = "../../crates/inputflow-config" }
+inputflow-engine = { path = "../../crates/inputflow-engine" }
+inputflow-protocol = { path = "../../crates/inputflow-protocol" }
 inputflow-runtime = { path = "../../crates/inputflow-runtime" }
 inputflow-windows = { path = "../../crates/inputflow-windows" }
+serde_json = { workspace = true }

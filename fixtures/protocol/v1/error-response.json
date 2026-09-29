@@ -1,0 +1,9 @@
+{
+  "protocol_version": 1,
+  "request_id": "settings-7",
+  "type": "error",
+  "error": {
+    "code": "duplicate_request_id",
+    "message": "request_id values must be unique within one connection"
+  }
+}

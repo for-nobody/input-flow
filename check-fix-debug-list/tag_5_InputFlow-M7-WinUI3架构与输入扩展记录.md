@@ -2,7 +2,7 @@
 
 > 日期：2026-09-30
 > 对应任务：`tag_5_InputFlow-M7-WinUI3架构与输入扩展任务.md`
-> 本次累计范围：Phase A、Phase B 与 Phase C 已完成；Phase B 包含真实物理输入验收，Phase C 包含共享 runtime、产品 agent/托盘、自动测试与资源 smoke；Phase D–E 与 Phase F/M8 未执行
+> 本次累计范围：Phase A–D 已完成；Phase B 包含真实物理输入验收，Phase C 包含共享 runtime、产品 agent/托盘、自动测试与资源 smoke，Phase D 包含安全版本化 Named Pipe、Rust/C# contract 与真实 agent 跨语言 smoke；Phase E 与 Phase F/M8 未执行
 
 ## 1. 基线核对
 
@@ -64,7 +64,7 @@
 - 模板 manifest 中与本产品无关的 `systemAIModels` restricted capability 已移除。
 - 根 `global.json` 固定 .NET SDK 10.0.401。
 
-Phase A 当时没有创建 `inputflow-agent`、`inputflow-protocol`、Named Pipe、托盘、完整键盘、Schema v2、正式设置页面或鼠标方向规则。此后已继续完成 Phase B 和 Phase C；IPC、正式 UI 与鼠标方向边界仍未越过。
+Phase A 当时没有创建 `inputflow-agent`、`inputflow-protocol`、Named Pipe、托盘、完整键盘、Schema v2、正式设置页面或鼠标方向规则。此后已继续完成 Phase B、Phase C 和 Phase D；正式 UI 与鼠标方向边界仍未越过。
 
 ## 5. Phase B：完整键盘身份与 Schema v2
 
@@ -92,7 +92,7 @@ ADR-005 比较三种方案：只扩展 logical VK、只保存 scan code + extend
 
 自动测试覆盖：无规则 down/up 直通、候选后失败 FIFO 回放、命中消费与两个 release tombstone、repeat 保留、pause/F12/quit 共用 Hook-owner 冲刷、overflow 旁路、physical 优先、布局变化 release，以及 Caps 捕获 down/up 恰好生成一对正确方向的 scan-code INPUT。
 
-这些测试还证明读取 immutable recording identity snapshot 后既有 Caps 规则仍照常命中。真实物理验收已经补充证明目标字符与硬件指示灯 toggle 次数正确；设置录制 session 仍属于 Phase D/E，目前只能通过 probe `--debug` 观察 normalized candidate，尚不能把“设置录制不改变运行规则”写成正式 UI 端到端通过。
+这些测试还证明读取 immutable recording identity snapshot 后既有 Caps 规则仍照常命中。真实物理验收已经补充证明目标字符与硬件指示灯 toggle 次数正确；Phase D 已把 capture session 接入 IPC 并验证断线取消，但正式设置录制页面仍属于 Phase E，尚不能把“设置录制不改变运行规则”写成 UI 端到端通过。
 
 ## 6. Phase C：产品级 Rust Agent Runtime
 
@@ -111,15 +111,15 @@ callback bridge 继续使用进程期 `OnceLock`，但不再把 matcher、logger
 1. runtime 权威校验 draft 并编译新 `RuleIndex`；失败时不写盘、不触碰 live matcher。
 2. 原子保存正式配置，取得结构化 `SaveReport`（正式路径、backup、成功提交后的 cleanup warning）。
 3. Hook owner 冲刷 pending、进入 bypass；若回放不完整则停止替换。冲刷成功后只替换 rule index/emergency key，保留旧规则已经产生的 consumed release tombstone；替换前不是 suspended 时才恢复 interception。
-4. 第 3 步失败时尝试把旧配置重新原子写回，并返回带 save/runtime/rollback、错误与 `recovery_required=true` 的 `ApplyReport`。不会把部分提交压成真假布尔值。
+4. 第 3 步的控制结果区分 cancelled、failed 和 outcome-unknown。未开始已取消或确定失败时才立即尝试把旧配置原子写回；已开始但超时时保留 draft，用 request id 标记 pending 并在后台核对原请求终态。延迟成功时对齐 `current_config`/元数据，延迟失败时才回滚，终态丢失时保留 draft 并要求重启恢复。`ApplyReport` 保留 outcome、request id、save/runtime/rollback、错误与 `recovery_required`，不会把部分提交压成真假布尔值。
 
-engine 确定性测试证明：旧规则命中后留下的 release tombstone 在替换后继续消费旧 release，而新 prefix 立即按新规则工作。config/runtime 测试分别覆盖 cleanup warning、验证失败零提交、保存先于替换，以及运行时失败后旧配置 rollback。
+engine 确定性测试证明：旧规则命中后留下的 release tombstone 在替换后继续消费旧 release，而新 prefix 立即按新规则工作。config/runtime 测试分别覆盖 cleanup warning、验证失败零提交、保存先于替换、确定失败回滚、未开始取消，以及“已开始但超时、随后延迟成功”故障注入。最后一项明确断言超时时不回滚磁盘，延迟成功后 draft/current/runtime 收敛到同一新配置。
 
-capture session 一次只允许一个，必须有 timeout，可取消；只观察首个非 injected、非 repeat 的键/鼠标 down，返回 logical + optional physical identity 或鼠标按钮。紧急键不成为 capture 结果，本程序注入也不会被录制。该观察发生在 matcher 决策前但不暂停、不预消费、不改变 matcher；timeout 由 Hook timer 驱动，shutdown 会返回明确终态。Phase D 只应在 IPC 上承载该 API。
+capture session 一次只允许一个，必须有 timeout，可取消；只观察首个非 injected、非 repeat 的键/鼠标 down，返回 logical + optional physical identity 或鼠标按钮。紧急键不成为 capture 结果，本程序注入也不会被录制。该观察发生在 matcher 决策前但不暂停、不预消费、不改变 matcher；timeout 由 Hook timer 驱动，shutdown 会返回明确终态。Phase D 已在 IPC 上承载该 API，没有复制录制状态机。
 
 ### 6.3 产品 agent 与 Win32 托盘
 
-- `inputflow-agent` 使用 `Shell_NotifyIconW` 和独立 Win32 message thread；右键菜单含只读 Active/Paused 状态、Open Settings、Pause/Resume 和 Exit，双击图标打开设置，tooltip 同步状态。
+- `inputflow-agent` 使用 `Shell_NotifyIconW` 和独立 Win32 message thread；右键菜单含只读 Active/Paused 状态、Open Settings、Pause/Resume 和 Exit，双击图标打开设置。后续审阅删除了只由托盘操作更新的 `TRAY_PAUSED`；tooltip/菜单现直接读取 runtime 权威 suspended，F12、托盘、输出失败和 overflow 的所有状态转换都通过同一非阻塞通知刷新 tooltip。
 - pause/resume 直接复用 runtime 的 Hook-owner 控制路径。注册并处理 `TaskbarCreated`，Explorer 重建通知区后会重新 `NIM_ADD`；真实重启 Explorer 的人工观察尚未执行。
 - 当前 session 使用 `Local\\InputFlow.Agent.v1` named mutex 单实例。第二实例不安装第二套 Hook，而是请求启动 `InputFlow.Settings.exe`；找不到时在本地日志写入明确错误并以 3 退出。
 - Release 使用 `windows_subsystem = "windows"`；实测 PE32+ subsystem 为 2（Windows GUI），不创建控制台窗口。agent 不依赖 .NET/WinUI/WebView。
@@ -137,7 +137,7 @@ cargo build -p inputflow-agent
 cargo build -p inputflow-agent --release
 ```
 
-自动结果为 124/124：engine 73、config 25、windows 20、runtime 3、agent 3；Clippy 在 `-D warnings` 下通过。Debug agent 用独立 target 配置完成 100 次 pause/resume、apply current config、begin/cancel capture 和 clean shutdown：exit code 0、`running` marker 已删除、0 output failed、0 dropped。该 smoke 没有输入样本，不能冒充物理 capture 或键鼠回归。
+自动结果在后续审阅修复后为 128/128：engine 73、config 25、windows 22、runtime 5、agent 3；Clippy 在 `-D warnings` 下通过。Debug agent 用独立 target 配置完成 100 次 pause/resume、apply current config、begin/cancel capture 和 clean shutdown；审阅修复后的 Release agent 又重复同一 100 轮 smoke。最新结果为 `running` marker 已删除、agent 进程已退出、0 output failed、0 dropped、Hook/logger 无 panic。该 smoke 没有输入样本，不能冒充物理 capture 或键鼠回归。
 
 Release 托盘/Hook 限时启动并正常退出。资源短样本如下：
 
@@ -163,29 +163,71 @@ Release 托盘/Hook 限时启动并正常退出。资源短样本如下：
 - runtime/platform：修改 workspace manifest/lock、`inputflow-windows` platform module/windows bridge、engine matcher、config API。
 - 共用入口：修改 `probe-cli` manifest/main，使其调用共享 runtime。
 - 记录：更新 README、PROJECT_PLAN、BUILD_WINDOWS、ADR-000、ADR-004、research-log 与本执行记录。
-- 实际 Rust agent 产物：`target/debug/inputflow-agent.exe` 与 `target/release/inputflow-agent.exe`；Release 文件大小 1,154,560 bytes，PE32+ Windows GUI subsystem。
+- 实际 Rust agent 产物：`target/debug/inputflow-agent.exe` 与 `target/release/inputflow-agent.exe`；审阅修复后 Release 文件大小 1,182,720 bytes，PE32+ Windows GUI subsystem。
 
-## 7. 验证证据
+### 6.7 Phase C 后续审阅：两个一致性问题
 
-### 7.1 Rust 回归
+2026-09-30 再次审阅确认用户报告的两个问题都真实存在：
+
+1. F12 由 Hook callback 直接切换 `BYPASS`，原托盘却只在菜单操作和 smoke 中更新独立 `TRAY_PAUSED`。因此 F12 后实际状态与 tooltip/菜单必然分叉，且点击显示为 Pause 的菜单会根据 runtime 真值执行 resume。修复删除了 `TRAY_PAUSED`，展示与命令都读取同一 `BYPASS`；`set_bypassed` 是唯一状态转换入口，修改时递增 revision 并向托盘线程发送非阻塞 refresh。
+2. 原 `request_control` 的错误文本已区分“未开始已取消”和“已开始、可能延迟完成”，但 `apply_transaction` 把所有 `Err` 都立即回滚磁盘，因此用户给出的时序能产生“磁盘/内存为旧、live matcher 为新”。修复保留已开始请求的 receiver 和 request id，用后台 reconciliation 根据真正终态提交内存新配置或回滚磁盘旧配置，期间阻止第二次 apply。
+
+故障注入使 running 请求在 1 ms 内超时，再人工送入延迟 `Applied`。测试断言超时后只落盘 draft、没有旧配置 rollback，核对后 `current_config`、rule count 与 reconciliation 状态均收敛到新配置。另一测试将请求保持在 pending，确认超时会 CAS 取消且 Hook 不会执行它。
+
+F12 托盘修复随后完成真实人工复验：Release agent PID 520 初始显示 Active/Pause；按 F12 后 tooltip 与右键菜单正确变为 Paused/Resume；点击 Resume 后恢复 Active/Pause，最后从托盘正常 Exit。用户确认可见结果全部符合预期；日志对应记录 `suspended ON`、`tray: resumed` 和 clean stop，最终 observed=20、output failed/dropped=0、Hook/logger 无 panic。PID 520 已不存在，`running` marker 已清除。
+
+## 7. Phase D：版本化 Named Pipe
+
+### 7.1 决策与安全边界
+
+新增并接受 `docs/decisions/ADR-006-版本化Named-Pipe协议与安全边界.md`。比较 JSON lines、4-byte little-endian length-prefix UTF-8 JSON 和 message-mode pipe 后选择 length-prefix；协议 v1 的 frame 上限为 1 MiB。每个 request 必须包含版本和最多 128 bytes 的字符串 request ID，首个 request 必须是 handshake；每连接最多登记 4096 个 ID，重复 ID 明确拒绝且不重放 mutation。
+
+pipe 名含当前 Windows session id。`inputflow-windows::platform::pipe` 从当前进程 token 取得用户 SID，构造只允许该用户与 SYSTEM 的 protected DACL，并使用 `PIPE_REJECT_REMOTE_CLIENTS`、overlapped connect/read/write 和共享 shutdown event。该模块拥有所有新增 Win32 `unsafe`；协议解析、runtime 调用和配置事务保持安全 Rust。Hook callback 不等待 pipe、磁盘或 UI。
+
+### 7.2 Rust server 与 agent 接线
+
+新增 `inputflow-protocol`，包含严格 serde DTO、frame codec、并发连接 server、有界 event hub、错误码与兼容测试。server 只有在首个安全 pipe instance 已创建后才报告 ready；最多 8 个连接，每订阅者队列容量 32，发布使用 `try_send`，慢客户端不会反压 runtime。event ID 单调递增，客户端可用间隙识别丢弃；heartbeat 不伪造新状态。
+
+agent handler 实现 handshake、get_status、get_config、validate_config、apply_config、pause、resume、get_stats、begin_capture、cancel_capture 和 subscribe_events。它只调用 Phase C 的 runtime/config public API：apply 仍保持验证/编译 → 原子保存 → Hook-owner replace，并返回 save/runtime/rollback 结构；pause/resume 和 F12/tray 共用同一个权威状态。连接断开不修改规则或 pause 状态，只取消由该连接拥有的 capture；shutdown 广播终态并中断 overlapped I/O。
+
+### 7.3 C# client 与共享 contract
+
+新增 `InputFlow.Protocol` .NET class library：同一 framing/上限/session pipe 名，连接后自动 handshake，默认 3 秒 deadline，mutation 不自动重试，并覆盖 Phase D 全部方法和事件流。设置页面尚未绑定它，因此没有把协议存在写成 Phase E UI 完成。
+
+`fixtures/protocol/v1` 保存 handshake request/response、get-config response、error response 和 capture event。Rust 反序列化同一 fixture；无第三方测试包的 `InputFlow.Protocol.ContractTests` 验证 C# framing 和 fixture 语义。真实 agent live contract 进一步覆盖 status/config/validate/apply current config、pause 事件、resume、stats、begin/cancel capture，以及第二客户端开始 capture 后直接断线、主客户端轮询确认 capture 自动结束。
+
+### 7.4 Phase D 修改与验证
+
+- Rust：`crates/inputflow-protocol`、`inputflow-windows/src/platform/pipe.rs`、agent `ipc.rs`、runtime observed event stats 与 workspace feature/dependency 接线。
+- C#：`InputFlow.Protocol`、`InputFlow.Protocol.ContractTests`、solution/project reference。
+- Contract：`fixtures/protocol/v1` 与 ADR-006。
+- 自动结果：143/143（agent 4、config 25、engine 73、protocol 12、runtime 5、windows 24）；fmt 与 Clippy `-D warnings` 通过；probe、agent Debug/Release 和 C# Debug/Release 构建通过。
+- Windows live：C# fixture runner 通过 6 项；连接真实 Debug agent 的跨语言 live contract 全部通过，client/agent exit code 均为 0。
+
+## 8. 验证证据
+
+### 8.1 Rust 回归
 
 ```powershell
 cargo fmt --all -- --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo build -p probe-cli
+cargo build -p inputflow-agent
+cargo build -p inputflow-agent --release
 ```
 
-Phase B 当时结果为 113/113。Phase C 最终结果更新为 124/124（engine 73、config 25、windows 20、runtime 3、agent 3、probe 0），Clippy 在 `-D warnings` 下无警告，probe-cli 与 inputflow-agent Debug/Release 构建成功。
+Phase B 当时结果为 113/113。Phase C 后续审阅修复后结果为 128/128。Phase D 最终结果为 143/143（agent 4、config 25、engine 73、protocol 12、runtime 5、windows 24、probe 0），Clippy 在 `-D warnings` 下无警告，probe-cli 与 inputflow-agent Debug/Release 构建成功。
 
 Phase A 曾执行 `pause → resume → stats → quit` lifecycle smoke。Phase B 又用 `fixtures/config/v2-valid.json` 执行 clean-quit smoke：加载 1 条 physical/logical rule，Hook/timer 安装与清理成功，exit code 0。运行先报告 2026-09-27 遗留的 abnormal marker；给予程序正常 LocalAppData 权限后再次 clean quit，确认 `running` marker 已删除。两次 smoke 都没有物理输入，callback 样本为 0，不是桌面输入或性能验收。
 
-### 7.2 WinUI 构建
+### 8.2 WinUI 构建
 
 ```powershell
 dotnet restore .\apps\settings-winui\InputFlow.Settings.slnx
 dotnet build .\apps\settings-winui\InputFlow.Settings.slnx -c Debug --no-restore
 dotnet build .\apps\settings-winui\InputFlow.Settings.slnx -c Release --no-restore
+dotnet run --project .\apps\settings-winui\InputFlow.Protocol.ContractTests\InputFlow.Protocol.ContractTests.csproj -c Debug --no-build
 ```
 
 结果：删除既有 `bin`/`obj` 后重新 restore/build 成功；Debug 与 Release 都是 0 warning、0 error。干净的 framework-dependent 输出不包含 `coreclr.dll`/`hostfxr.dll`，排除了先前 self-contained 实验产物混入。
@@ -195,7 +237,7 @@ dotnet build .\apps\settings-winui\InputFlow.Settings.slnx -c Release --no-resto
 - Debug：`apps/settings-winui/InputFlow.Settings/bin/Debug/net10.0-windows10.0.26100.0/win-x64/InputFlow.Settings.exe`
 - Release：`apps/settings-winui/InputFlow.Settings/bin/Release/net10.0-windows10.0.26100.0/win-x64/InputFlow.Settings.exe`
 
-### 7.3 WinUI 生命周期实测
+### 8.3 WinUI 生命周期实测
 
 最终 framework-dependent Debug 产物的观测摘要：
 
@@ -205,9 +247,9 @@ WM_CLOSE_POSTED=True
 PROCESS_EXITED=true exit_code=0
 ```
 
-这只证明当前 x64 本机能显示原生窗口并在正常关闭后退出。未检查 agent 独立存活，因为 agent 尚未实现。
+这只证明当前 x64 本机能显示原生窗口并在正常关闭后退出。该 Phase A 测试当时未检查 agent 独立存活，因为 agent 尚未实现。
 
-### 7.4 Phase B Windows 输入状态
+### 8.4 Phase B Windows 输入状态
 
 `Get-WinUserLanguageList` 实际列出：
 
@@ -232,36 +274,36 @@ zh-Hans-CN  Microsoft Pinyin
 
 本机物理覆盖限制：实际 Enter 为主键区 Enter，不是 keypad Enter；用户键盘没有确认独立 Apps/Menu，PrintScreen、Pause、Num/Scroll Lock、numpad、其余媒体键未逐一实测。它们已有 mapping/round-trip/replay 自动测试，但不能写成此硬件已实测。
 
-### 7.5 Phase B 人工验收复现
+### 8.5 Phase B 人工验收复现
 
 ```powershell
 .\target\debug\probe-cli.exe --debug --config .\fixtures\config\v2-phase-b-manual-acceptance.json
 ```
 
-配置只含两条规则：physical `scan_code=39, extended=false` + F9，以及 logical CapsLock + F9；二者命中均输出 `C`，F12 为紧急旁路。单独松开首键验证失败回放，按住首键再按 F9 验证命中消费。每个 Caps 场景必须先记录初始灯状态，并同时检查目标字符与最终灯状态。overflow、quit pending 和精确 INPUT flags 已由确定性测试覆盖；不要用长时间真实键盘洪泛替代自动 overflow 测试。正式设置录制端到端测试等待 Phase D/E capture session。
+配置只含两条规则：physical `scan_code=39, extended=false` + F9，以及 logical CapsLock + F9；二者命中均输出 `C`，F12 为紧急旁路。单独松开首键验证失败回放，按住首键再按 F9 验证命中消费。每个 Caps 场景必须先记录初始灯状态，并同时检查目标字符与最终灯状态。overflow、quit pending 和精确 INPUT flags 已由确定性测试覆盖；不要用长时间真实键盘洪泛替代自动 overflow 测试。正式设置录制端到端测试等待 Phase E 页面接线。
 
-## 8. 未执行与已知限制
+## 9. 未执行与已知限制
 
 - M6 人工矩阵仍未完成：真实右键菜单/释放墓碑、自动重复、物理回放顺序、UIPI、100k/高负载、修饰键/布局、鼠标位置和两秒 shutdown 边界均不得写成通过。
 - Packaged 启动未验证；Developer Mode 未启用。
 - Phase A 工程只声明 x64；x86 与 ARM64 尚未纳入支持范围。
 - 干净机首次安装、缺运行库行为、升级、卸载、签名和最终分发未验证。
 - WinUI 自动化/UIA、无障碍、高对比度、缩放和资源基线尚未进入正式 UI 阶段。
-- 当前设置 shell 不具备产品功能；Phase C agent 已完成，但 Phase D IPC、Phase E 正式设置和 Phase F/M8 均未完成。
+- 当前设置 shell 不具备产品功能；Phase C agent 与 Phase D IPC 已完成，但 Phase E 正式设置和 Phase F/M8 均未完成。
 - Phase C 托盘菜单的 Active/Pause/Resume/Open Settings/Exit 已由用户人工验证；真实 Explorer 重启后的图标恢复观察仍未执行，代码路径不能替代该项证据。
 - Phase B 未逐一实测 PrintScreen、Pause、Apps/Menu、keypad Enter、Num/Scroll Lock 和全部媒体键；自动覆盖不等于本机硬件覆盖。
 
-## 9. 阶段状态
+## 10. 阶段状态
 
 | 阶段 | 状态 | 下一门槛 |
 |---|---|---|
 | Phase A：构建链与工程边界 | **完成** | 本记录、ADR、README/BUILD_WINDOWS 与可重复 smoke 均已落地 |
-| Phase B：完整键盘身份与 Schema v2 | **完成** | ADR、113 项自动测试、en-US/Microsoft Pinyin OEM、Caps 目标字符/指示灯与 F12 pending 恢复均有证据；正式 UI capture 属 Phase D/E |
-| Phase C：产品级 Rust agent runtime | **完成** | 共用 runtime、Hook-owner 热替换、结构化 apply/save、capture、托盘、单实例、124 项测试、资源 smoke 与托盘人工验收已落地；Explorer 实际重启仍如实列为未执行 |
-| Phase D：版本化 Named Pipe | 未执行 | 先写 ADR-006，固定 framing/ACL/超时/事务 |
+| Phase B：完整键盘身份与 Schema v2 | **完成** | ADR、113 项自动测试、en-US/Microsoft Pinyin OEM、Caps 目标字符/指示灯与 F12 pending 恢复均有证据；正式 UI capture 页面属 Phase E |
+| Phase C：产品级 Rust agent runtime | **完成** | 共用 runtime、Hook-owner 热替换、结构化 apply/save、capture、托盘、单实例、128 项测试、资源 smoke 与托盘人工验收已落地；后续审阅已修复 F12 托盘同步和热替换超时一致性，F12 修复已人工复验，Explorer 实际重启仍如实列为未执行 |
+| Phase D：版本化 Named Pipe | **完成** | ADR-006、安全 pipe、Rust server/agent handler、C# client、共享 fixtures、143 项 Rust 测试与真实跨语言 live contract 已落地 |
 | Phase E：正式 WinUI 设置程序 | 未执行 | 等待 agent/protocol，不复制权威校验或安装 Hook |
 | Phase F / M8：鼠标方向 | 未执行 | 独立 ADR、算法测试和高频输入证据 |
 
-## 10. 下一次最小任务
+## 11. 下一次最小任务
 
-下一次进入 Phase D，最小任务是先写 ADR-006，比较 JSON length-prefix、JSON lines 与其他 framing，并固定协议版本、request id、最大消息、当前用户 ACL、超时、取消、断线、重复请求和 shutdown 语义；随后只实现协议与 Named Pipe server/client contract，不同时展开正式 UI。M6 尚未完成的菜单/墓碑、UIPI 与高负载真实矩阵仍须如实保留。
+下一次进入 Phase E：把已验证的 `InputFlow.Protocol` 绑定到正式 WinUI 状态、规则编辑/校验/应用和 capture 页面；离线必须明确显示，UI 不得复制 Rust 权威校验、安装第二套 Hook 或自动重试 mutation。补充关闭/重开设置窗口而 agent/规则继续运行、UIA/无障碍/缩放/高对比度和资源基线证据。M6 尚未完成的菜单/墓碑、UIPI 与高负载真实矩阵仍须如实保留。

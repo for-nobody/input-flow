@@ -1,2 +1,7 @@
 # Rust build artifacts
 target/
+
+# .NET / WinUI build artifacts
+apps/settings-winui/**/bin/
+apps/settings-winui/**/obj/
+apps/settings-winui/.vs/

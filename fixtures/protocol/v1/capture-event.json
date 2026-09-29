@@ -1,0 +1,17 @@
+{
+  "protocol_version": 1,
+  "event_id": 12,
+  "type": "capture_completed",
+  "session_id": 4,
+  "outcome": {
+    "outcome": "captured",
+    "input": {
+      "input_type": "key",
+      "logical": "Oem1",
+      "physical": {
+        "scan_code": 39,
+        "extended": false
+      }
+    }
+  }
+}

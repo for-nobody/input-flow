@@ -11,7 +11,7 @@
 
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, sync_channel};
 use std::sync::{Mutex, OnceLock};
 use std::thread::JoinHandle;
@@ -45,8 +45,8 @@ const MENU_STATUS: usize = 1004;
 const EVENT_QUEUE_CAPACITY: usize = 16;
 
 static TRAY_EVENTS: OnceLock<Mutex<Option<SyncSender<TrayEvent>>>> = OnceLock::new();
-static TRAY_PAUSED: AtomicBool = AtomicBool::new(false);
 static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
+static TRAY_THREAD_ID: AtomicU32 = AtomicU32::new(0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SingleInstance {
@@ -110,8 +110,7 @@ pub struct TrayHandle {
 }
 
 impl TrayHandle {
-    pub fn start(initially_paused: bool) -> Result<Self, String> {
-        TRAY_PAUSED.store(initially_paused, Ordering::Release);
+    pub fn start() -> Result<Self, String> {
         let (event_tx, event_rx) = sync_channel(EVENT_QUEUE_CAPACITY);
         let cell = TRAY_EVENTS.get_or_init(|| Mutex::new(None));
         *cell
@@ -147,12 +146,6 @@ impl TrayHandle {
         self.events.recv_timeout(timeout)
     }
 
-    pub fn set_paused(&self, paused: bool) {
-        TRAY_PAUSED.store(paused, Ordering::Release);
-        // SAFETY: the tray thread publishes its id only after creating a queue.
-        unsafe { PostThreadMessageW(self.thread_id, WM_INPUTFLOW_REFRESH, 0, 0) };
-    }
-
     pub fn shutdown(&mut self) -> Result<(), String> {
         if self.thread.is_none() {
             return Ok(());
@@ -168,12 +161,24 @@ impl TrayHandle {
             .thread
             .take()
             .is_some_and(|thread| thread.join().is_err());
+        TRAY_THREAD_ID.store(0, Ordering::Release);
         clear_tray_sender();
         if panicked {
             Err("tray thread panicked".to_string())
         } else {
             Ok(())
         }
+    }
+}
+
+/// Refresh presentation from the platform runtime's authoritative suspended
+/// state. This is a non-blocking notification safe to call from the Hook owner.
+pub(crate) fn notify_runtime_state_changed() {
+    let thread_id = TRAY_THREAD_ID.load(Ordering::Acquire);
+    if thread_id != 0 {
+        // SAFETY: a non-zero id is published only while the tray thread owns a
+        // live message queue. Failure is harmless during concurrent shutdown.
+        unsafe { PostThreadMessageW(thread_id, WM_INPUTFLOW_REFRESH, 0, 0) };
     }
 }
 
@@ -249,7 +254,9 @@ fn tray_thread(ready: mpsc::Sender<Result<u32, String>>) {
 
     // SAFETY: the message queue exists because CreateWindowExW succeeded.
     let thread_id = unsafe { GetCurrentThreadId() };
+    TRAY_THREAD_ID.store(thread_id, Ordering::Release);
     if ready.send(Ok(thread_id)).is_err() {
+        TRAY_THREAD_ID.store(0, Ordering::Release);
         delete_tray_icon(window);
         unsafe {
             DestroyWindow(window);
@@ -277,6 +284,7 @@ fn tray_thread(ready: mpsc::Sender<Result<u32, String>>) {
     }
 
     delete_tray_icon(window);
+    TRAY_THREAD_ID.store(0, Ordering::Release);
     // SAFETY: this thread owns the window and registered class.
     unsafe {
         DestroyWindow(window);
@@ -313,7 +321,7 @@ fn show_context_menu(window: HWND) {
         return;
     }
     let open = wide("Open Settings");
-    let paused = TRAY_PAUSED.load(Ordering::Acquire);
+    let paused = super::windows::is_suspended();
     let status = wide(if paused {
         "Status: Paused"
     } else {
@@ -405,7 +413,7 @@ fn notification_data(window: HWND) -> NOTIFYICONDATAW {
         hIcon: unsafe { LoadIconW(std::ptr::null_mut(), IDI_APPLICATION) },
         ..Default::default()
     };
-    let tooltip = if TRAY_PAUSED.load(Ordering::Acquire) {
+    let tooltip = if super::windows::is_suspended() {
         "InputFlow - Paused"
     } else {
         "InputFlow - Active"

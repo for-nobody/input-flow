@@ -96,9 +96,9 @@ flowchart TD
 | `inputflow-config` | 版本化配置、校验、原子保存、恢复和迁移。 |
 | `inputflow-runtime` | probe/agent 共用的 start/ready/status/pause/resume/apply/capture/shutdown 生命周期与配置事务。 |
 | `inputflow-windows` | Hook、消息循环、`SendInput`、托盘与 Win32 资源。 |
-| `inputflow-protocol`（计划） | IPC DTO、版本、编解码、错误和兼容测试。 |
-| `inputflow-agent` | Phase C 薄常驻入口；配置权威、托盘、单实例与本地诊断，Phase D 再接入 IPC。 |
-| `settings-winui`（计划） | 规则管理、录制、状态和恢复；不复制后端业务规则。 |
+| `inputflow-protocol` | IPC DTO、版本、编解码、错误、并发 server 和兼容测试。 |
+| `inputflow-agent` | 薄常驻入口；配置权威、托盘、单实例、本地诊断与 Phase D Named Pipe 服务。 |
+| `settings-winui` | Phase A shell 与 Phase D C# client 已建立；Phase E 接入规则管理、录制、状态和恢复，不复制后端业务规则。 |
 
 Named Pipe 至少定义：handshake、协议版本、请求 ID、超时、status、validate、apply、pause/resume、recording start/cancel/result、diagnostics、断线重连、错误码和当前交互用户 ACL。
 
@@ -146,7 +146,7 @@ inputflow/
 │   ├── inputflow-config/
 │   ├── inputflow-runtime/
 │   ├── inputflow-windows/
-│   └── inputflow-protocol/    # M7 计划
+│   └── inputflow-protocol/    # M7 Phase D 已建立
 ├── docs/
 │   ├── BUILD_WINDOWS.md
 │   └── decisions/
@@ -161,8 +161,8 @@ inputflow/
 | M6 | 暂停、配置恢复、诊断、可靠性修复 | 自动部分完成；真实键鼠/UIPI/高负载矩阵仍须核对。 |
 | M7 Phase A | 固定工具链与 WinUI 原生 smoke | 2026-09-29 已完成 x64 unpackaged + framework-dependent 构建/启动/退出；无 Hook、配置或伪状态。 |
 | M7 Phase B | 输入身份与 Schema v2 | **已完成**；113 项自动测试通过，en-US/Microsoft Pinyin OEM 与 Caps 指示状态的真实物理验收通过。 |
-| M7 Phase C | Rust agent 生命周期 | **已完成**；124 项自动测试、共享 runtime、热应用/capture、托盘/单实例、Release smoke、资源基线与人工托盘验收已落地；真实 Explorer 重启仍未执行。 |
-| M7 Phase D | 版本化 Named Pipe | 尚未执行；先写 ADR-006 并固定 framing、ACL、超时和取消语义。 |
+| M7 Phase C | Rust agent 生命周期 | **已完成**；128 项自动测试、共享 runtime、热应用/capture、托盘/单实例、Release smoke、资源基线与人工托盘验收已落地；后续审阅已修复 F12 托盘状态同步和热替换超时核对，F12 后 Paused/Resume 展示与恢复 Active 的人工复验已通过；真实 Explorer 重启仍未执行。 |
+| M7 Phase D | 版本化 Named Pipe | **已完成**；ADR-006、Rust server/DTO、当前用户 ACL、C# client、golden fixtures 与真实 agent 跨语言 contract 已落地，143 项 Rust 测试通过。 |
 | M7 Phase E | 正式 WinUI 设置、联合/资源/输入验收 | 尚未执行；关闭 UI 后仅 agent 常驻，无需手改 JSON。 |
 | Phase F / M8 | 有激活条件的鼠标方向与其他独立研究 | 尚未执行；需要自动测试和真实高频移动证据。 |
 
@@ -211,5 +211,5 @@ M7/M8 设计 ADR 状态：
 
 ### 下一张任务卡
 
-继续执行 `check-fix-debug-list/tag_5_InputFlow-M7-WinUI3架构与输入扩展任务.md`。Phase A、Phase B 与 Phase C 已完成。下一次最小任务进入 Phase D：先写 ADR-006，比较 Named Pipe framing 并固定版本、request id、消息上限、当前用户 ACL、超时、取消、断线和重复请求语义；不要同时开始正式 UI。M6 尚未完成的 UIPI、高负载、菜单/墓碑等真实矩阵仍是正式规则接线的门槛。
+继续执行 `check-fix-debug-list/tag_5_InputFlow-M7-WinUI3架构与输入扩展任务.md`。Phase A–D 已完成。下一次最小任务进入 Phase E：把已验证的 `InputFlow.Protocol` 客户端绑定到正式 WinUI 状态、规则编辑/校验/应用和 capture 页面；不得在 UI 中复制 Rust 权威校验、安装 Hook 或把离线状态伪装为成功。M6 尚未完成的 UIPI、高负载、菜单/墓碑等真实矩阵仍是正式规则接线的门槛。
 

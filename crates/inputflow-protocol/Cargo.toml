@@ -1,0 +1,13 @@
+[package]
+name = "inputflow-protocol"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+inputflow-config = { path = "../inputflow-config" }
+inputflow-windows = { path = "../inputflow-windows" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+windows-sys = { workspace = true }

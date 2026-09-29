@@ -284,10 +284,12 @@
 ### 7.2 Rust agent 与 Named Pipe
 - [x] 建立 `apps/inputflow-agent/`，复用现有 engine/config/windows crate，不复制 Hook 实现。
 - [x] agent 是唯一 Hook、托盘、规则验证/保存/应用和正式配置所有者。
-- [ ] 定义版本化 IPC：handshake、status、validate/apply、pause/resume、recording、diagnostics、request ID、超时与错误码。
-- [ ] Named Pipe 只允许当前交互用户访问；断开设置程序不影响 agent 和已启用规则。
+- [x] 定义版本化 IPC：handshake、status、validate/apply、pause/resume、recording、diagnostics、request ID、超时与错误码。
+- [x] Named Pipe 只允许当前交互用户访问；断开设置程序不影响 agent 和已启用规则。
 
-> 2026-09-30 Phase C：新增 probe/agent 共用 `inputflow-runtime`，实现 Hook-owner 规则热替换、结构化 save/apply、capture session、Win32 托盘/Explorer 恢复、单实例和无控制台 Release。124 项自动测试、lifecycle/resource smoke 与 Active/Pause/Resume/Open Settings/Exit 人工托盘验收通过；真实 Explorer 重启仍未执行。版本化 Named Pipe 明确保留给 Phase D。
+> 2026-09-30 Phase C：新增 probe/agent 共用 `inputflow-runtime`，实现 Hook-owner 规则热替换、结构化 save/apply、capture session、Win32 托盘/Explorer 恢复、单实例和无控制台 Release。后续审阅又移除了独立托盘暂停状态，并为热替换增加取消/确定失败/结果待定三态与延迟完成核对。128 项自动测试、lifecycle/resource smoke、Active/Pause/Resume/Open Settings/Exit 人工托盘验收，以及 F12 后 tooltip/菜单立即显示 Paused/Resume 并可恢复 Active 的人工复验均通过；真实 Explorer 重启仍未执行。版本化 Named Pipe 明确保留给 Phase D。
+
+> 2026-09-30 Phase D：ADR-006 固定 4-byte little-endian length-prefix + UTF-8 JSON、1 MiB 上限、协议 v1、string request ID、重复拒绝、超时/断线/关闭语义和有界推送。agent 已接入当前 session pipe；每个 instance 使用当前用户 + LocalSystem protected DACL、拒绝 remote client 和 overlapped I/O。Rust 实际 pipe 测试覆盖部分帧、损坏/超长、版本、并发、超时放弃、断线、重连、重复 ID、订阅与 shutdown；C# client/golden contract 及 live agent 的 status/config/validate/apply/pause/resume/stats/capture、事件推送和 capture-owner 断线取消均通过。正式页面仍属于 Phase E。
 
 ### 7.3 完整键盘与 Schema v2
 - [x] ADR-005 明确 logical VK 与 physical scan code + extended、布局显示、输出和 Unknown 策略。

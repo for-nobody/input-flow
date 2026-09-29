@@ -6,8 +6,12 @@ version = 4
 name = "inputflow-agent"
 version = "0.1.0"
 dependencies = [
+ "inputflow-config",
+ "inputflow-engine",
+ "inputflow-protocol",
  "inputflow-runtime",
  "inputflow-windows",
+ "serde_json",
 ]
 
 [[package]]
@@ -23,6 +27,17 @@ dependencies = [
 [[package]]
 name = "inputflow-engine"
 version = "0.1.0"
+
+[[package]]
+name = "inputflow-protocol"
+version = "0.1.0"
+dependencies = [
+ "inputflow-config",
+ "inputflow-windows",
+ "serde",
+ "serde_json",
+ "windows-sys",
+]
 
 [[package]]
 name = "inputflow-runtime"

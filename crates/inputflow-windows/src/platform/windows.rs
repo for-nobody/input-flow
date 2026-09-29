@@ -90,6 +90,9 @@ static CONTROL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static LOG_TX: OnceLock<Mutex<Option<SyncSender<String>>>> = OnceLock::new();
 /// When `true`, no input is intercepted (emergency bypass / output failure).
 static BYPASS: AtomicBool = AtomicBool::new(false);
+/// Monotonic revision for consumers that publish runtime status (tray now,
+/// IPC later). It advances only when the authoritative bypass value changes.
+static STATE_REVISION: AtomicU64 = AtomicU64::new(0);
 /// Clean shutdown is draining consumed releases; emergency toggles are disabled.
 static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
 /// Monotonic sequence number assigned to every normalized event.
@@ -145,6 +148,16 @@ enum ControlResult {
     CaptureCancelled,
 }
 
+enum ControlRequestOutcome {
+    Completed(Result<ControlResult, String>),
+    Cancelled(ControlFailure),
+    Failed(ControlFailure),
+    OutcomeUnknown {
+        request_id: u64,
+        response: Receiver<Result<ControlResult, String>>,
+    },
+}
+
 struct ControlRequest {
     id: u64,
     action: ControlAction,
@@ -169,6 +182,61 @@ pub struct ReplaceReport {
     pub was_suspended: bool,
     pub rule_count: usize,
     pub emergency_key: Key,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControlFailureKind {
+    Cancelled,
+    Failed,
+    OutcomeUnknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ControlFailure {
+    pub kind: ControlFailureKind,
+    pub request_id: Option<u64>,
+    pub message: String,
+}
+
+pub enum ReplaceRulesOutcome {
+    Applied(ReplaceReport),
+    Cancelled(ControlFailure),
+    Failed(ControlFailure),
+    OutcomeUnknown(PendingReplace),
+}
+
+pub struct PendingReplace {
+    request_id: u64,
+    response: Receiver<Result<ControlResult, String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PendingReplaceOutcome {
+    Applied(ReplaceReport),
+    Failed(String),
+    OutcomeUnknown(String),
+}
+
+impl PendingReplace {
+    pub fn request_id(&self) -> u64 {
+        self.request_id
+    }
+
+    /// Wait for a rule replacement that had already started when its original
+    /// bounded acknowledgement expired. Runtime owns this wait off the Hook
+    /// thread and reconciles persisted/current configuration from the result.
+    pub fn wait(self) -> PendingReplaceOutcome {
+        match self.response.recv() {
+            Ok(Ok(ControlResult::Replaced(report))) => PendingReplaceOutcome::Applied(report),
+            Ok(Ok(_)) => PendingReplaceOutcome::Failed(
+                "unexpected late control acknowledgement for rule replacement".to_string(),
+            ),
+            Ok(Err(error)) => PendingReplaceOutcome::Failed(error),
+            Err(error) => PendingReplaceOutcome::OutcomeUnknown(format!(
+                "late rule replacement result channel disconnected: {error}"
+            )),
+        }
+    }
 }
 
 /// Stable recording payload forwarded to the future IPC layer.
@@ -261,7 +329,7 @@ pub fn reset_runtime_state() -> Result<(), String> {
     if HOOK_THREAD_ID.load(Ordering::Acquire) != 0 {
         return Err("cannot reset state while the hook thread is running".to_string());
     }
-    BYPASS.store(false, Ordering::Relaxed);
+    set_bypassed(false);
     SHUTTING_DOWN.store(false, Ordering::Relaxed);
     SEQ.store(0, Ordering::Relaxed);
     OUTPUT_SENT.store(0, Ordering::Relaxed);
@@ -305,6 +373,19 @@ pub fn set_debug_log(enabled: bool) {
 /// Whether interception is currently stopped (bypass is active).
 pub fn is_bypassed() -> bool {
     BYPASS.load(Ordering::Relaxed)
+}
+
+fn set_bypassed(bypassed: bool) {
+    if BYPASS.swap(bypassed, Ordering::AcqRel) != bypassed {
+        STATE_REVISION.fetch_add(1, Ordering::AcqRel);
+        super::shell::notify_runtime_state_changed();
+    }
+}
+
+/// Revision of the authoritative suspended state. Future status transports can
+/// use this to coalesce notifications without creating a second state source.
+pub fn state_revision() -> u64 {
+    STATE_REVISION.load(Ordering::Acquire)
 }
 
 /// The configured emergency bypass key (default `F12`).
@@ -446,7 +527,7 @@ fn matcher_has_release_tombstones() -> bool {
 
 fn suspend_on_hook_thread() -> PauseReport {
     let report = flush_held_events_on_hook_thread();
-    BYPASS.store(true, Ordering::Relaxed);
+    set_bypassed(true);
     send_log(format!(
         "suspended: interception stopped; held_events={} inserted={} requested={} output_complete={} last_error={}",
         report.held_events,
@@ -465,7 +546,7 @@ fn resume_on_hook_thread() {
         guard.set_paused(false);
         guard.set_bypassed(false);
     }
-    BYPASS.store(false, Ordering::Relaxed);
+    set_bypassed(false);
     send_log("resumed: interception active".to_string());
 }
 
@@ -476,7 +557,7 @@ fn replace_rules_on_hook_thread(
 ) -> Result<ReplaceReport, String> {
     let was_suspended = is_bypassed();
     let pause = flush_held_events_on_hook_thread();
-    BYPASS.store(true, Ordering::Relaxed);
+    set_bypassed(true);
     if !pause.output_complete {
         return Err(format!(
             "cannot replace rules because pending replay was incomplete (inserted={} requested={} last_error={})",
@@ -497,7 +578,7 @@ fn replace_rules_on_hook_thread(
     if !was_suspended {
         matcher.set_paused(false);
         matcher.set_bypassed(false);
-        BYPASS.store(false, Ordering::Relaxed);
+        set_bypassed(false);
     }
     drop(matcher);
     send_log(format!(
@@ -575,30 +656,126 @@ fn execute_control(action: ControlAction) -> Result<ControlResult, String> {
     }
 }
 
-fn request_control(action: ControlAction) -> Result<ControlResult, String> {
+fn control_failure(
+    kind: ControlFailureKind,
+    request_id: Option<u64>,
+    message: impl Into<String>,
+) -> ControlFailure {
+    ControlFailure {
+        kind,
+        request_id,
+        message: message.into(),
+    }
+}
+
+fn wait_for_control_result(
+    request_id: u64,
+    state: Arc<AtomicU8>,
+    response: Receiver<Result<ControlResult, String>>,
+    timeout: Duration,
+    timeout_message: &str,
+) -> ControlRequestOutcome {
+    match response.recv_timeout(timeout) {
+        Ok(result) => ControlRequestOutcome::Completed(result),
+        Err(RecvTimeoutError::Disconnected) => {
+            let current = state.load(Ordering::Acquire);
+            if matches!(current, CONTROL_PENDING | CONTROL_CANCELLED) {
+                ControlRequestOutcome::Failed(control_failure(
+                    ControlFailureKind::Failed,
+                    Some(request_id),
+                    "hook thread ended before starting the control request",
+                ))
+            } else {
+                ControlRequestOutcome::OutcomeUnknown {
+                    request_id,
+                    response,
+                }
+            }
+        }
+        Err(RecvTimeoutError::Timeout) => {
+            if state
+                .compare_exchange(
+                    CONTROL_PENDING,
+                    CONTROL_CANCELLED,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+            {
+                ControlRequestOutcome::Cancelled(control_failure(
+                    ControlFailureKind::Cancelled,
+                    Some(request_id),
+                    format!(
+                        "hook thread did not start control request within {CONTROL_ACK_TIMEOUT_MS}ms; request cancelled"
+                    ),
+                ))
+            } else {
+                ControlRequestOutcome::OutcomeUnknown {
+                    request_id,
+                    response,
+                }
+            }
+        }
+    }
+    .with_timeout_context(timeout_message)
+}
+
+impl ControlRequestOutcome {
+    fn with_timeout_context(self, context: &str) -> Self {
+        match self {
+            Self::OutcomeUnknown {
+                request_id,
+                response,
+            } => {
+                send_log(format!(
+                    "control_outcome_unknown: request_id={request_id} context={context}"
+                ));
+                Self::OutcomeUnknown {
+                    request_id,
+                    response,
+                }
+            }
+            outcome => outcome,
+        }
+    }
+}
+
+fn request_control(action: ControlAction) -> ControlRequestOutcome {
     let hook_thread_id = HOOK_THREAD_ID.load(Ordering::Acquire);
     if hook_thread_id == 0 {
-        return Err("hook thread is not ready".to_string());
+        return ControlRequestOutcome::Failed(control_failure(
+            ControlFailureKind::Failed,
+            None,
+            "hook thread is not ready",
+        ));
     }
     // Emergency F12 already runs inside a hook callback. Execute directly to
     // avoid posting to and waiting on the current thread.
     let current_thread_id = unsafe { GetCurrentThreadId() };
     if current_thread_id == hook_thread_id {
-        return execute_control(action);
+        return ControlRequestOutcome::Completed(execute_control(action));
     }
 
     let id = CONTROL_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let state = Arc::new(AtomicU8::new(CONTROL_PENDING));
     let (response_tx, response_rx) = sync_channel(1);
-    control_requests()
-        .lock()
-        .map_err(|_| "control queue lock is poisoned".to_string())?
-        .push_back(ControlRequest {
-            id,
-            action,
-            state: Arc::clone(&state),
-            response: response_tx,
-        });
+    let mut requests = match control_requests().lock() {
+        Ok(requests) => requests,
+        Err(_) => {
+            return ControlRequestOutcome::Failed(control_failure(
+                ControlFailureKind::Failed,
+                Some(id),
+                "control queue lock is poisoned",
+            ));
+        }
+    };
+    requests.push_back(ControlRequest {
+        id,
+        action,
+        state: Arc::clone(&state),
+        response: response_tx,
+    });
+    drop(requests);
 
     // SAFETY: the hook thread created its message queue before publishing its
     // id. The request itself is owned by the process-global queue.
@@ -614,47 +791,33 @@ fn request_control(action: ControlAction) -> Result<ControlResult, String> {
             })
             .is_some();
         if removed {
-            return Err(format!(
-                "failed to wake hook thread for control request (last_error={last_error})"
+            return ControlRequestOutcome::Cancelled(control_failure(
+                ControlFailureKind::Cancelled,
+                Some(id),
+                format!(
+                    "failed to wake hook thread; request removed before execution (last_error={last_error})"
+                ),
             ));
         }
         // Another control wake may already have dequeued this request. In that
         // case its acknowledgement, rather than the failed redundant wake,
         // determines the result.
-        return response_rx
-            .recv_timeout(Duration::from_millis(CONTROL_ACK_TIMEOUT_MS))
-            .map_err(|error| {
-                format!(
-                    "control wake failed (last_error={last_error}) and dequeued request was not acknowledged: {error}"
-                )
-            })?;
+        return wait_for_control_result(
+            id,
+            state,
+            response_rx,
+            Duration::from_millis(CONTROL_ACK_TIMEOUT_MS),
+            &format!("wake_failed_last_error_{last_error}"),
+        );
     }
 
-    match response_rx.recv_timeout(Duration::from_millis(CONTROL_ACK_TIMEOUT_MS)) {
-        Ok(result) => result,
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-            Err("hook thread ended before acknowledging control request".to_string())
-        }
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-            if state
-                .compare_exchange(
-                    CONTROL_PENDING,
-                    CONTROL_CANCELLED,
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                )
-                .is_ok()
-            {
-                Err(format!(
-                    "hook thread did not start control request within {CONTROL_ACK_TIMEOUT_MS}ms; request cancelled"
-                ))
-            } else {
-                Err(format!(
-                    "hook thread did not finish control request within {CONTROL_ACK_TIMEOUT_MS}ms; it may complete asynchronously"
-                ))
-            }
-        }
-    }
+    wait_for_control_result(
+        id,
+        state,
+        response_rx,
+        Duration::from_millis(CONTROL_ACK_TIMEOUT_MS),
+        "ack_timeout",
+    )
 }
 
 fn handle_control_requests() {
@@ -697,9 +860,21 @@ fn fail_pending_control_requests(reason: &str) {
     }
 }
 
+fn completed_control(outcome: ControlRequestOutcome) -> Result<ControlResult, String> {
+    match outcome {
+        ControlRequestOutcome::Completed(result) => result,
+        ControlRequestOutcome::Cancelled(failure) | ControlRequestOutcome::Failed(failure) => {
+            Err(failure.message)
+        }
+        ControlRequestOutcome::OutcomeUnknown { request_id, .. } => Err(format!(
+            "control request {request_id} started but its final outcome is unknown"
+        )),
+    }
+}
+
 /// Suspend interception on the hook thread and wait for replay delivery.
 pub fn suspend() -> Result<PauseReport, String> {
-    match request_control(ControlAction::Suspend)? {
+    match completed_control(request_control(ControlAction::Suspend))? {
         ControlResult::Suspended(report) => Ok(report),
         _ => Err("unexpected control acknowledgement for suspend".to_string()),
     }
@@ -707,7 +882,7 @@ pub fn suspend() -> Result<PauseReport, String> {
 
 /// Resume interception on the hook thread, clearing any overflow bypass too.
 pub fn resume() -> Result<(), String> {
-    match request_control(ControlAction::Resume)? {
+    match completed_control(request_control(ControlAction::Resume))? {
         ControlResult::Resumed => Ok(()),
         _ => Err("unexpected control acknowledgement for resume".to_string()),
     }
@@ -718,20 +893,38 @@ pub fn replace_rules(
     index: inputflow_engine::RuleIndex,
     emergency_key: Key,
     rule_count: usize,
-) -> Result<ReplaceReport, String> {
+) -> ReplaceRulesOutcome {
     match request_control(ControlAction::ReplaceRules {
         index,
         emergency_key,
         rule_count,
-    })? {
-        ControlResult::Replaced(report) => Ok(report),
-        _ => Err("unexpected control acknowledgement for rule replacement".to_string()),
+    }) {
+        ControlRequestOutcome::Completed(Ok(ControlResult::Replaced(report))) => {
+            ReplaceRulesOutcome::Applied(report)
+        }
+        ControlRequestOutcome::Completed(Ok(_)) => ReplaceRulesOutcome::Failed(control_failure(
+            ControlFailureKind::Failed,
+            None,
+            "unexpected control acknowledgement for rule replacement",
+        )),
+        ControlRequestOutcome::Completed(Err(error)) => {
+            ReplaceRulesOutcome::Failed(control_failure(ControlFailureKind::Failed, None, error))
+        }
+        ControlRequestOutcome::Cancelled(failure) => ReplaceRulesOutcome::Cancelled(failure),
+        ControlRequestOutcome::Failed(failure) => ReplaceRulesOutcome::Failed(failure),
+        ControlRequestOutcome::OutcomeUnknown {
+            request_id,
+            response,
+        } => ReplaceRulesOutcome::OutcomeUnknown(PendingReplace {
+            request_id,
+            response,
+        }),
     }
 }
 
 /// Begin a bounded recording session without changing interception state.
 pub fn begin_capture(timeout: Duration) -> Result<CaptureSession, String> {
-    match request_control(ControlAction::BeginCapture { timeout })? {
+    match completed_control(request_control(ControlAction::BeginCapture { timeout }))? {
         ControlResult::CaptureStarted(session) => Ok(session),
         _ => Err("unexpected control acknowledgement for capture start".to_string()),
     }
@@ -739,7 +932,7 @@ pub fn begin_capture(timeout: Duration) -> Result<CaptureSession, String> {
 
 /// Cancel the named capture session on the Hook owner.
 pub fn cancel_capture(session_id: u64) -> Result<(), String> {
-    match request_control(ControlAction::CancelCapture { session_id })? {
+    match completed_control(request_control(ControlAction::CancelCapture { session_id }))? {
         ControlResult::CaptureCancelled => Ok(()),
         _ => Err("unexpected control acknowledgement for capture cancel".to_string()),
     }
@@ -946,7 +1139,7 @@ fn execute_report(command: &Command) -> OutputReport {
         ));
         // This protects only future input. Previously suppressed events may
         // already be unrecoverable (especially after a partial insertion).
-        BYPASS.store(true, Ordering::Relaxed);
+        set_bypassed(true);
     }
     report
 }
@@ -1006,7 +1199,7 @@ fn process(event: InputEvent) -> Decision {
     // A queue overflow inside the matcher also stops interception at the
     // platform level so the hook callbacks short-circuit process().
     if guard.is_bypassed() {
-        BYPASS.store(true, Ordering::Relaxed);
+        set_bypassed(true);
         send_log("queue_overflow: entering bypass".to_string());
     }
 
@@ -1344,7 +1537,7 @@ pub fn run_hook_thread(ready: std::sync::mpsc::Sender<Result<u32, String>>) {
     SHUTTING_DOWN.store(true, Ordering::Relaxed);
     finish_capture(CaptureOutcome::Shutdown);
     flush_held();
-    BYPASS.store(true, Ordering::Relaxed);
+    set_bypassed(true);
     if matcher_has_release_tombstones() {
         send_log("shutdown_drain: waiting up to 2000ms for consumed input releases".to_string());
         // SAFETY: still on the hook/message-loop thread with hooks and timer
@@ -1747,6 +1940,71 @@ mod tests {
             cancelled.recv_timeout(Duration::from_millis(10)),
             Ok(CaptureOutcome::Cancelled)
         );
+    }
+
+    #[test]
+    fn running_control_timeout_preserves_late_replace_completion() {
+        let state = Arc::new(AtomicU8::new(CONTROL_RUNNING));
+        let (response_tx, response_rx) = sync_channel(1);
+        let outcome = wait_for_control_result(
+            77,
+            Arc::clone(&state),
+            response_rx,
+            Duration::from_millis(1),
+            "injected_delay",
+        );
+        let ControlRequestOutcome::OutcomeUnknown {
+            request_id,
+            response,
+        } = outcome
+        else {
+            panic!("a running request must not be reported as cancelled or failed");
+        };
+        assert_eq!(request_id, 77);
+
+        let report = ReplaceReport {
+            pause: PauseReport {
+                held_events: 0,
+                requested_inputs: 0,
+                inserted_inputs: 0,
+                output_complete: true,
+                last_error: 0,
+            },
+            was_suspended: false,
+            rule_count: 1,
+            emergency_key: Key::F12,
+        };
+        state.store(CONTROL_COMPLETE, Ordering::Release);
+        response_tx
+            .send(Ok(ControlResult::Replaced(report)))
+            .unwrap();
+        assert_eq!(
+            PendingReplace {
+                request_id,
+                response,
+            }
+            .wait(),
+            PendingReplaceOutcome::Applied(report)
+        );
+    }
+
+    #[test]
+    fn pending_control_timeout_is_cancelled_before_execution() {
+        let state = Arc::new(AtomicU8::new(CONTROL_PENDING));
+        let (_response_tx, response_rx) = sync_channel(1);
+        let outcome = wait_for_control_result(
+            78,
+            Arc::clone(&state),
+            response_rx,
+            Duration::from_millis(1),
+            "injected_queue_delay",
+        );
+        let ControlRequestOutcome::Cancelled(failure) = outcome else {
+            panic!("a queued request must be cancelled deterministically");
+        };
+        assert_eq!(failure.kind, ControlFailureKind::Cancelled);
+        assert_eq!(failure.request_id, Some(78));
+        assert_eq!(state.load(Ordering::Acquire), CONTROL_CANCELLED);
     }
 
     #[test]

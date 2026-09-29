@@ -1,0 +1,9 @@
+{
+  "protocol_version": 1,
+  "request_id": "settings-1",
+  "method": "handshake",
+  "params": {
+    "client_name": "InputFlow.Settings",
+    "client_version": "0.1.0"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "protocol_version": 1,
+  "request_id": "settings-1",
+  "type": "success",
+  "result": {
+    "server_name": "inputflow-agent",
+    "server_version": "0.1.0",
+    "protocol_version": 1,
+    "schema_version": 2,
+    "capabilities": [
+      "status",
+      "config_v2",
+      "validate_apply",
+      "pause_resume",
+      "stats",
+      "capture",
+      "bounded_events"
+    ],
+    "max_frame_bytes": 1048576,
+    "max_requests_per_connection": 4096,
+    "event_queue_capacity": 32,
+    "client_response_timeout_ms": 3000
+  }
+}

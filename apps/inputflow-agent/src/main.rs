@@ -2,6 +2,8 @@
 
 //! Thin product host for the shared InputFlow runtime.
 
+mod ipc;
+
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
@@ -14,6 +16,8 @@ use inputflow_runtime::{ApplyOutcome, CaptureOutcome, Runtime, RuntimeOptions, d
 use inputflow_windows::platform::shell::{
     SingleInstance, SingleInstanceGuard, TrayEvent, TrayHandle,
 };
+
+use crate::ipc::AgentIpc;
 
 const INSTANCE_NAME: &str = "Local\\InputFlow.Agent.v1";
 const MAX_LOG_BYTES: u64 = 1024 * 1024;
@@ -134,6 +138,7 @@ fn run_agent(args: Args, log: &Arc<AgentLog>) -> Result<(), String> {
     options.debug_input = args.debug_input;
 
     let (runtime, start) = Runtime::start(options)?;
+    let runtime = Arc::new(runtime);
     log.write(
         "INFO",
         &format!(
@@ -150,14 +155,17 @@ fn run_agent(args: Args, log: &Arc<AgentLog>) -> Result<(), String> {
         }
     }
 
+    let mut ipc = AgentIpc::start(Arc::clone(&runtime), Arc::clone(log))?;
+    log.write("INFO", &format!("ipc_ready: pipe={}", ipc.pipe_name()));
+
     let mut tray = if args.no_tray {
         None
     } else {
-        Some(TrayHandle::start(false)?)
+        Some(TrayHandle::start()?)
     };
 
     if let Some(iterations) = args.smoke_iterations {
-        run_smoke(&runtime, tray.as_ref(), iterations, log)?;
+        run_smoke(&runtime, iterations, log)?;
     }
 
     let settings_path = resolve_settings_path(args.settings_path.as_deref());
@@ -169,6 +177,7 @@ fn run_agent(args: Args, log: &Arc<AgentLog>) -> Result<(), String> {
         std::thread::sleep(duration);
     }
 
+    ipc.shutdown()?;
     let shutdown = runtime.shutdown();
     log.write(
         "INFO",
@@ -188,21 +197,10 @@ fn run_agent(args: Args, log: &Arc<AgentLog>) -> Result<(), String> {
     Ok(())
 }
 
-fn run_smoke(
-    runtime: &Runtime,
-    tray: Option<&TrayHandle>,
-    iterations: usize,
-    log: &AgentLog,
-) -> Result<(), String> {
+fn run_smoke(runtime: &Runtime, iterations: usize, log: &AgentLog) -> Result<(), String> {
     for _ in 0..iterations {
         runtime.pause()?;
-        if let Some(tray) = tray {
-            tray.set_paused(true);
-        }
         runtime.resume()?;
-        if let Some(tray) = tray {
-            tray.set_paused(false);
-        }
     }
 
     let apply = runtime.apply_config(runtime.current_config());
@@ -267,11 +265,9 @@ fn run_tray_loop(
             TrayEvent::TogglePause => {
                 if runtime.status().suspended {
                     runtime.resume()?;
-                    tray.set_paused(false);
                     log.write("INFO", "tray: resumed");
                 } else {
                     let report = runtime.pause()?;
-                    tray.set_paused(true);
                     log.write(
                         "INFO",
                         &format!(
