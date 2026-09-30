@@ -1,6 +1,6 @@
 # InputFlow Windows 构建与运行基线
 
-> 状态：M7 Phase A–D 已验证（更新于 2026-09-30）。当前已有共享 Rust runtime、常驻 Win32 agent/托盘、完整键盘身份/Schema v2、版本化 Named Pipe，以及独立 WinUI 3 smoke/C# 协议客户端。Phase E–F 尚未完成；未执行项不得写成已通过。
+> 状态：M7 Phase A–D 已完成；Phase E 的 E0–E4 实现已验证到自动化/UIA 联合 smoke（更新于 2026-09-30）。当前已有共享 Rust runtime、常驻 Win32 agent/托盘、完整键盘身份/Schema v3、版本化 Named Pipe，以及正式 WinUI 3 设置程序。Phase E 的真实物理 capture、辅助功能人工遍历、长稳态资源与 M6 遗留矩阵仍未完成；未执行项不得写成已通过。
 
 ## 1. 目标产物与当前进度
 
@@ -8,7 +8,7 @@
 |---|---|---|
 | `probe-cli.exe` | Rust + Win32 | M1–M6 诊断原型，可构建和完成无输入 lifecycle smoke |
 | `inputflow-agent.exe` | 纯 Rust + `windows-sys` + Win32 | M7 Phase D 已接入安全 Named Pipe；Hook/runtime、托盘、单实例、配置热应用、capture 与事件订阅均由 agent 权威实现 |
-| `InputFlow.Settings.exe` | C# + WinUI 3 + Windows App SDK | Phase A smoke 与 Phase D C# 协议客户端已创建；正式页面接线仍待 Phase E |
+| `InputFlow.Settings.exe` | C# + WinUI 3 + Windows App SDK | Phase E 正式页面已接入 agent 状态、Schema v3 草稿、规则编辑/启停/删除、capture、保存核对、诊断和单实例 |
 
 禁止把 Tauri、React、Node.js、npm、WebView2 或 Electron 加入 M7 构建链。WinUI 3 设置程序不得安装 Hook，也不得嵌入 agent 进程。
 
@@ -41,7 +41,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo build -p probe-cli
 ```
 
-2026-09-30 Phase D 结果：全部通过；测试总数 143（agent 4、config 25、engine 73、protocol 12、runtime 5、windows 24、probe 0）。Phase B 的 no-input hook lifecycle 与 Phase C agent smoke 仍是独立证据，不能作为真实输入或性能验收。
+2026-09-30 Phase E 结果：全部通过；测试总数 148（agent 4、config 28、engine 74、protocol 12、runtime 6、windows 24、probe 0）。Phase B 的 no-input hook lifecycle 与 Phase C agent smoke 仍是独立证据，不能作为真实输入或性能验收。
 
 运行原型：
 
@@ -49,7 +49,7 @@ cargo build -p probe-cli
 cargo run -p probe-cli -- --config "$env:LOCALAPPDATA\InputFlow\config.json"
 ```
 
-## 4. WinUI 3 smoke 工程
+## 4. WinUI 3 设置工程
 
 工程位置：
 
@@ -57,6 +57,8 @@ cargo run -p probe-cli -- --config "$env:LOCALAPPDATA\InputFlow\config.json"
 apps/settings-winui/
 ├── InputFlow.Settings.slnx
 ├── InputFlow.Settings/
+├── InputFlow.Settings.Core/
+├── InputFlow.Settings.Core.Tests/
 ├── InputFlow.Protocol/
 └── InputFlow.Protocol.ContractTests/
 ```
@@ -77,6 +79,7 @@ dotnet restore .\apps\settings-winui\InputFlow.Settings.slnx
 dotnet build .\apps\settings-winui\InputFlow.Settings.slnx -c Debug --no-restore
 dotnet build .\apps\settings-winui\InputFlow.Settings.slnx -c Release --no-restore
 dotnet run --project .\apps\settings-winui\InputFlow.Protocol.ContractTests\InputFlow.Protocol.ContractTests.csproj -c Debug --no-build
+dotnet run --project .\apps\settings-winui\InputFlow.Settings.Core.Tests\InputFlow.Settings.Core.Tests.csproj -c Debug --no-build
 ```
 
 Debug 与 Release 均为 0 warning、0 error。不要给 solution 命令添加 `-p:Platform=x64` 或 `-r win-x64`：该 `.slnx` 使用默认 solution configuration，项目文件已经明确固定 `win-x64`；前述额外参数在本机 solution 构建中分别造成无效 configuration 和 `NETSDK1134`。
@@ -87,7 +90,7 @@ Debug 与 Release 均为 0 warning、0 error。不要给 solution 命令添加 `
 & .\apps\settings-winui\InputFlow.Settings\bin\Debug\net10.0-windows10.0.26100.0\win-x64\InputFlow.Settings.exe
 ```
 
-实测观察到标题为 `InputFlow.Settings` 的原生窗口；向窗口发送正常 `WM_CLOSE` 后，进程在等待窗口关闭的测试期限内退出，exit code 0。页面明确标注这是 Phase A build smoke；没有 Hook、配置保存、IPC 或伪造在线状态。
+Phase E 实测观察到标题为 `InputFlow 设置` 的原生窗口和真实 `phase=ready` 状态。第二个 settings 进程在 5 秒内退出并保留首个窗口；正常 `WM_CLOSE` 后首个进程 exit code 0。agent 在线、agent 先退出和 UI 单独离线三种关闭边界均不遗留 settings 进程。
 
 ## 5. 部署模式比较与决定
 
@@ -128,7 +131,7 @@ Phase C 自动 smoke 示例（不含物理输入）：
 
 第一条依次覆盖 pause/resume、应用当前配置、begin/cancel capture 和 clean shutdown。第二条建立真实托盘与 Hook 生命周期后限时退出。两者都不能替代托盘点击或物理键鼠验收。
 
-## 7. 联合开发运行顺序（Phase D 已实现，Phase E 页面接线待完成）
+## 7. 联合开发运行顺序（Phase E 已接线）
 
 1. 构建并启动 `inputflow-agent.exe`；Phase D IPC 启动返回前先创建当前会话、当前进程用户可访问的版本化 Named Pipe instance。
 2. C# 客户端连接后先完成 v1 handshake，再使用 status/config/validate/apply/pause/resume/stats/capture/events contract。
@@ -137,11 +140,11 @@ Phase C 自动 smoke 示例（不含物理输入）：
 5. 关闭设置窗口，确认设置进程退出；agent、托盘和规则继续运行。
 6. 从托盘再次打开设置，确认单实例/激活现有窗口语义。
 
-第 1–2 步的 agent、Named Pipe 和 C# client contract 属于已完成的 Phase D；正式页面绑定、关闭/重开 UI 的产品流程与 UI 资源验收仍属于 Phase E。Phase A smoke 和协议测试都不应被当作 Phase E 已完成。
+第 1–2 步的 agent、Named Pipe 和 C# client contract 属于 Phase D；正式页面绑定、关闭/重开和 UIA 保存流程已落地。物理键录制、高对比度/缩放、屏幕阅读器人工遍历和长稳态资源仍属于 Phase E 未完成验收，构建与 UIA 不能替代。
 
-## 8. 联合构建入口（实现后）
+## 8. 联合构建入口
 
-M7 完成前应提供 `scripts/build-windows.ps1` 或等价入口，并调用已经验证的 Cargo 与 WinUI 命令。脚本必须失败即返回非零，且不得：
+`scripts/build-windows.ps1` 调用已经验证的 Cargo、WinUI、protocol contract 和 settings core 测试；任一步失败都会返回非零。可用 `-SkipRestore` 复用已还原依赖。脚本不得：
 
 - 自动提升权限或修改 Developer Mode。
 - 静默下载未锁定工具链。
@@ -152,12 +155,12 @@ M7 完成前应提供 `scripts/build-windows.ps1` 或等价入口，并调用已
 
 | 类别 | 截至 2026-09-30 的证据 |
 |---|---|
-| Rust 自动化 | Phase D fmt/test/clippy/build 通过；143/143 测试通过（agent 4、config 25、engine 73、protocol 12、runtime 5、windows 24），包含真实 Named Pipe partial/overlong/bad JSON/version/concurrency/timeout/disconnect/reconnect/shutdown 覆盖 |
-| 完整键盘 / Schema v2 | mapping、matcher、scan replay、v1 migration、v2 golden/strict round-trip 自动测试通过；en-US/Microsoft Pinyin OEM 与 Caps 指示状态实测通过 |
+| Rust 自动化 | Phase E fmt/test/clippy/build 通过；148/148 测试通过（agent 4、config 28、engine 74、protocol 12、runtime 6、windows 24），新增 v1/v2→v3、禁用规则索引/计数及替换 pending/tombstone 覆盖 |
+| 完整键盘 / Schema v3 | mapping、matcher、scan replay、v1/v2 migration、v3 golden/strict round-trip 自动测试通过；en-US/Microsoft Pinyin OEM 与 Caps 指示状态的既有实测仍通过，Phase E 页面物理录制未执行 |
 | Rust Windows smoke | Phase C agent 执行 100 次 pause/resume、apply、begin/cancel capture 后 clean quit，exit code 0、marker 清除、0 failed/0 dropped；带 2 条规则的 Phase B 物理验收仍为 1209 个观察事件、7 个完整输出批次 |
-| WinUI 自动化 | restore、Debug、Release 通过，均 0 warning/0 error |
-| WinUI 生命周期 | unpackaged framework-dependent x64 原生窗口出现；正常关闭后进程 exit code 0 |
-| WinUI 功能 | 页面仍是静态 smoke；独立 `InputFlow.Protocol` 已实现并通过 contract/live-agent 验证，但尚未绑定页面 |
+| WinUI 自动化 | restore、Debug、Release 通过，均 0 warning/0 error；protocol contract 6 项、settings core 9 项通过；真实 agent live contract 通过 |
+| WinUI 生命周期 | x64 原生窗口、settings 单实例、正常关闭、agent 先退出再关 UI 均 exit code 0；UI 关闭后 agent 继续运行 |
+| WinUI 功能 | UIA 读到 connected/ready/规则导航/保存 accessible name；UIA 新建 key_chord 并由 agent 保存为 v3；UIA 禁用 fixture 规则后正式配置 `enabled=false` 且状态 `rule_count=0` |
 | Packaged 启动 | 未通过：Developer Mode 未启用；不是代码构建失败 |
 | Agent / 托盘 | Release PE subsystem=2（Windows GUI），加载模块中 .NET/WinUI/WebView 命中 0；真实 tray/Hook 限时运行 exit code 0；第二实例 3/3 返回 0 并分别启动设置；用户已人工通过 Active/Pause/Resume/Open Settings/Exit，并在修复后通过 F12 → Paused/Resume → Active 同步复验；Explorer 恢复代码已实现但真实 Explorer 重启待执行 |
 | Agent 资源 | Release 空闲约 10.3 MiB working set、1.6 MiB private bytes、6 threads、143 handles；1000 次 pause/resume 后约 10.0 MiB/1.7 MiB、7 threads、145 handles，3 次打开设置请求并关闭后 agent 指标增长均为 0。单机短样本，不是最终性能门槛 |

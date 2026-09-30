@@ -710,7 +710,11 @@ fn apply_live_config(
     reconciliation: ApplyReconciliation,
 ) {
     let validated = validate_config(&config).ok();
-    rule_count.store(config.rules.len(), Ordering::Release);
+    let enabled_rule_count = validated
+        .as_ref()
+        .map(|validated| validated.rules.len())
+        .unwrap_or(0);
+    rule_count.store(enabled_rule_count, Ordering::Release);
     if let Ok(mut current) = current_config.lock() {
         *current = config;
     }
@@ -871,6 +875,7 @@ mod tests {
         let mut config = default_config();
         config.rules.push(RuleConfig {
             id: id.to_string(),
+            enabled: true,
             trigger: TriggerConfig::KeyChord {
                 first: KeyConfig::logical(Key::A),
                 second: KeyConfig::logical(Key::B),
@@ -954,6 +959,39 @@ mod tests {
             report.save.unwrap().cleanup_warnings,
             vec!["cleanup warning"]
         );
+    }
+
+    #[test]
+    fn disabled_rules_are_persisted_but_not_compiled_into_the_runtime() {
+        let old = default_config();
+        let mut draft = config_with_rule("disabled");
+        draft.rules[0].enabled = false;
+        let persisted = Arc::new(Mutex::new(None));
+        let persisted_copy = Arc::clone(&persisted);
+
+        let (report, applied) = apply_transaction(
+            Path::new("config.json"),
+            &old,
+            draft.clone(),
+            move |path, config| {
+                *persisted_copy.lock().unwrap() = Some(config.clone());
+                Ok(SaveReport {
+                    path: path.to_path_buf(),
+                    backup_path: None,
+                    cleanup_warnings: Vec::new(),
+                })
+            },
+            |index, _, rule_count| {
+                assert!(index.is_empty());
+                assert_eq!(rule_count, 0);
+                ReplaceAttempt::<()>::Applied(replace_report(rule_count))
+            },
+        );
+
+        assert_eq!(report.outcome, ApplyOutcome::Applied);
+        assert_eq!(report.rule_count, 0);
+        assert_eq!(*persisted.lock().unwrap(), Some(draft.clone()));
+        assert!(matches!(applied, ApplyDisposition::Applied(config) if config == draft));
     }
 
     #[test]

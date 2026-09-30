@@ -32,12 +32,12 @@ foreach (string fixture in fixtures)
 using (JsonDocument response = JsonDocument.Parse(
     await File.ReadAllBytesAsync(Path.Combine(fixtureDirectory, "get-config-response.json"))))
 using (JsonDocument config = JsonDocument.Parse(
-    await File.ReadAllBytesAsync(Path.Combine(root, "fixtures", "config", "v2-valid.json"))))
+    await File.ReadAllBytesAsync(Path.Combine(root, "fixtures", "config", "v3-valid.json"))))
 {
     JsonElement embedded = response.RootElement.GetProperty("result").GetProperty("config");
     Assert(
         JsonElement.DeepEquals(embedded, config.RootElement),
-        "protocol get_config golden does not contain the shared schema-v2 golden config");
+        "protocol get_config golden does not contain the shared schema-v3 golden config");
 }
 
 Console.WriteLine($"InputFlow.Protocol contract tests passed: {fixtures.Length + 1}");

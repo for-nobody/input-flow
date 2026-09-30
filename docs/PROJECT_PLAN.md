@@ -36,7 +36,7 @@ InputFlow 是 Windows 全局键盘与鼠标输入组合引擎。它像一把扳�
 - 当前交互用户可访问的版本化 Windows Named Pipe。
 - 规则列表、编辑、启停/删除、状态、冲突/延迟提示、诊断、恢复与显式输入录制。
 - 完整键盘身份的捕获、显示、配置、持久化和回放。
-- Schema v2，并保持 Schema v1 可读或提供显式迁移。
+- Schema v3（v2 键身份 + 持久化规则启停），并保持 Schema v1/v2 可读和确定迁移。
 - 可重复的 Rust、WinUI 和联合构建说明；真实 Windows 验收记录。
 
 ### 2.2 M8 目标
@@ -98,20 +98,20 @@ flowchart TD
 | `inputflow-windows` | Hook、消息循环、`SendInput`、托盘与 Win32 资源。 |
 | `inputflow-protocol` | IPC DTO、版本、编解码、错误、并发 server 和兼容测试。 |
 | `inputflow-agent` | 薄常驻入口；配置权威、托盘、单实例、本地诊断与 Phase D Named Pipe 服务。 |
-| `settings-winui` | Phase A shell 与 Phase D C# client 已建立；Phase E 接入规则管理、录制、状态和恢复，不复制后端业务规则。 |
+| `settings-winui` | Phase E 已接入规则草稿/编辑/启停/录制、状态、诊断和 apply reconciliation；不复制后端业务规则。 |
 
 Named Pipe 至少定义：handshake、协议版本、请求 ID、超时、status、validate、apply、pause/resume、recording start/cancel/result、diagnostics、断线重连、错误码和当前交互用户 ACL。
 
 ## 6. 输入身份与配置
 
-完整键盘不只扩充字符串白名单。ADR-005 已选择事件双身份和规则显式 match mode，Schema v2 已实现：
+完整键盘不只扩充字符串白名单。ADR-005 已选择事件双身份和规则显式 match mode；ADR-007 在该键身份之上加入 Schema v3 规则启停：
 
 - logical VK 与 physical scan code + extended 分开持久化；exact physical 匹配优先，内部 release tracking 优先 physical。
 - 已区分左右修饰、主键区/数字键盘、keypad Enter、PrintScreen、Pause、Menu 和媒体键。
 - OEM 保存稳定 `Oem*` 或 physical identity；当前布局名称由未来 UI 动态查询，不写入稳定配置。
 - Caps 自动测试覆盖命中、失败回放、暂停/控制冲刷、自动重复、overflow 和 down/up 数量；en-US/Microsoft Pinyin 目标字符、失败回放、命中消费、`F12` pending 恢复和键盘指示灯已有真实物理输入证据。
 - 未知 VK 在观察/回放路径保留原始值，不静默映射；配置只允许已知 logical 或非零 physical scan。
-- Schema v1 可读并内存迁移为 v2 logical；golden fixture、严格 v2 往返、backup 回滚测试已落地。
+- Schema v1/v2 可读并内存迁移为 v3；旧规则默认启用，v3 的 disabled 规则保留但不进入运行时索引；golden fixture 和 backup 回滚测试已落地。
 
 鼠标方向第一版：
 
@@ -128,7 +128,7 @@ Named Pipe 至少定义：handshake、协议版本、请求 ID、超时、status
 | 输入 | `WH_KEYBOARD_LL`、`WH_MOUSE_LL`、`SendInput` |
 | 设置程序 | C# + WinUI 3 / Windows App SDK |
 | IPC | Windows Named Pipe + 版本化消息 |
-| 配置 | JSON + serde，Schema v1→v2 兼容 |
+| 配置 | JSON + serde，Schema v1/v2→v3 兼容 |
 | 构建 | Cargo + dotnet/MSBuild + Windows 实机 |
 
 项目不使用 Tauri 2、React、Node.js、npm、WebView2 或 Electron。开发机版本、Visual Studio 工作负载、.NET SDK、Windows SDK、Windows App SDK、WinUI 模板、packaged/unpackaged 决策和真实命令必须写入 `docs/BUILD_WINDOWS.md`，不能猜测为已验证。
@@ -140,7 +140,7 @@ inputflow/
 ├── apps/
 │   ├── probe-cli/
 │   ├── inputflow-agent/       # M7 Phase C 已建立
-│   └── settings-winui/        # M7 Phase A smoke 已建立；正式设置功能待 Phase E
+│   └── settings-winui/        # M7 Phase E 正式设置、状态核心、协议与测试 runners
 ├── crates/
 │   ├── inputflow-engine/
 │   ├── inputflow-config/
@@ -163,7 +163,7 @@ inputflow/
 | M7 Phase B | 输入身份与 Schema v2 | **已完成**；113 项自动测试通过，en-US/Microsoft Pinyin OEM 与 Caps 指示状态的真实物理验收通过。 |
 | M7 Phase C | Rust agent 生命周期 | **已完成**；128 项自动测试、共享 runtime、热应用/capture、托盘/单实例、Release smoke、资源基线与 Active/Pause/Resume/Open Settings/Exit 人工验收已落地；后续审阅已修复 F12 托盘状态同步和热替换超时核对，F12 后 Paused/Resume 展示与恢复 Active 的人工复验已通过；真实 Explorer 重启与 agent 规则输入回归仍须单列。 |
 | M7 Phase D | 版本化 Named Pipe | **已完成**；ADR-006、Rust server/DTO、当前用户 ACL、C# client、golden fixtures 与真实 agent 跨语言 contract 已落地，143 项 Rust 测试通过。 |
-| M7 Phase E | 正式 WinUI 设置、联合/资源/输入验收 | 尚未执行；关闭 UI 后仅 agent 常驻，无需手改 JSON。 |
+| M7 Phase E | 正式 WinUI 设置、联合/资源/输入验收 | **E0–E4 实现完成，最终验收未完成**；Schema v3、正式页面、UIA 创建/启停/保存、单实例和关闭边界已落地；物理 capture、辅助功能人工遍历、长稳态资源及 M6 遗留矩阵仍未执行。 |
 | Phase F / M8 | 有激活条件的鼠标方向与其他独立研究 | 尚未执行；需要自动测试和真实高频移动证据。 |
 
 ## 9. 验证矩阵
@@ -171,7 +171,7 @@ inputflow/
 自动测试至少覆盖：
 
 - 前缀不存在、匹配/失败/临界超时、多候选、repeat、暂停、配置替换、队列满和动作一次性。
-- Caps/Num/Scroll Lock、左右/扩展、OEM、numpad、媒体键和 Schema v1→v2。
+- Caps/Num/Scroll Lock、左右/扩展、OEM、numpad、媒体键和 Schema v1/v2→v3。
 - IPC 版本、畸形消息、超时、断线、重连、并发请求和旧客户端拒绝/兼容。
 - 鼠标方向抖动、阈值、超时、偏轴、一次触发、激活提前释放、多显示器负坐标。
 - 设置进程退出、agent 重启、坏配置、失败保存与旧规则保持。
@@ -198,7 +198,8 @@ M7/M8 设计 ADR 状态：
 
 1. ADR-005：完整按键身份与 Schema v2（已接受）。
 2. ADR-006：Named Pipe 协议、ACL、版本和配置事务。
-3. ADR-007：鼠标方向判定、直通策略和性能上界。
+3. ADR-007：持久化规则启停与 Schema v3（已接受）。
+4. ADR-008：鼠标方向判定、直通策略和性能上界。
 
 ## 11. 交给 Codex 的执行约定
 
@@ -211,5 +212,5 @@ M7/M8 设计 ADR 状态：
 
 ### 下一张任务卡
 
-继续执行 `check-fix-debug-list/tag_5_InputFlow-M7-WinUI3架构与输入扩展任务.md`。Phase A–D 已完成。下一次最小任务进入 Phase E：把已验证的 `InputFlow.Protocol` 客户端绑定到正式 WinUI 状态、规则编辑/校验/应用和 capture 页面；不得在 UI 中复制 Rust 权威校验、安装 Hook 或把离线状态伪装为成功。M6 尚未完成的 UIPI、高负载、菜单/墓碑等真实矩阵仍是正式规则接线的门槛。
+继续执行 `check-fix-debug-list/tag_5.1_InputFlow-M7-Phase-E-WinUI3设置程序实施任务.md` 的验收部分。Phase E 的 E0–E4 代码已落地；下一次最小任务是由用户完成 Caps/OEM/方向/numpad/媒体键真实录制与读回、键盘全流程/高对比度/缩放、托盘/F12/UI 联动和长稳态资源观察。M6 尚未完成的 UIPI、高负载、菜单/墓碑等矩阵仍须单列，未通过前不开始 Phase F/M8。
 

@@ -4,7 +4,7 @@
   "type": "success",
   "result": {
     "config": {
-      "schema_version": 2,
+      "schema_version": 3,
       "emergency_bypass_key": {
         "match": "logical",
         "key": "F12"
@@ -12,6 +12,7 @@
       "rules": [
         {
           "id": "physical-a-then-copy",
+          "enabled": true,
           "trigger": {
             "type": "key_chord",
             "first": {

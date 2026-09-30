@@ -2,7 +2,7 @@
 
 - 状态：已接受（Accepted）
 - 日期：2026-09-27
-- 涉及模块：`apps/inputflow-agent`、`apps/settings-winui`、`inputflow-runtime`、`inputflow-windows`、`inputflow-config`、未来 IPC 协议模块
+- 涉及模块：`apps/inputflow-agent`、`apps/settings-winui`、`inputflow-runtime`、`inputflow-windows`、`inputflow-config`、`inputflow-protocol`
 - 取代：ADR-000 中“Tauri 2 + React + TypeScript”桌面 GUI 决策；ADR-000 的其余决定继续有效
 
 ## 背景（Context）
@@ -112,6 +112,15 @@ InputFlow 是输入基础设施，不是需要长期显示内容的普通桌面�
 - `apply_config` 固定为“权威验证与编译 → 原子保存 → Hook-owner 替换”。Hook 控制结果必须区分“未开始且已取消”、“确定失败”与“已开始但超时，结果待核对”。前两者才立即尝试把旧配置原子写回；结果待定时保留已落盘的 draft，阻止后续 apply，并在后台等待原请求终态。延迟成功则把 `current_config` 与元数据对齐到 draft，延迟失败才回滚旧配置；如果永远无法确定终态，保留 draft 并要求重启 agent 从磁盘确定性恢复。`ApplyReport` 必须包含 outcome、request id、save/runtime/rollback、cleanup warning 和 `recovery_required`，不能以模糊布尔值隐藏部分提交。
 - capture 是有界且一次一个的 immutable observation；它不暂停 matcher、不预消费输入、不改变现有规则，排除本程序注入与紧急旁路键，并在取消、超时或 shutdown 时给出终态。
 - agent 使用 Win32 notification icon，托盘 pause/resume 复用上述控制路径；tooltip 和菜单直接读取 runtime 的权威 suspended 状态，F12、托盘、输出失败与 overflow 状态转换都通过同一通知路径刷新展示，不得另维护托盘布尔值。`TaskbarCreated` 会重加图标。当前用户会话以 named mutex 保证单实例，第二实例请求启动设置程序。Release PE subsystem 为 Windows GUI，默认日志只记录聚合/生命周期信息；逐输入 identity 需显式 `--debug-input`。
+
+### 6. Phase E 设置程序落地（2026-09-30）
+
+- 设置程序使用应用级 control 与 event 两条独立连接；只有 handshake 同时满足 protocol v1、Schema v3 和 `config_v3` capability 才进入 connected。事件 ID 缺口、事件流断开或重连都会通过 control 连接重新读取权威 status/config，不用 UI 缓存猜测 agent 状态。
+- `get_config` 的正式快照与深拷贝 draft 严格分离。新增、编辑、删除、启停和紧急键修改只改变 draft；保存按“外部变化提示 → agent validate → 单次 apply → get_config 读回核对”执行。mutation 超时不自动重试，界面保留草稿并显示结果未知/核对状态。
+- 正式页面采用 `NavigationView`，包含快捷规则、设置与关于；规则编辑覆盖当前后端支持的 key chord、key+mouse、hold、hold+mouse trigger 以及可变长 key-chord action。动态键名只在非 Hook 的 UI 路径调用 Windows 键盘 API，落盘仍使用稳定 identity。
+- 录制复用 agent capture session；每个字段至多一个活动 session，先建立事件流再 begin，Esc/按钮取消后立即使本地 generation 失效，迟到或旧 session 事件不能写入字段。录制默认 logical，只有存在非零 scan 时允许选择 physical。
+- settings 进程用当前会话 mutex 保证单实例；第二实例恢复并前置已有窗口。最后一个窗口关闭后有界清理连接并退出，即使 agent 已先停止也不得遗留隐藏 UI 进程。关闭脏草稿时明确提供保存、丢弃或继续编辑。
+- UI 不把未接线能力伪装成产品开关：登录启动、系统辅助功能、配置恢复和未来鼠标方向不进入正式可操作页面；统计缺样本显示“暂无样本”，不会补造零值。
 
 ## 关键不变量（Invariants）
 

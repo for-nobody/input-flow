@@ -3,6 +3,7 @@
 - 状态：已接受（Accepted）
 - 日期：2026-09-29
 - 涉及模块：`inputflow-engine`、`inputflow-windows`、`inputflow-config`、未来 agent IPC 与 WinUI 设置程序
+- 后续：规则结构已由 ADR-007 升级为 Schema v3；本 ADR 的键身份、匹配和回放决定继续有效
 
 ## 背景（Context）
 
@@ -102,8 +103,8 @@
 - v1 的字符串键全部确定迁移为 v2 `logical`，包括既有 `LeftCtrl`、`C` 等；不根据当前布局猜 physical。
 - loader 严格区分 v1/v2，拒绝未知字段、混合键形状、未知 logical 名、scan 0、physical 紧急键和不支持版本。
 - v1 只在内存中迁移；读取本身不覆盖用户文件，并返回 compatibility warning。
-- 所有新保存只写 v2。原子替换的 committed backup 保留原 v1，可用于回滚；迁移保存失败时正式文件不先被删除。
-- `fixtures/config/v1-valid.json` 与 `v2-valid.json` 是未来 Rust/C# DTO 的跨语言 golden contract。C# 在能往返这些 fixture 前不得成为配置写入方；正式保存仍由 agent 权威校验。
+- Phase B 当时所有新保存只写 v2。Phase E 接受 ADR-007 后，新保存改写 v3；原子替换的 committed backup 仍可保留 v1/v2 用于回滚，迁移保存失败时正式文件不先被删除。
+- `fixtures/config/v1-valid.json` 与 `v2-valid.json` 继续是 Rust/C# DTO 的兼容 golden contract；Phase E 另加入 v3 fixture。C# 已能确定迁移并往返这些 fixture，但正式保存仍由 agent 权威校验。
 
 ## 行为、线程、事件序列与失败模型
 
@@ -136,7 +137,7 @@ pause、F12、overflow 和正常 quit：都必须在 Hook owner 顺序点取走 
 
 - UI 必须同时显示稳定 identity、当前布局标签和 match mode，不能只显示字符。
 - 非零 scan 并不等同于跨所有硬件/远程环境的永久设备 identity；physical 是 Windows scan 位置语义，不承诺具体设备来源。
-- Phase D/E 仍需实现有界、显式、可取消的录制协议以及非 Hook 路径的动态显示名服务。
+- Phase D/E 已实现有界、显式、可取消的录制协议以及非 Hook 路径的动态显示名服务；真实硬件的完整键集合录制矩阵仍需人工验收。
 - Phase B 的“完整键盘支持完成”声明仍受 US/用户常用布局与 Caps Lock 真实物理验收证据约束。
 
 ## 官方依据

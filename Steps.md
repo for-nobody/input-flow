@@ -299,17 +299,19 @@
 - [x] 用 en-US 和 Microsoft Pinyin 完成真实 OEM 观察/目标显示与 physical 失败回放/命中，并验证 Caps Lock 失败回放、命中消费、repeat、`F12` pending 恢复及键盘指示状态；完整序列见 tag_5 执行记录。正式设置 capture/display session 仍属于 7.2/7.4。
 
 ### 7.4 WinUI 3 设置程序
-- [ ] 建立 `apps/settings-winui/` 的 C# + WinUI 3 工程，不实现第二套 Hook 或规则校验器。
-- [ ] 提供规则列表、编辑、启停/删除、运行状态、冲突/延迟提示、诊断与恢复入口。
-- [ ] 输入录制必须显式开始、超时并可取消；通过 agent 捕获，始终保留 F12 紧急旁路。
-- [ ] UI 只提交草稿；agent 验证、原子保存并在成功后热应用，失败返回结构化错误且保持旧规则。
+- [x] 建立 `apps/settings-winui/` 的 C# + WinUI 3 工程，不实现第二套 Hook 或规则校验器。
+- [x] 提供规则列表、编辑、启停/删除、运行状态、冲突/延迟提示、诊断与恢复入口。
+- [x] 输入录制必须显式开始、超时并可取消；通过 agent 捕获，始终保留 F12 紧急旁路。
+- [x] UI 只提交草稿；agent 验证、原子保存并在成功后热应用，失败返回结构化错误且保持旧规则。
+
+> 2026-09-30 Phase E 实现：ADR-007 / Schema v3 为规则加入持久化 `enabled`；新增 `InputFlow.Settings.Core`、无第三方测试 runner、应用级 control/event 协调、草稿/并发检查、validate/apply/reconciliation、capture session 过滤和正式 WinUI 页面。UIA 已实际完成新建 key_chord、写入草稿、保存落盘和规则禁用保存；settings 单实例、agent 先退出后的关闭边界及 UI 关闭后 agent 存活均通过。真实物理键录制、辅助功能人工遍历和长稳态资源仍未执行，Phase E 最终验收不因此写成完成。
 
 ### 7.5 资源与联合验收
-- [ ] 设置窗口关闭后 UI 进程完全退出；agent 不加载 .NET、WinUI 或 WebView。
+- [x] 设置窗口关闭后 UI 进程完全退出；agent 不加载 .NET、WinUI 或 WebView。
 - [ ] agent 空闲/Hook 活跃/鼠标高频移动时记录 CPU、工作集、线程、句柄和回调分位。
 - [ ] 无需手改 JSON 即可完成示例规则与暂停；冲突/非法配置给出可理解错误。
 - [ ] 可录制并往返 Caps Lock、一个 OEM 符号、导航键、数字键盘键和媒体键。
-- [ ] Rust、WinUI 和联合构建命令可重复，Windows 实测与未验证项写回 README/BUILD_WINDOWS。
+- [x] Rust、WinUI 和联合构建命令可重复，Windows 实测与未验证项写回 README/BUILD_WINDOWS。
 
 ---
 

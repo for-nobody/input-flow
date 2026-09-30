@@ -1323,6 +1323,50 @@ mod tests {
     }
 
     #[test]
+    fn disabling_all_rules_flushes_pending_and_keeps_consumed_release_tombstones() {
+        let clock = ManualClock::new(0);
+        let mut pending = matcher_with(
+            clock.clone(),
+            vec![chord_rule("pending", Key::CapsLock, Key::A)],
+            8,
+        );
+        assert!(matches!(
+            pending.on_event(down(0, 0, Key::CapsLock)).0,
+            Decision::Suppress { .. }
+        ));
+        assert_eq!(pending.set_paused(true), vec![down(0, 0, Key::CapsLock)]);
+        pending.replace_rules(RuleIndex::default()).unwrap();
+        pending.set_paused(false);
+        assert_eq!(
+            pending.on_event(up(1, 1, Key::CapsLock)).0,
+            Decision::PassThrough
+        );
+
+        let mut consumed = matcher_with(
+            clock,
+            vec![chord_rule("consumed", Key::CapsLock, Key::A)],
+            8,
+        );
+        consumed.on_event(down(2, 2, Key::CapsLock));
+        consumed.on_event(down(3, 3, Key::A));
+        assert!(consumed.set_paused(true).is_empty());
+        consumed.replace_rules(RuleIndex::default()).unwrap();
+        consumed.set_paused(false);
+        assert!(matches!(
+            consumed.on_event(up(4, 4, Key::A)).0,
+            Decision::Suppress { .. }
+        ));
+        assert!(matches!(
+            consumed.on_event(up(5, 5, Key::CapsLock)).0,
+            Decision::Suppress { .. }
+        ));
+        assert_eq!(
+            consumed.on_event(down(6, 6, Key::CapsLock)).0,
+            Decision::PassThrough
+        );
+    }
+
+    #[test]
     fn hold_until_timeout_matches_and_consumes_down_and_up() {
         let clock = ManualClock::new(0);
         let mut m = matcher_with(clock.clone(), vec![hold_rule(Key::F8, 100)], 8);

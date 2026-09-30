@@ -16,6 +16,7 @@
     <EnableMsixTooling>false</EnableMsixTooling>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <Version>0.1.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -50,6 +51,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../InputFlow.Protocol/InputFlow.Protocol.csproj" />
+    <ProjectReference Include="../InputFlow.Settings.Core/InputFlow.Settings.Core.csproj" />
   </ItemGroup>
 
   <!--

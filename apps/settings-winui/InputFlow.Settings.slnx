@@ -1,5 +1,7 @@
 <Solution>
   <Project Path="InputFlow.Protocol/InputFlow.Protocol.csproj" />
   <Project Path="InputFlow.Protocol.ContractTests/InputFlow.Protocol.ContractTests.csproj" />
+  <Project Path="InputFlow.Settings.Core/InputFlow.Settings.Core.csproj" />
+  <Project Path="InputFlow.Settings.Core.Tests/InputFlow.Settings.Core.Tests.csproj" />
   <Project Path="InputFlow.Settings/InputFlow.Settings.csproj" />
 </Solution>

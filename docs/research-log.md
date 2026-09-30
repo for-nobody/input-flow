@@ -190,6 +190,17 @@
 - 自动验证为 143/143（agent 4、config 25、engine 73、protocol 12、runtime 5、windows 24），fmt、Clippy `-D warnings`、probe/agent build 和 C# Debug/Release build 通过。C# fixture runner 与真实 agent live contract 均退出码 0。
 - 尚未执行：Phase E 页面绑定/UIA/无障碍/资源验收；x86/ARM64；跨用户或提升级别矩阵；M6 UIPI/高负载与既有人工回归。协议客户端存在不等于正式设置 UI 已完成。
 
+## 17. M7 Phase E：WinUI 3 正式设置程序（2026-09-30）
+
+- ADR-007 将正式配置升级为 Schema v3，每条规则持久化 `enabled`。v1/v2 读取时规则默认启用；禁用规则仍校验 ID、键、trigger/action 和 timeout，但不参与紧急键可达性、冲突和运行时索引。`rule_count` 统一表示启用规则数。Named Pipe wire 仍为 v1，handshake 明确报告 schema v3 / `config_v3`。
+- 新增纯 .NET `InputFlow.Settings.Core`：三代配置 DTO/迁移、正式快照与脏草稿、control/event 连接协调、event ID 缺口重同步、capture session 竞态过滤，以及“外部变化检查 → validate → apply → 重读核对 / reconciliation”保存状态机。mutation timeout 不自动重试。
+- WinUI 页面采用“快捷规则 / 设置 / 关于”：规则按首键分组，支持四种现有 trigger、一种 key_chord action、创建/编辑/删除/持久化启停；键可选择或逐字段录制，默认 logical、advanced physical scan；布局名称通过非 Hook Windows API 查询，稳定 identity 才进入配置。
+- 页面显示真实 phase/suspended/rule_count/last_error/reconciliation，pause/resume 只在 agent 确认后更新；诊断只手动刷新，无样本显示“暂无样本”。设置只接入紧急旁路键和现有诊断，不提供假恢复、登录启动或系统功能开关。
+- settings 用当前 session named mutex 保证单实例，第二进程尝试恢复/激活既有窗口；窗口关闭会取消 capture、释放两条 pipe 并退出。修复了 agent 先退出时关闭事件清理异常可能延迟进程退出的边界，最终以 2 秒有界处置 + 进程退出兜底。
+- 自动验证：Rust 148/148；C# protocol contract 6 项；settings core 9 项覆盖 v1/v2/v3、草稿隔离、保存成功/验证失败/外部变化、timeout applied/rollback/recovery、capture 旧 session 和 event ID 缺口。Debug/Release solution 均 0 warning/0 error；真实 agent live contract 通过。
+- Windows/UIA：可读到 connected、`phase=ready`、规则导航和保存按钮 accessible name；从空配置通过 UI 新建 key_chord、写入草稿并由 agent 保存为 Schema v3；把 fixture 规则开关关闭后读回 `enabled=false`、状态 `rule_count=0` 和“保存完成”。第二 settings 进程退出且首个保持；UI 关闭后 agent 继续运行；agent 先退出再关 UI 也 exit code 0。
+- 未执行：真实硬件的 Caps/OEM/方向/numpad/媒体键页面录制与读回，hold/key_mouse/hold_mouse 的 UI 手工全流程，托盘/F12/UI 可见联动，高对比度/缩放/屏幕阅读器人工遍历，长稳态资源，以及 M6 UIPI/菜单墓碑/repeat/100k 等矩阵。因此 E0–E4 实现完成，但 Phase E 最终验收仍标为未完成。
+
 ## 变更记录
 
 - 2026-09-26（M0）：建立四条主线的初始调研结论，均标注“待验证”；尚未进行 Windows 实机实验。
@@ -205,3 +216,4 @@
 - 2026-09-29（M7 Phase B）：接受 logical/physical 双身份 ADR-005，补齐键映射、physical-first matcher 与 scan-code 回放，升级严格 Schema v2 并保留 v1 golden/迁移/回滚；113 项自动测试通过。en-US/Microsoft Pinyin OEM 观察与回放、Caps 失败/命中/指示灯及 `F12` pending 恢复均通过真实物理验收，Phase B 完成。
 - 2026-09-30（M7 Phase C）：抽取 probe/agent 共用 `inputflow-runtime`，实现 Hook-owner 规则热替换、结构化 save/apply、capture session、Win32 托盘/Explorer 恢复、单实例与无控制台 Release；后续审阅修复 F12 托盘同步和热替换超时一致性，128 项测试通过。lifecycle/resource smoke、原托盘人工点击以及修复后 F12 → Paused/Resume → Active 同步复验均通过；Phase C 收口时 Phase D IPC 尚未开始。
 - 2026-09-30（M7 Phase D）：接受 ADR-006，新增安全版本化 Named Pipe、Rust protocol/server、agent runtime adapter、C# client 和共享 golden fixtures；143 项 Rust 测试、C# fixture contract 与真实 agent 跨语言 live contract 通过。正式 WinUI 页面仍留给 Phase E。
+- 2026-09-30（M7 Phase E 实现）：接受 ADR-007 / Schema v3，新增正式 WinUI 页面、settings core/state-machine 测试、单实例和联合构建脚本；UIA 创建/启停/保存、真实 agent live contract 与关闭边界通过。物理 capture、辅助功能和长稳态/M6 遗留验收未执行，Phase E 不宣称最终完成。

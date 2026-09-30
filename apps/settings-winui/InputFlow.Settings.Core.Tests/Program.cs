@@ -1,0 +1,328 @@
+using System.Text.Json;
+using InputFlow.Settings.Core;
+
+string root = FindRepositoryRoot(AppContext.BaseDirectory);
+int passed = 0;
+
+Run("v1/v2/v3 configuration contract", () =>
+{
+    ConfigDocument v1 = ParseFixture(root, "v1-valid.json");
+    ConfigDocument v2 = ParseFixture(root, "v2-valid.json");
+    ConfigDocument v3 = ParseFixture(root, "v3-valid.json");
+    Assert(v1.SchemaVersion == 3 && v1.Rules.All(rule => rule.Enabled), "v1 did not migrate enabled=true");
+    Assert(v2.SchemaVersion == 3 && v2.Rules.All(rule => rule.Enabled), "v2 did not migrate enabled=true");
+    Assert(ConfigCodec.DeepEquals(v2, v3), "v2 migration differs from the v3 golden document");
+    ConfigDocument roundTrip = Parse(ConfigCodec.ToJsonElement(v3));
+    Assert(ConfigCodec.DeepEquals(roundTrip, v3), "v3 typed round-trip changed the document");
+});
+
+Run("draft never mutates formal snapshot", () =>
+{
+    ConfigDocument formal = ParseFixture(root, "v3-valid.json");
+    var session = new DraftSession();
+    session.Load(formal);
+    ConfigDocument draft = session.Draft;
+    draft.Rules[0] = draft.Rules[0] with { Enabled = false };
+    session.ReplaceDraft(draft);
+    Assert(session.IsDirty, "draft change was not marked dirty");
+    Assert(session.FormalSnapshot.Rules[0].Enabled, "formal snapshot was mutated through the draft");
+});
+
+await RunAsync("save validates, applies, and reads back", async () =>
+{
+    ConfigDocument baseline = ParseFixture(root, "v3-valid.json");
+    ConfigDocument draft = baseline.DeepCopy();
+    draft.Rules[0] = draft.Rules[0] with { Enabled = false };
+    var gateway = new FakeGateway(baseline);
+    var service = new ConfigSaveService(gateway);
+    SaveResult result = await service.SaveAsync(draft, baseline, false);
+    Assert(result.Kind == SaveResultKind.Applied, result.Message);
+    Assert(gateway.ValidateCalls == 1 && gateway.ApplyCalls == 1, "save did not call validate/apply exactly once");
+    Assert(result.ConfirmedFormal?.EnabledRuleCount == 0, "disabled rule was counted as enabled");
+});
+
+await RunAsync("external change requires an explicit overwrite decision", async () =>
+{
+    ConfigDocument baseline = ParseFixture(root, "v3-valid.json");
+    ConfigDocument external = baseline.DeepCopy();
+    external.Rules[0] = external.Rules[0] with { Id = "changed-elsewhere" };
+    var gateway = new FakeGateway(external);
+    var service = new ConfigSaveService(gateway);
+    SaveResult result = await service.SaveAsync(baseline, baseline, false);
+    Assert(result.Kind == SaveResultKind.ExternalChangeDetected, "external edit was not detected");
+    Assert(gateway.ApplyCalls == 0, "external edit detection still mutated the agent");
+});
+
+await RunAsync("validation failure preserves the draft and skips apply", async () =>
+{
+    ConfigDocument baseline = ParseFixture(root, "v3-valid.json");
+    var gateway = new FakeGateway(baseline)
+    {
+        ValidationResponse = Json(new { valid = false, rule_count = 0, errors = new[] { "rules[0]: conflict" } }),
+    };
+    var service = new ConfigSaveService(gateway);
+    SaveResult result = await service.SaveAsync(baseline, baseline, false);
+    Assert(result.Kind == SaveResultKind.ValidationFailed, "validation error was not surfaced");
+    Assert(result.ValidationErrors.Single().Contains("conflict", StringComparison.Ordinal), "validation details missing");
+    Assert(gateway.ApplyCalls == 0, "invalid draft was applied");
+});
+
+await RunAsync("request timeout reconciles without retrying mutation", async () =>
+{
+    ConfigDocument baseline = ParseFixture(root, "v3-valid.json");
+    ConfigDocument draft = baseline.DeepCopy();
+    draft.Rules[0] = draft.Rules[0] with { Enabled = false };
+    var gateway = new FakeGateway(baseline)
+    {
+        ApplyException = new TimeoutException("injected timeout"),
+        ReconnectAction = fake =>
+        {
+            fake.Formal = draft.DeepCopy();
+            fake.Status = ReadyStatus("applied_after_timeout", draft.EnabledRuleCount);
+        },
+    };
+    var service = new ConfigSaveService(gateway);
+    SaveResult result = await service.SaveAsync(draft, baseline, false);
+    Assert(result.Kind == SaveResultKind.Applied, result.Message);
+    Assert(gateway.ApplyCalls == 1, "timed-out mutation was retried");
+    Assert(gateway.ReconnectCalls == 1, "timeout did not reconnect for reconciliation");
+});
+
+await RunAsync("runtime outcome unknown reports rollback and recovery distinctly", async () =>
+{
+    ConfigDocument baseline = ParseFixture(root, "v3-valid.json");
+    var rollbackGateway = new FakeGateway(baseline)
+    {
+        ApplyResponse = Apply("runtime_outcome_unknown", recoveryRequired: true),
+        Status = ReadyStatus("rolled_back_after_timeout", baseline.EnabledRuleCount),
+    };
+    SaveResult rolledBack = await new ConfigSaveService(rollbackGateway)
+        .SaveAsync(baseline, baseline, false);
+    Assert(rolledBack.Kind == SaveResultKind.RolledBackAfterTimeout, "rollback was not distinguished");
+
+    var recoveryGateway = new FakeGateway(baseline)
+    {
+        ApplyResponse = Apply("runtime_outcome_unknown", recoveryRequired: true),
+        Status = ReadyStatus("recovery_required", baseline.EnabledRuleCount),
+    };
+    SaveResult recovery = await new ConfigSaveService(recoveryGateway)
+        .SaveAsync(baseline, baseline, false);
+    Assert(recovery.Kind == SaveResultKind.RecoveryRequired, "recovery-required state was not distinguished");
+});
+
+Run("capture tracker buffers early completion and rejects stale sessions", () =>
+{
+    var tracker = new CaptureSessionTracker();
+    tracker.Begin();
+    var early = new CaptureTerminal(4, CaptureTerminalKind.Captured, new CapturedKey("A", 30, false), "ok");
+    Assert(!tracker.Observe(early), "completion before begin response was published early");
+    Assert(tracker.CompleteBegin(4) == early, "early completion was not delivered after session id arrived");
+
+    tracker.Begin();
+    Assert(tracker.CompleteBegin(5) is null, "unexpected buffered completion");
+    Assert(tracker.InvalidateForCancel(5), "active capture did not cancel");
+    Assert(!tracker.Observe(early with { SessionId = 5 }), "cancelled session result was accepted");
+    tracker.Begin();
+    tracker.CompleteBegin(6);
+    Assert(!tracker.Observe(early with { SessionId = 5 }), "old session overwrote the new capture");
+    Assert(tracker.ActiveSession == 6, "old event cleared the active session");
+    Assert(tracker.Observe(early with { SessionId = 6 }), "current session result was rejected");
+
+    tracker.Begin();
+    Assert(tracker.EventStreamLost("lost") is null, "pending begin had a publishable session id");
+    CaptureTerminal? invalidated = tracker.CompleteBegin(7);
+    Assert(invalidated?.Kind == CaptureTerminalKind.EventStreamLost, "event loss during begin reactivated capture");
+    Assert(tracker.ActiveSession is null, "invalidated begin became active");
+});
+
+Run("event id gaps require an authority resync", () =>
+{
+    var tracker = new EventSequenceTracker();
+    Assert(!tracker.Observe(1), "first event was incorrectly a gap");
+    Assert(!tracker.Observe(2), "contiguous event was incorrectly a gap");
+    Assert(tracker.Observe(5), "dropped events were not detected");
+    tracker.Reset();
+    Assert(!tracker.Observe(20), "new subscription inherited the previous sequence");
+});
+
+Console.WriteLine($"InputFlow.Settings.Core tests passed: {passed}");
+
+void Run(string name, Action test)
+{
+    test();
+    passed++;
+    Console.WriteLine($"PASS {name}");
+}
+
+async Task RunAsync(string name, Func<Task> test)
+{
+    await test();
+    passed++;
+    Console.WriteLine($"PASS {name}");
+}
+
+static ConfigDocument ParseFixture(string repositoryRoot, string name)
+{
+    using JsonDocument document = JsonDocument.Parse(File.ReadAllBytes(
+        Path.Combine(repositoryRoot, "fixtures", "config", name)));
+    return ConfigCodec.Parse(document.RootElement);
+}
+
+static ConfigDocument Parse(JsonElement element) => ConfigCodec.Parse(element);
+
+static JsonElement Json<T>(T value) => JsonSerializer.SerializeToElement(value, new JsonSerializerOptions
+{
+    PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+});
+
+static JsonElement Apply(string outcome, bool recoveryRequired) => Json(new
+{
+    outcome,
+    rule_count = 1,
+    validation_errors = Array.Empty<string>(),
+    save = (object?)null,
+    runtime = (object?)null,
+    rollback = (object?)null,
+    runtime_request_id = 42,
+    error = "injected pending apply",
+    recovery_required = recoveryRequired,
+});
+
+static AgentStatus ReadyStatus(string reconciliation, int ruleCount) => new(
+    "ready",
+    false,
+    false,
+    ruleCount,
+    "F12",
+    1,
+    reconciliation,
+    reconciliation == "settled" ? null : 42,
+    null);
+
+static string FindRepositoryRoot(string start)
+{
+    var directory = new DirectoryInfo(start);
+    while (directory is not null)
+    {
+        if (File.Exists(Path.Combine(directory.FullName, "Cargo.toml")) &&
+            Directory.Exists(Path.Combine(directory.FullName, "fixtures")))
+        {
+            return directory.FullName;
+        }
+
+        directory = directory.Parent;
+    }
+
+    throw new DirectoryNotFoundException("Could not locate the InputFlow repository root");
+}
+
+static void Assert(bool condition, string message)
+{
+    if (!condition)
+    {
+        throw new InvalidOperationException(message);
+    }
+}
+
+sealed class FakeGateway : IAgentGateway
+{
+    public FakeGateway(ConfigDocument formal)
+    {
+        Formal = formal.DeepCopy();
+        Status = TestHelpers.ReadyStatus("settled", formal.EnabledRuleCount);
+    }
+
+    public ConfigDocument Formal { get; set; }
+
+    public AgentStatus Status { get; set; }
+
+    public JsonElement ValidationResponse { get; set; } = TestHelpers.Json(new
+    {
+        valid = true,
+        rule_count = 1,
+        errors = Array.Empty<string>(),
+    });
+
+    public JsonElement? ApplyResponse { get; set; }
+
+    public Exception? ApplyException { get; set; }
+
+    public Action<FakeGateway>? ReconnectAction { get; set; }
+
+    public int ValidateCalls { get; private set; }
+
+    public int ApplyCalls { get; private set; }
+
+    public int ReconnectCalls { get; private set; }
+
+    public Task<ConfigDocument> GetConfigAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(Formal.DeepCopy());
+
+    public Task<AgentStatus> GetStatusAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(Status);
+
+    public Task<JsonElement> ValidateConfigAsync(
+        ConfigDocument config,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateCalls++;
+        return Task.FromResult(ValidationResponse);
+    }
+
+    public Task<JsonElement> ApplyConfigAsync(
+        ConfigDocument config,
+        CancellationToken cancellationToken = default)
+    {
+        ApplyCalls++;
+        if (ApplyException is not null)
+        {
+            return Task.FromException<JsonElement>(ApplyException);
+        }
+
+        if (ApplyResponse is JsonElement response)
+        {
+            return Task.FromResult(response);
+        }
+
+        Formal = config.DeepCopy();
+        Status = TestHelpers.ReadyStatus("settled", config.EnabledRuleCount);
+        return Task.FromResult(TestHelpers.Json(new
+        {
+            outcome = "applied",
+            rule_count = config.EnabledRuleCount,
+            validation_errors = Array.Empty<string>(),
+            save = new { committed = true, backup_created = false, cleanup_warnings = Array.Empty<string>() },
+            runtime = (object?)null,
+            rollback = (object?)null,
+            runtime_request_id = (ulong?)null,
+            error = (string?)null,
+            recovery_required = false,
+        }));
+    }
+
+    public Task ReconnectAsync(CancellationToken cancellationToken = default)
+    {
+        ReconnectCalls++;
+        ReconnectAction?.Invoke(this);
+        return Task.CompletedTask;
+    }
+}
+
+static class TestHelpers
+{
+    public static JsonElement Json<T>(T value) => JsonSerializer.SerializeToElement(value, new JsonSerializerOptions
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+    });
+
+    public static AgentStatus ReadyStatus(string reconciliation, int ruleCount) => new(
+        "ready",
+        false,
+        false,
+        ruleCount,
+        "F12",
+        1,
+        reconciliation,
+        reconciliation == "settled" ? null : 42,
+        null);
+}

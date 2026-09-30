@@ -69,7 +69,7 @@ v1 方法集：
 
 `validate_config` 只调用 Rust 权威校验，不落盘、不替换规则。`apply_config` 复用 Phase C 的事务：权威 validate/compile → 原子 temp/commit → Hook owner 冲刷 pending 并替换 → 返回结构化 save/runtime/rollback 报告。已开始但 acknowledgement 超时的替换继续由 runtime reconciliation 收敛；IPC 超时不能把它错误回滚或重放。
 
-请求不包含文件路径、shell 命令、任意资源名或通用文件访问。`get_config` 只返回 agent 当前内存中的正式 v2 配置；UI 只能把完整草稿交给 validate/apply。
+请求不包含文件路径、shell 命令、任意资源名或通用文件访问。`get_config` 只返回 agent 当前内存中的正式配置；Phase D 建立时是 v2，Phase E 按 ADR-007 升为 v3，而 wire protocol 仍保持 v1。UI 只能把完整草稿交给 validate/apply。
 
 ### 4. 超时、取消、断线与关闭
 
@@ -161,7 +161,7 @@ Rust serde DTO/codec 是 wire contract 的权威实现；`fixtures/protocol/v1/`
 - Rust 与 C# 各维护一个很小的 length-prefix codec，必须持续通过 golden fixtures 防漂移。
 - v1 不提供通用 request cancellation，也不在单连接上复用 request/stream；这牺牲少量便利换取明确顺序。
 - 当前用户 SID 允许同一 Windows 用户会话内的其他进程连接；Named Pipe 不是对同用户恶意进程的安全隔离。协议仍严格限制可执行操作和输入大小。
-- Phase D 只建立协议/client contract；正式 WinUI 页面、动态键名和规则编辑属于 Phase E。
+- Phase D 只建立协议/client contract；Phase E 已在不改变 wire v1 的前提下接入正式 WinUI 页面、动态键名、规则草稿、capture 和保存核对。真实物理 capture 与辅助功能人工矩阵仍是独立验收项。
 
 ## 官方依据
 

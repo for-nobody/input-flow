@@ -3,8 +3,9 @@
 //! The on-disk format is a single JSON object with a `schema_version`, an
 //! `emergency_bypass_key`, and a list of `rules`. Schema v2 makes every key
 //! identity explicit: logical keys use canonical names and physical keys use a
-//! scan code plus extended flag. Schema v1 string keys remain readable and are
-//! migrated in memory; all writes use v2.
+//! scan code plus extended flag. Schema v3 adds persistent per-rule enablement.
+//! Schema v1/v2 documents remain readable and are migrated in memory; all
+//! writes use v3.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -18,9 +19,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Current on-disk schema version.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 /// Old string-key schema accepted for compatibility and explicit migration.
 pub const LEGACY_SCHEMA_VERSION: u32 = 1;
+/// Previous explicit-key schema accepted for compatibility.
+pub const PREVIOUS_SCHEMA_VERSION: u32 = 2;
 /// Default emergency bypass key used when no config is present.
 pub const DEFAULT_EMERGENCY_KEY: Key = Key::F12;
 /// Lower bound (inclusive) for a rule's `timeout_ms`.
@@ -75,11 +78,12 @@ impl KeyConfig {
     }
 }
 
-/// A single rule in its schema-v2 form.
+/// A single rule in its schema-v3 form.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuleConfig {
     pub id: String,
+    pub enabled: bool,
     pub trigger: TriggerConfig,
     pub action: ActionConfig,
 }
@@ -134,6 +138,23 @@ struct RuleConfigV1 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConfigV2 {
+    schema_version: u32,
+    emergency_bypass_key: KeyConfig,
+    #[serde(default)]
+    rules: Vec<RuleConfigV2>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RuleConfigV2 {
+    id: String,
+    trigger: TriggerConfig,
+    action: ActionConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields, tag = "type", rename_all = "snake_case")]
 enum TriggerConfigV1 {
     KeyChord {
@@ -169,7 +190,7 @@ fn legacy_emergency_key_name() -> String {
     DEFAULT_EMERGENCY_KEY.to_string()
 }
 
-/// Result of parsing either supported schema into the current v2 document.
+/// Result of parsing any supported schema into the current v3 document.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MigrationReport {
     pub source_schema_version: u32,
@@ -314,12 +335,14 @@ fn load_resolved(path: &Path) -> Result<Resolved, Vec<String>> {
 }
 
 fn migration_notice(source_schema_version: u32) -> Option<String> {
-    (source_schema_version == LEGACY_SCHEMA_VERSION).then(|| {
-        "loaded schema v1 in compatibility mode and migrated it in memory to schema v2; save the v2 document to make the migration official (the replacement backup preserves rollback)".to_string()
+    (source_schema_version != SCHEMA_VERSION).then(|| {
+        format!(
+            "loaded schema v{source_schema_version} in compatibility mode and migrated it in memory to schema v{SCHEMA_VERSION}; save the v{SCHEMA_VERSION} document to make the migration official (the replacement backup preserves rollback)"
+        )
     })
 }
 
-/// Parse a v1 or v2 JSON document, reject unknown/unsupported structures, and
+/// Parse a v1, v2, or v3 JSON document, reject unknown/unsupported structures, and
 /// return a validated current-schema document without writing to disk.
 pub fn parse_and_migrate_json(text: &str) -> Result<MigrationReport, Vec<ConfigError>> {
     let value: Value = serde_json::from_str(text)
@@ -348,11 +371,17 @@ pub fn parse_and_migrate_json(text: &str) -> Result<MigrationReport, Vec<ConfigE
             })?;
             migrate_v1(legacy)
         }
+        PREVIOUS_SCHEMA_VERSION => {
+            let previous: ConfigV2 = serde_json::from_value(value).map_err(|error| {
+                vec![ConfigError(format!("invalid schema v2 document: {error}"))]
+            })?;
+            migrate_v2(previous)
+        }
         SCHEMA_VERSION => serde_json::from_value(value)
-            .map_err(|error| vec![ConfigError(format!("invalid schema v2 document: {error}"))])?,
+            .map_err(|error| vec![ConfigError(format!("invalid schema v3 document: {error}"))])?,
         other => {
             return Err(vec![ConfigError(format!(
-                "unsupported schema_version {other} (supported: {LEGACY_SCHEMA_VERSION}, {SCHEMA_VERSION})"
+                "unsupported schema_version {other} (supported: {LEGACY_SCHEMA_VERSION}, {PREVIOUS_SCHEMA_VERSION}, {SCHEMA_VERSION})"
             ))]);
         }
     };
@@ -376,6 +405,7 @@ fn migrate_v1(legacy: ConfigV1) -> Config {
             .into_iter()
             .map(|rule| RuleConfig {
                 id: rule.id,
+                enabled: true,
                 trigger: match rule.trigger {
                     TriggerConfigV1::KeyChord { first, second } => TriggerConfig::KeyChord {
                         first: KeyConfig::Logical { key: first },
@@ -409,6 +439,24 @@ fn migrate_v1(legacy: ConfigV1) -> Config {
                             .collect(),
                     },
                 },
+            })
+            .collect(),
+    }
+}
+
+fn migrate_v2(previous: ConfigV2) -> Config {
+    debug_assert_eq!(previous.schema_version, PREVIOUS_SCHEMA_VERSION);
+    Config {
+        schema_version: SCHEMA_VERSION,
+        emergency_bypass_key: previous.emergency_bypass_key,
+        rules: previous
+            .rules
+            .into_iter()
+            .map(|rule| RuleConfig {
+                id: rule.id,
+                enabled: true,
+                trigger: rule.trigger,
+                action: rule.action,
             })
             .collect(),
     }
@@ -520,9 +568,17 @@ fn validate(config: &Config) -> Result<Resolved, Vec<ConfigError>> {
     };
 
     let mut rules = Vec::with_capacity(config.rules.len());
+    let mut rule_ids = BTreeSet::new();
     for (i, rule) in config.rules.iter().enumerate() {
+        if !rule.id.trim().is_empty() && !rule_ids.insert(rule.id.as_str()) {
+            errors.push(ConfigError(format!(
+                "rules[{i}]: duplicate rule id `{}`",
+                rule.id
+            )));
+        }
         match resolve_rule(rule) {
-            Ok(resolved) => rules.push(resolved),
+            Ok(resolved) if rule.enabled => rules.push(resolved),
+            Ok(_) => {}
             Err(err) => errors.push(ConfigError(format!("rules[{i}]: {err}"))),
         }
     }
@@ -567,7 +623,7 @@ fn validate(config: &Config) -> Result<Resolved, Vec<ConfigError>> {
     }
 }
 
-/// Validate and resolve a schema-v2 document without reading or writing disk.
+/// Validate and resolve a schema-v3 document without reading or writing disk.
 pub fn validate_config(config: &Config) -> Result<ValidatedConfig, Vec<ConfigError>> {
     validate(config).map(|resolved| ValidatedConfig {
         config: resolved.config,
@@ -846,7 +902,7 @@ fn temp_sibling(path: &Path, ext: &str) -> PathBuf {
     path.with_file_name(name)
 }
 
-/// A default config: schema version 2, logical F12 emergency key, no rules.
+/// A default config: current schema, logical F12 emergency key, no rules.
 pub fn default_config() -> Config {
     Config {
         schema_version: SCHEMA_VERSION,
@@ -875,6 +931,7 @@ mod tests {
             emergency_bypass_key: logical("F12"),
             rules: vec![RuleConfig {
                 id: "hold-ctrl-right-click-copy".to_string(),
+                enabled: true,
                 trigger: TriggerConfig::HoldMouseButton {
                     key: logical("LeftCtrl"),
                     timeout_ms: 250,
@@ -899,6 +956,7 @@ mod tests {
 
     const V1_GOLDEN: &str = include_str!("../../../fixtures/config/v1-valid.json");
     const V2_GOLDEN: &str = include_str!("../../../fixtures/config/v2-valid.json");
+    const V3_GOLDEN: &str = include_str!("../../../fixtures/config/v3-valid.json");
 
     #[test]
     fn v1_golden_migrates_without_changing_legacy_rule_meaning() {
@@ -906,6 +964,7 @@ mod tests {
         assert_eq!(migrated.source_schema_version, LEGACY_SCHEMA_VERSION);
         assert_eq!(migrated.config.schema_version, SCHEMA_VERSION);
         assert_eq!(migrated.config.emergency_bypass_key, logical("F12"));
+        assert!(migrated.config.rules[0].enabled);
 
         let resolved = validate(&migrated.config).unwrap();
         assert_eq!(resolved.emergency_key, Key::F12);
@@ -924,12 +983,15 @@ mod tests {
     }
 
     #[test]
-    fn v2_golden_round_trips_logical_and_physical_identities() {
+    fn v2_golden_migrates_to_v3_without_changing_key_identities() {
         let first = parse_and_migrate_json(V2_GOLDEN).expect("v2 fixture should parse");
-        assert_eq!(first.source_schema_version, SCHEMA_VERSION);
+        assert_eq!(first.source_schema_version, PREVIOUS_SCHEMA_VERSION);
+        assert_eq!(first.config.schema_version, SCHEMA_VERSION);
+        assert!(first.config.rules[0].enabled);
         let text = serde_json::to_string_pretty(&first.config).unwrap();
-        let second = parse_and_migrate_json(&text).expect("serialized v2 should parse");
-        assert_eq!(second, first);
+        let second = parse_and_migrate_json(&text).expect("serialized v3 should parse");
+        assert_eq!(second.source_schema_version, SCHEMA_VERSION);
+        assert_eq!(second.config, first.config);
 
         let resolved = validate(&second.config).unwrap();
         assert_eq!(
@@ -945,7 +1007,18 @@ mod tests {
     }
 
     #[test]
-    fn loading_v1_reports_compatibility_mode_and_exposes_v2_document() {
+    fn v3_golden_round_trips_enabled_and_disabled_rules() {
+        let first = parse_and_migrate_json(V3_GOLDEN).expect("v3 fixture should parse");
+        assert_eq!(first.source_schema_version, SCHEMA_VERSION);
+        assert!(first.config.rules[0].enabled);
+
+        let text = serde_json::to_string_pretty(&first.config).unwrap();
+        let second = parse_and_migrate_json(&text).expect("serialized v3 should parse");
+        assert_eq!(second, first);
+    }
+
+    #[test]
+    fn loading_v1_reports_compatibility_mode_and_exposes_v3_document() {
         let loaded = load_from(V1_GOLDEN);
         assert_eq!(loaded.source_schema_version, LEGACY_SCHEMA_VERSION);
         assert_eq!(loaded.config.schema_version, SCHEMA_VERSION);
@@ -981,7 +1054,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_rejects_unknown_fields_illegal_keys_and_mixed_shapes() {
+    fn supported_schemas_reject_unknown_fields_illegal_keys_and_mixed_shapes() {
         let cases = [
             V2_GOLDEN.replace("\"key\": \"F12\"", "\"key\": \"F12\", \"unexpected\": true"),
             V2_GOLDEN.replace("\"key\": \"F12\"", "\"key\": \"VendorMystery\""),
@@ -1002,10 +1075,16 @@ mod tests {
                 "invalid v2 document was accepted: {text}"
             );
         }
+
+        let missing_enabled = V3_GOLDEN.replace("      \"enabled\": true,\n", "");
+        assert!(
+            parse_and_migrate_json(&missing_enabled).is_err(),
+            "schema v3 must require an explicit enabled field"
+        );
     }
 
     #[test]
-    fn official_v2_save_keeps_v1_backup_for_rollback() {
+    fn official_v3_save_keeps_v1_backup_for_rollback() {
         let dir = std::env::temp_dir().join(format!(
             "inputflow-config-migration-{}-{}",
             std::process::id(),
@@ -1017,7 +1096,7 @@ mod tests {
 
         let loaded = load(&path);
         assert_eq!(loaded.source_schema_version, LEGACY_SCHEMA_VERSION);
-        save(&path, &loaded.config).expect("migrated v2 save should succeed");
+        save(&path, &loaded.config).expect("migrated v3 save should succeed");
 
         let official = parse_and_migrate_json(&fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(official.source_schema_version, SCHEMA_VERSION);
@@ -1108,6 +1187,7 @@ mod tests {
         let mut config = sample_config();
         config.rules.push(RuleConfig {
             id: "hold-ctrl-right-click-copy".to_string(),
+            enabled: true,
             trigger: TriggerConfig::Hold {
                 key: logical("LeftCtrl"),
                 timeout_ms: 250,
@@ -1118,6 +1198,54 @@ mod tests {
         });
         let problems = validate(&config).unwrap_err();
         assert!(problems.iter().any(|e| e.0.contains("duplicate rule id")));
+    }
+
+    #[test]
+    fn disabled_rules_are_validated_but_excluded_from_conflicts_and_rule_count() {
+        let mut config = sample_config();
+        config.rules[0].enabled = false;
+        config.rules.push(RuleConfig {
+            id: "enabled-same-trigger".to_string(),
+            enabled: true,
+            trigger: config.rules[0].trigger.clone(),
+            action: config.rules[0].action.clone(),
+        });
+
+        let validated = validate_config(&config).expect("disabled trigger must not conflict");
+        assert_eq!(validated.rules.len(), 1);
+        assert_eq!(validated.rules[0].id, "enabled-same-trigger");
+
+        config.rules[0].id = "enabled-same-trigger".to_string();
+        let errors = validate_config(&config).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.0.contains("duplicate rule id"))
+        );
+
+        config.rules[0].id = "disabled-invalid".to_string();
+        config.rules[0].trigger = TriggerConfig::Hold {
+            key: logical("A"),
+            timeout_ms: 0,
+        };
+        let errors = validate_config(&config).unwrap_err();
+        assert!(errors.iter().any(|error| error.0.contains("out of range")));
+    }
+
+    #[test]
+    fn disabled_emergency_prefix_is_allowed_until_the_rule_is_enabled() {
+        let mut config = sample_config();
+        config.emergency_bypass_key = logical("LeftCtrl");
+        config.rules[0].enabled = false;
+        assert!(validate_config(&config).is_ok());
+
+        config.rules[0].enabled = true;
+        let errors = validate_config(&config).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.0.contains("collides with a rule prefix key"))
+        );
     }
 
     #[test]
@@ -1136,6 +1264,7 @@ mod tests {
         let mut config = sample_config();
         config.rules.push(RuleConfig {
             id: "hold-ctrl-copy".to_string(),
+            enabled: true,
             trigger: TriggerConfig::Hold {
                 key: logical("LeftCtrl"),
                 timeout_ms: 250,

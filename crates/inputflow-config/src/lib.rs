@@ -9,7 +9,7 @@ mod config;
 
 pub use config::{
     ActionConfig, Config, ConfigError, DEFAULT_EMERGENCY_KEY, KeyConfig, LEGACY_SCHEMA_VERSION,
-    LoadedConfig, MAX_TIMEOUT_MS, MIN_TIMEOUT_MS, MigrationReport, RuleConfig, SCHEMA_VERSION,
-    SaveReport, TriggerConfig, ValidatedConfig, default_config, load, parse_and_migrate_json, save,
-    save_with_report, to_json_pretty, validate_config,
+    LoadedConfig, MAX_TIMEOUT_MS, MIN_TIMEOUT_MS, MigrationReport, PREVIOUS_SCHEMA_VERSION,
+    RuleConfig, SCHEMA_VERSION, SaveReport, TriggerConfig, ValidatedConfig, default_config, load,
+    parse_and_migrate_json, save, save_with_report, to_json_pretty, validate_config,
 };

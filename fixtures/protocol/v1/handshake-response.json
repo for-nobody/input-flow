@@ -6,10 +6,10 @@
     "server_name": "inputflow-agent",
     "server_version": "0.1.0",
     "protocol_version": 1,
-    "schema_version": 2,
+    "schema_version": 3,
     "capabilities": [
       "status",
-      "config_v2",
+      "config_v3",
       "validate_apply",
       "pause_resume",
       "stats",

@@ -11,12 +11,15 @@ public sealed class InputFlowClient : IAsyncDisposable
     private long _requestSequence;
     private bool _streaming;
     private bool _disposed;
+    private bool _resourcesDisposed;
 
     private InputFlowClient(NamedPipeClientStream pipe, TimeSpan responseTimeout)
     {
         _pipe = pipe;
         _responseTimeout = responseTimeout;
     }
+
+    public HandshakeInfo Handshake { get; private set; } = null!;
 
     public static async Task<InputFlowClient> ConnectAsync(
         string? pipeName = null,
@@ -38,10 +41,11 @@ public sealed class InputFlowClient : IAsyncDisposable
             var client = new InputFlowClient(
                 pipe,
                 responseTimeout ?? TimeSpan.FromMilliseconds(ProtocolConstants.DefaultResponseTimeoutMilliseconds));
-            await client.SendAsync(
+            JsonElement handshake = await client.SendAsync(
                 "handshake",
                 new { client_name = "InputFlow.Settings", client_version = "0.1.0" },
                 cancellationToken).ConfigureAwait(false);
+            client.Handshake = HandshakeInfo.Parse(handshake);
             return client;
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -214,11 +218,12 @@ public sealed class InputFlowClient : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (_disposed)
+        if (_resourcesDisposed)
         {
             return;
         }
 
+        _resourcesDisposed = true;
         _disposed = true;
         await _pipe.DisposeAsync().ConfigureAwait(false);
         _requestGate.Dispose();
@@ -234,6 +239,36 @@ public sealed class InputFlowClient : IAsyncDisposable
         string RequestId,
         string Method,
         object Params);
+}
+
+public sealed record HandshakeInfo(
+    string ServerName,
+    string ServerVersion,
+    uint ProtocolVersion,
+    uint SchemaVersion,
+    IReadOnlyList<string> Capabilities,
+    int MaximumFrameBytes,
+    int MaximumRequestsPerConnection,
+    int EventQueueCapacity,
+    int ClientResponseTimeoutMilliseconds)
+{
+    internal static HandshakeInfo Parse(JsonElement value)
+    {
+        string[] capabilities = value.GetProperty("capabilities")
+            .EnumerateArray()
+            .Select(item => item.GetString() ?? string.Empty)
+            .ToArray();
+        return new HandshakeInfo(
+            value.GetProperty("server_name").GetString() ?? "inputflow-agent",
+            value.GetProperty("server_version").GetString() ?? "unknown",
+            value.GetProperty("protocol_version").GetUInt32(),
+            value.GetProperty("schema_version").GetUInt32(),
+            capabilities,
+            value.GetProperty("max_frame_bytes").GetInt32(),
+            value.GetProperty("max_requests_per_connection").GetInt32(),
+            value.GetProperty("event_queue_capacity").GetInt32(),
+            value.GetProperty("client_response_timeout_ms").GetInt32());
+    }
 }
 
 public sealed class InputFlowEventSubscription : IAsyncDisposable

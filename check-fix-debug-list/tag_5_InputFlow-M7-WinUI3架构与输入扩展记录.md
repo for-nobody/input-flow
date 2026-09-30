@@ -2,7 +2,7 @@
 
 > 日期：2026-09-30
 > 对应任务：`tag_5_InputFlow-M7-WinUI3架构与输入扩展任务.md`
-> 本次累计范围：Phase A–D 已完成；Phase B 包含真实物理输入验收，Phase C 包含共享 runtime、产品 agent/托盘、自动测试与资源 smoke，Phase D 包含安全版本化 Named Pipe、Rust/C# contract 与真实 agent 跨语言 smoke；Phase E 与 Phase F/M8 未执行
+> 本次累计范围：Phase A–D 已完成；Phase E 的 E0–E4 实现、自动化和 UIA 联合 smoke 已完成，但真实物理 capture、辅助功能人工遍历、长稳态资源及 M6 遗留矩阵尚未验收，因此 Phase E 最终状态仍为未完成；Phase F/M8 未执行
 
 ## 1. 基线核对
 
@@ -11,6 +11,7 @@
 | Git 分支 | `main` |
 | 开工 HEAD | `2ead0a9677d2eb6baa2377d4c876ee6a7d383b90`（`2ead0a9 update again with new develop path of this project`） |
 | Phase C 开工 HEAD | `e8a4871e5adb829d3f64ce2d8ee366e652c6e5db`（`feat: complete M7 native shell and keyboard identity v2`），与 `origin/main` 同步，工作区干净 |
+| Phase E 开工 HEAD | `03a9fd073f035244e9d13ce3b6add7d26f62949e`，分支 `main` 与 `origin/main` 同步；用户提供的未跟踪 `tag_5.1` 任务文件作为本阶段输入保留，未覆盖 |
 | 开工工作区 | 非干净；用户已修改任务文件中的基线 HEAD 描述。该改动被保留且未覆盖。 |
 | `AGENTS.md` | 仓库中不存在 |
 | 已读范围 | README、两份项目规划、Steps、BUILD_WINDOWS、glossary、research-log、ADR-000～004、M6 基线/修复记录、engine/config/windows/probe-cli 全部当前源码与测试、tag_5 全文 |
@@ -64,7 +65,7 @@
 - 模板 manifest 中与本产品无关的 `systemAIModels` restricted capability 已移除。
 - 根 `global.json` 固定 .NET SDK 10.0.401。
 
-Phase A 当时没有创建 `inputflow-agent`、`inputflow-protocol`、Named Pipe、托盘、完整键盘、Schema v2、正式设置页面或鼠标方向规则。此后已继续完成 Phase B、Phase C 和 Phase D；正式 UI 与鼠标方向边界仍未越过。
+Phase A 当时没有创建 `inputflow-agent`、`inputflow-protocol`、Named Pipe、托盘、完整键盘、Schema v2、正式设置页面或鼠标方向规则。此后已继续完成 Phase B、Phase C、Phase D，以及 Phase E 的正式 UI 实现；鼠标方向边界仍未越过。
 
 ## 5. Phase B：完整键盘身份与 Schema v2
 
@@ -92,7 +93,7 @@ ADR-005 比较三种方案：只扩展 logical VK、只保存 scan code + extend
 
 自动测试覆盖：无规则 down/up 直通、候选后失败 FIFO 回放、命中消费与两个 release tombstone、repeat 保留、pause/F12/quit 共用 Hook-owner 冲刷、overflow 旁路、physical 优先、布局变化 release，以及 Caps 捕获 down/up 恰好生成一对正确方向的 scan-code INPUT。
 
-这些测试还证明读取 immutable recording identity snapshot 后既有 Caps 规则仍照常命中。真实物理验收已经补充证明目标字符与硬件指示灯 toggle 次数正确；Phase D 已把 capture session 接入 IPC 并验证断线取消，但正式设置录制页面仍属于 Phase E，尚不能把“设置录制不改变运行规则”写成 UI 端到端通过。
+这些测试还证明读取 immutable recording identity snapshot 后既有 Caps 规则仍照常命中。真实物理验收已经补充证明目标字符与硬件指示灯 toggle 次数正确；Phase D 已把 capture session 接入 IPC 并验证断线取消，Phase E 也已把它接入正式页面并自动覆盖草稿隔离、取消竞态和旧 session 过滤。真实物理键经页面录制的完整矩阵仍未执行，不能把自动状态机测试写成该人工验收通过。
 
 ## 6. Phase C：产品级 Rust Agent Runtime
 
@@ -192,7 +193,7 @@ agent handler 实现 handshake、get_status、get_config、validate_config、app
 
 ### 7.3 C# client 与共享 contract
 
-新增 `InputFlow.Protocol` .NET class library：同一 framing/上限/session pipe 名，连接后自动 handshake，默认 3 秒 deadline，mutation 不自动重试，并覆盖 Phase D 全部方法和事件流。设置页面尚未绑定它，因此没有把协议存在写成 Phase E UI 完成。
+新增 `InputFlow.Protocol` .NET class library：同一 framing/上限/session pipe 名，连接后自动 handshake，默认 3 秒 deadline，mutation 不自动重试，并覆盖 Phase D 全部方法和事件流。Phase E 已在其上增加应用级 control/event 协调器与正式页面绑定，没有绕开或复制该协议边界。
 
 `fixtures/protocol/v1` 保存 handshake request/response、get-config response、error response 和 capture event。Rust 反序列化同一 fixture；无第三方测试包的 `InputFlow.Protocol.ContractTests` 验证 C# framing 和 fixture 语义。真实 agent live contract 进一步覆盖 status/config/validate/apply current config、pause 事件、resume、stats、begin/cancel capture，以及第二客户端开始 capture 后直接断线、主客户端轮询确认 capture 自动结束。
 
@@ -280,20 +281,66 @@ zh-Hans-CN  Microsoft Pinyin
 .\target\debug\probe-cli.exe --debug --config .\fixtures\config\v2-phase-b-manual-acceptance.json
 ```
 
-配置只含两条规则：physical `scan_code=39, extended=false` + F9，以及 logical CapsLock + F9；二者命中均输出 `C`，F12 为紧急旁路。单独松开首键验证失败回放，按住首键再按 F9 验证命中消费。每个 Caps 场景必须先记录初始灯状态，并同时检查目标字符与最终灯状态。overflow、quit pending 和精确 INPUT flags 已由确定性测试覆盖；不要用长时间真实键盘洪泛替代自动 overflow 测试。正式设置录制端到端测试等待 Phase E 页面接线。
+配置只含两条规则：physical `scan_code=39, extended=false` + F9，以及 logical CapsLock + F9；二者命中均输出 `C`，F12 为紧急旁路。单独松开首键验证失败回放，按住首键再按 F9 验证命中消费。每个 Caps 场景必须先记录初始灯状态，并同时检查目标字符与最终灯状态。overflow、quit pending 和精确 INPUT flags 已由确定性测试覆盖；不要用长时间真实键盘洪泛替代自动 overflow 测试。Phase E 页面已经接线，但页面上的真实物理录制/读回矩阵仍待执行。
 
-## 9. 未执行与已知限制
+## 9. Phase E：正式 WinUI 3 设置程序
+
+### 9.1 设计与 E0 Schema v3
+
+页面修改前新增 `docs/PHASE_E_UI_DESIGN.md`，固定信息架构、正式快照/草稿边界、control/event 双连接、保存与 reconciliation 事件序列、capture 竞态处理和验收分层。ADR-007 解决单规则启停的持久化缺口：
+
+- 配置升级为严格 Schema v3，每条规则保存必需的 `enabled`；v1/v2 继续可读并确定迁移为 `enabled: true`，新保存只写 v3。
+- 所有规则仍校验 ID、trigger/action、键身份和 timeout；重复 ID 跨启用/禁用规则拒绝。只有启用规则参加紧急键可达性、冲突和运行时索引，`rule_count` 只统计启用规则。
+- wire protocol 保持 v1，handshake 的 schema 提升到 3、capability 更新为 `config_v3`；旧 agent 会被设置程序明确拒绝。
+- 新增 v3 golden fixture 与 v1/v2→v3 Rust/C# contract；启停继续走完整 apply/Hook-owner replace，测试覆盖 pending 冲刷及旧 consumed-release tombstone 保留。
+
+### 9.2 E1–E3：连接、规则草稿、录制与保存
+
+- `InputFlow.Settings.Core` 集中承载强类型配置、正式快照/深拷贝草稿、事件序列、capture generation、连接状态和保存状态机；WinUI code-behind 不复制 Rust 权威校验。
+- 应用级 coordinator 长期持有独立 control/event client。事件流在订阅前先建立并 handshake；断线重连、event ID 缺口会读取 status/config 重同步。连接展示区显示真实 phase、暂停状态、启用规则数、reconciliation 与最后错误。
+- 快捷规则页支持分组筛选、创建、编辑、删除、启停及未保存提示。编辑器覆盖当前后端四类 trigger（key chord、key+mouse、hold、hold+mouse）和可变长 key-chord action；取消编辑不会触碰正式快照。
+- `KeyPicker` 保存稳定 logical/physical identity，用当前 HKL 的 `MapVirtualKeyExW`/`GetKeyNameTextW` 仅生成显示名。录制每次只绑定一个字段/session；Esc 与按钮取消使本地 generation 立即失效，迟到/旧 session/type mismatch 不写入字段，physical 仅在非零 scan 时可用。
+- 保存先比较当前 agent 配置并提示外部变化，再调用 validate、单次 apply 和 get_config 读回。验证失败零 mutation；超时或断线绝不自动重试，保留 draft 并根据读回显示已应用、回滚或需要恢复。
+
+### 9.3 E4：设置、诊断、关于与窗口生命周期
+
+- 设置页接入紧急键草稿、agent 实际暂停/恢复和手动刷新统计；无统计样本显示“暂无样本”。登录启动、系统辅助功能、PowerToys、配置恢复和未来鼠标方向没有用假开关占位。
+- 关于页从 assembly 获取版本并说明 agent/UI 架构与支持边界。顶层使用紧凑 `NavigationView`：快捷规则、设置、关于；连接状态和操作结果分别展示，避免后续状态事件覆盖保存回执。
+- settings 以当前会话 mutex 保证单实例；第二进程退出并恢复/前置现有窗口。脏草稿关闭时提供保存/丢弃/继续编辑。连接清理有上限；agent 先退出时窗口仍能关闭，不遗留 settings 进程。
+- 新增 `scripts/build-windows.ps1` 作为 Cargo 与 .NET 的联合构建/测试入口。
+
+### 9.4 自动化与真实 Windows 观察
+
+| 证据层 | 结果 |
+|---|---|
+| Rust | 148/148（agent 4、config 28、engine 74、protocol 12、runtime 6、windows 24）；fmt、Clippy `-D warnings`、probe/agent Debug/Release build 通过 |
+| C# contract/core | protocol fixture 6 项；settings core 9 项，覆盖三代 Schema、草稿隔离、保存成功/验证失败/外部变化、timeout reconciliation、capture 竞态和 event gap |
+| .NET 构建 | solution Debug/Release 均为 0 warning、0 error |
+| 真实 agent contract | Release agent 与 C# live contract 通过；隔离配置下 agent 正常退出 |
+| UI 生命周期/UIA | 离线窗口与 settings 单实例通过；在线能读到 connected/ready；规则启停保存后 v3 文件持久化 `enabled: false` 且启用数归零；空配置创建 key-chord 并保存成功；UI 关闭后 agent 仍存活；agent 先退出后 UI 仍能正常关闭 |
+
+UIA 过程中发现并修复两项真实缺陷：连接状态事件曾覆盖“保存完成”结果，现拆分连接与操作 `InfoBar`；agent 先停止时异步连接清理可能阻止窗口退出，现使用有界等待并保证释放窗口/单实例资源。修复后的对应边界均已复验。
+
+### 9.5 Phase E 尚未执行
+
+- 尚未通过页面用真实硬件逐一录制并读回 Caps Lock、OEM、方向键、主 Enter/keypad Enter、媒体键；缺少硬件的键只能用选择器/contract 验证，不能写成实机输入通过。
+- hold、key+mouse、hold+mouse 的完整 UI 人工编辑/保存/实际输入流程尚未逐一执行；托盘/F12/UI 可见联动仍待人工观察。
+- 键盘全流程、屏幕阅读器、高对比度和不同缩放比例的人工遍历尚未执行。
+- 冷启动、打开后、关闭后和长稳态的完整资源采样尚未执行；短 smoke 不替代资源门槛。
+- M6 的 UIPI、真实菜单/释放墓碑、repeat、100k/高负载、鼠标位置与关闭边界，以及 Explorer 真重启托盘恢复仍是独立未完成项。
+
+## 10. 未执行与已知限制
 
 - M6 人工矩阵仍未完成：真实右键菜单/释放墓碑、自动重复、物理回放顺序、UIPI、100k/高负载、修饰键/布局、鼠标位置和两秒 shutdown 边界均不得写成通过。
 - Packaged 启动未验证；Developer Mode 未启用。
 - Phase A 工程只声明 x64；x86 与 ARM64 尚未纳入支持范围。
 - 干净机首次安装、缺运行库行为、升级、卸载、签名和最终分发未验证。
-- WinUI 自动化/UIA、无障碍、高对比度、缩放和资源基线尚未进入正式 UI 阶段。
-- 当前设置 shell 不具备产品功能；Phase C agent 与 Phase D IPC 已完成，但 Phase E 正式设置和 Phase F/M8 均未完成。
+- WinUI 自动化/UIA 已覆盖连接、创建、启停保存、单实例和进程边界；无障碍、高对比度、缩放和长稳态资源基线仍未执行。
+- Phase E 的正式设置功能已经实现，但上述人工/资源门槛未完成，不能宣称 Phase E 最终验收通过；Phase F/M8 未开始。
 - Phase C 托盘菜单的 Active/Pause/Resume/Open Settings/Exit 已由用户人工验证；真实 Explorer 重启后的图标恢复观察仍未执行，代码路径不能替代该项证据。
 - Phase B 未逐一实测 PrintScreen、Pause、Apps/Menu、keypad Enter、Num/Scroll Lock 和全部媒体键；自动覆盖不等于本机硬件覆盖。
 
-## 10. 阶段状态
+## 11. 阶段状态
 
 | 阶段 | 状态 | 下一门槛 |
 |---|---|---|
@@ -301,9 +348,9 @@ zh-Hans-CN  Microsoft Pinyin
 | Phase B：完整键盘身份与 Schema v2 | **完成** | ADR、113 项自动测试、en-US/Microsoft Pinyin OEM、Caps 目标字符/指示灯与 F12 pending 恢复均有证据；正式 UI capture 页面属 Phase E |
 | Phase C：产品级 Rust agent runtime | **完成** | 共用 runtime、Hook-owner 热替换、结构化 apply/save、capture、托盘、单实例、128 项测试、资源 smoke 与托盘人工验收已落地；后续审阅已修复 F12 托盘同步和热替换超时一致性，F12 修复已人工复验，Explorer 实际重启仍如实列为未执行 |
 | Phase D：版本化 Named Pipe | **完成** | ADR-006、安全 pipe、Rust server/agent handler、C# client、共享 fixtures、143 项 Rust 测试与真实跨语言 live contract 已落地 |
-| Phase E：正式 WinUI 设置程序 | 未执行 | 等待 agent/protocol，不复制权威校验或安装 Hook |
+| Phase E：正式 WinUI 设置程序 | **E0–E4 实现完成，最终验收未完成** | Schema v3、正式页面、core 自动化、UIA 创建/启停/保存、单实例和关闭边界已落地；待物理 capture、辅助功能、完整规则人工流程及长稳态资源 |
 | Phase F / M8：鼠标方向 | 未执行 | 独立 ADR、算法测试和高频输入证据 |
 
-## 11. 下一次最小任务
+## 12. 下一次最小任务
 
-下一次进入 Phase E：把已验证的 `InputFlow.Protocol` 绑定到正式 WinUI 状态、规则编辑/校验/应用和 capture 页面；离线必须明确显示，UI 不得复制 Rust 权威校验、安装第二套 Hook 或自动重试 mutation。补充关闭/重开设置窗口而 agent/规则继续运行、UIA/无障碍/缩放/高对比度和资源基线证据。M6 尚未完成的菜单/墓碑、UIPI 与高负载真实矩阵仍须如实保留。
+下一次继续完成 Phase E 的人工验收：在可恢复的隔离配置上逐一执行 Caps/OEM/方向/numpad/媒体键真实 capture 与重启读回，覆盖 hold/key+mouse/hold+mouse 编辑和实际输入；观察托盘/F12/UI 联动，完成键盘导航、屏幕阅读器、高对比度/缩放，以及冷启动/开窗/关窗/长稳态资源采样。M6 尚未完成的菜单/墓碑、UIPI 与高负载真实矩阵仍须单列；这些证据完成前不开始 Phase F/M8。
