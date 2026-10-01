@@ -2,6 +2,12 @@
 
 > 状态：M7 Phase A–E 已完成（更新于 2026-10-02）。当前已有共享 Rust runtime、常驻 Win32 agent/托盘、完整键盘身份/Schema v3、版本化 Named Pipe，以及通过物理输入、辅助功能和资源联合验收的正式 WinUI 3 设置程序。缺失硬件、中文 Narrator 语音环境、partial SendInput 和部署矩阵继续明确单列。
 
+## 0. 首版交付修订（2026-10-02）
+
+本文第 1～10 节保留已验证开发基线；没有因本次文档更新改变工具链或产物。当前新增规划为 F → G-PRE → H → RC → 首个 Pre-release → G-POST，详见 `RELEASE_ROADMAP.md` 和 tag_6。鼠标方向必须在首版，24／72 小时长测安排在首版发布后。
+
+Phase A–E 的开发构建成功不代表 `dotnet publish` 最终目录、依赖、自启动、升级／移除或干净环境已经验收。下方的 framework-dependent 是当前实现，首版 self-contained 只是待验证的 H 方案。
+
 ## 1. 目标产物与当前进度
 
 | 产物 | 技术 | 当前状态 |
@@ -161,7 +167,7 @@ Phase C 自动 smoke 示例（不含物理输入）：
 | WinUI 自动化 | restore、Debug、Release 通过，均 0 warning/0 error；protocol contract 6 项、settings core 11 项通过；覆盖 capture 启动互斥/取消、规则启用绑定与既有状态机；真实 agent live contract 通过 |
 | WinUI 生命周期 | x64 原生窗口、settings 单实例、正常关闭、agent 先退出再关 UI 均 exit code 0；UI 关闭后 agent 继续运行 |
 | WinUI 功能 | 页面完成三类代表规则的创建/保存/重开/物理命中和 F12/UI/托盘同步；所有可聚焦控件 UIA Name 非空非通用，高对比度、125%/150% 与恢复 200% 缩放通过 |
-| Packaged 启动 | 未通过：Developer Mode 未启用；不是代码构建失败 |
+| Packaged 启动 | 未验证：Developer Mode 未启用；不是代码构建失败；首版不默认要求 MSIX |
 | Agent / 托盘 | Release PE subsystem=2（Windows GUI），不加载 .NET/WinUI/WebView；Active/Pause/Resume/Open Settings/Exit、F12 同步及 Explorer 真重启后的图标/菜单恢复均通过 |
 | Agent 资源 | Release 五分钟 297 次 stats 查询 0 错误，p99 16.032 ms；5,458 个 callback 样本 p99 328 µs，failed/dropped 增量 0，线程 7→7、句柄 161→161。单机结果不是所有设备保证 |
 | IPC | Phase D 已完成：ADR-006、1 MiB length-prefix JSON v1、当前用户 + SYSTEM DACL、handshake/request ID/错误、全部最小方法和有界事件订阅；Rust/C# golden contract 通过，真实 agent live contract（含事件与断线取消 capture）退出码 0 |
@@ -178,3 +184,40 @@ Phase C 自动 smoke 示例（不含物理输入）：
 - Unpackaged 部署：https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/deploy-unpackaged-apps
 - 部署概览：https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/deploy-overview
 - Rust Windows bindings：https://github.com/microsoft/windows-rs
+
+## 11. H 阶段发布构建（待实现与验证）
+
+实施依据：`check-fix-debug-list/tag_6_InputFlow-首个Release收尾与发布任务.md`。默认优先验证 unpackaged x64 目录发布；独立 installer／MSIX／签名不默认阻塞首版，实际分发能力必须经过目标机验证。
+
+- .NET `SelfContained` 与 `WindowsAppSDKSelfContained` 分别决定各自依赖，必须分别验证。当前项目为 framework-dependent，不提前改写状态。
+- 发布针对 `InputFlow.Settings.csproj` 或明确 profile，不向 solution 加已知无效 `-r`／Platform 参数。
+- 当前 Release 属性含 `PublishTrimmed=true`；首版发布 profile 默认可关闭裁剪并验证，优先目录发布，不为了体积引入单文件或 AOT。
+- UI 的全部资源／DLL／运行组件随最终 publish 结果整理；Agent 的 MSVC／原生依赖也需核对，不只复制两个 exe。
+- Agent 当前按自身目录找 `InputFlow.Settings.exe`，或使用 `--settings PATH`；最终布局／快捷方式必须与之匹配，且独立于工作目录。
+- 正式数据继续使用 `%LOCALAPPDATA%\InputFlow`，默认不启用拦截示例；用户自启动只指向 Agent，默认关闭且可移除。
+- 新 `scripts/package-release.ps1`（待新增）在完整门槛成功后组装版本包和 SHA-256；失败非零退出。
+
+具体 publish 命令必须对当前锁定 SDK 验证后再填写，不把候选属性／模板命令标成可重复结果。
+
+### 11.1 最终分发证据（实施后填写）
+
+| 项目 | 当前状态／待记录内容 |
+|---|---|
+| ADR-009 分发模式 | 待写；编号占用时顺延 |
+| 实际版本／提交／架构／支持 OS | 待记录 |
+| Agent／UI publish／packaging 完整命令 | 待实现并验证 |
+| .NET／Windows App SDK／原生运行依赖 | 待核对最终包 |
+| 发布 profile／裁剪／ReadyToRun 等属性 | 待记录选择和结果 |
+| 包路径／体积／SHA-256 | 尚未生成 |
+| 干净环境／缺依赖／空格中文路径 | 未执行 |
+| 自启动／升级／移除 | 未实现或未验收，以实际代码为准 |
+| 最终包 RC smoke | 未执行 |
+| 首个远端 release | 未发布 |
+
+## 12. 验证时长与发布后长测
+
+发布前只要求 tag_6 F 的短时物理移动、G-PRE 的有限输入／恢复、H 的分发和 RC 最终包 smoke。24／72 小时、长期 daily-drive 均在首版发布后，不要求在 RC 前等待。
+
+现有五分钟采样脚本的 `DurationSeconds` 上限为 86400、固定 PID，不能直接宣称支持可靠 72 小时采样。G-POST 另行核对／扩展超时、断线重连、实例身份、分段轮转与可取消机制，保留短测工具。详见 `tag_6_InputFlow-发布后Phase-G长时间运行任务.md`。
+
+所有证据继续分自动／故障注入／脚本／物理输入；环境限制和未执行项不得自动变成“通过”。

@@ -5,7 +5,9 @@ Windows 全局键盘与鼠标输入组合引擎：只暂扣可能构成已启用
 > 项目规划：`docs/PROJECT_PLAN.md`  
 > 执行步骤：`Steps.md`  
 > Windows 构建：`docs/BUILD_WINDOWS.md`  
-> 当前 Codex 任务：`check-fix-debug-list/tag_5.1_InputFlow-M7-Phase-E-WinUI3设置程序实施任务.md`
+> 当前 Codex 任务：`check-fix-debug-list/tag_6_InputFlow-Phase-F-鼠标方向实施任务.md`  
+> 首版发布路线：`docs/RELEASE_ROADMAP.md`  
+> 文档交接入口：`00_InputFlow-文档交接与执行入口.md`
 
 ## 当前状态
 
@@ -18,6 +20,22 @@ Windows 全局键盘与鼠标输入组合引擎：只暂扣可能构成已启用
 - M7 Phase D 已实现 ADR-006、版本化 length-prefixed JSON 协议、当前用户/LocalSystem ACL 的 overlapped Named Pipe server、agent 全部控制面、有界事件推送，以及独立 C# `InputFlow.Protocol` client。
 - M7 Phase E 已完成：ADR-007 / Schema v3、正式规则/录制/保存页面、应用级连接与 reconciliation、设置/诊断/关于及单实例均已落地；真实物理录制与三类代表规则、托盘/F12/UI 同步、UIA/高对比度/缩放、五分钟资源及 M6 Windows 矩阵均已验收。keypad Enter、独立播放键、中文 Narrator 语音环境和 partial SendInput 的限制单列保留。
 - 项目不使用 Tauri、React、Node.js、npm、WebView2 或 Electron。
+
+## 首版 Release 路线（2026-10-02）
+
+用户已确定首个 release 必须包含鼠标方向；24／72 小时长时间运行测试和长期 daily-drive 放在首版发布后。当前 Phase F 尚未实施，首版尚未发布。
+
+| 顺序 | 工作 | 当前状态 |
+|---|---|---|
+| F／M8 | 键盘激活的鼠标四方向、配置、现有 WinUI 编辑／预览、短时高频实测 | 待实施；当前 Codex 任务 |
+| G-PRE | 发布前自动回归、有限混合输入与关键异常恢复 | F 完成后执行 |
+| H | x64 分发、依赖／路径、自启动、升级／移除及干净环境验证 | 待规划并实施 |
+| RC／首个 Release | 固定最终包的有限检查、发布说明及校验和；建议 `v0.9.0-beta.1` Pre-release | 待完成，不要求长测 |
+| G-POST | 24／72 小时运行、长期资源／恢复证据与后续补丁 | 首版发布后执行；不阻塞首版 |
+
+Phase E 的 WinUI 3 设置程序已经完成，后续扩展现有程序。首版方向动作继续使用现有键盘组合；URL、启动程序、设备区分、序列／层和原生触控板手势另开后续任务。
+
+下一步按 `docs/RELEASE_ROADMAP.md` 和 tag_6 Phase F 任务执行；F 完成后转 `check-fix-debug-list/tag_6_InputFlow-首个Release收尾与发布任务.md`。旧 tag_5／tag_5.1 保留为历史背景，M6 不变量与已接受 ADR 继续有效。
 
 ## 产品原则
 
@@ -42,7 +60,7 @@ InputFlow 应像一把扳手，而不是常驻的大型桌面套件：
 | Visual Studio Build Tools | 2022 17.14.41；2026 18.10.2（未安装 WinUI workload） |
 | .NET | SDK 10.0.401；MSBuild 18.9.11；Windows Desktop Runtime 10.0.12 |
 | WinUI / Windows App SDK | CLI 模板包 0.0.7-alpha；Windows App SDK 2.5.1；BuildTools 10.0.28000.2705；Windows App Runtime 2.5.1 x64 |
-| Cargo workspace | engine / config / windows / probe-cli；当前数量以执行记录和 `cargo test --workspace` 为准 |
+| Cargo workspace | engine / config / runtime / windows / protocol / probe-cli / agent；测试数量以实际执行结果为准 |
 
 ## 构建
 
@@ -88,6 +106,7 @@ inputflow/
 ├── docs/
 │   ├── PROJECT_PLAN.md
 │   ├── BUILD_WINDOWS.md
+│   ├── RELEASE_ROADMAP.md      # 首版范围、阶段顺序与发布后长测
 │   └── decisions/
 │       ├── ADR-000-仓库结构与技术选型.md
 │       ├── ADR-001-组合匹配与回放协议.md
@@ -104,10 +123,14 @@ inputflow/
     ├── tag_5_InputFlow-M7-WinUI3架构与输入扩展任务.md
     ├── tag_5.1_InputFlow-M7-Phase-E-WinUI3设置程序实施任务.md
     ├── tag_5_InputFlow-M7-WinUI3架构与输入扩展记录.md
+    ├── tag_6_InputFlow-Phase-F-鼠标方向实施任务.md
+    ├── tag_6_InputFlow-首个Release收尾与发布任务.md
+    ├── tag_6_InputFlow-发布后Phase-G长时间运行任务.md
+    ├── tag_6_InputFlow-Phase-F与首版发布执行记录.md
     └── archive/              # 已废弃的历史任务与修复记录
 ```
 
-当前已完成 tag_5 Phase A–E；Phase E 的自动化、真实物理输入、辅助功能与资源验收结果见联合验收记录。Phase F/M8 鼠标方向尚未开始。
+当前已完成 tag_5 Phase A–E；M6／Phase E 的证据见联合验收记录。Phase F/M8 鼠标方向由 tag_6 接续；首版必须完成 F，再执行 G-PRE／H／RC，发布后才进行 G-POST 长测。
 
 ## 配置键身份与启停（Schema v3）
 
@@ -132,3 +155,6 @@ Schema v3 在每条规则加入持久化 `enabled`。v1/v2 读取时内存迁移
 - 进程强杀时已暂扣的历史输入无法保证恢复。
 - 设置程序关闭后完全退出、agent 持续运行已验证；Release 五分钟负载下 stats/callback 分位、工作集、线程、句柄及 Hook 存活已记录。该单机结果不是所有设备的性能保证。
 
+
+- 首版最终分发包、干净机运行、自启动／升级／移除尚未验收；开发机 Release 构建不等于发布准备完成。
+- 24／72 小时长时间运行验收尚未执行，已按用户决定安排在首版发布后；首版定位公开测试版本，不承诺已证明长期稳定。
