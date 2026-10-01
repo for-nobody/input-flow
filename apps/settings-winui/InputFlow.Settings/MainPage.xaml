@@ -114,7 +114,7 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <ToggleSwitch AutomationProperties.Name="{Binding ToggleAutomationName}" IsOn="{Binding Enabled, Mode=OneWay}" Tag="{Binding Id}" Toggled="RuleEnabled_Toggled" />
+                                            <ToggleSwitch AutomationProperties.Name="{Binding ToggleAutomationName}" IsOn="{Binding Enabled, Mode=TwoWay}" />
                                             <StackPanel Grid.Column="1" Spacing="3">
                                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                                     <TextBlock FontWeight="SemiBold" Text="{Binding Id}" />
@@ -134,7 +134,7 @@
                     </Grid>
 
                     <Border x:Name="RuleEditor" Grid.Column="1" Padding="16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Visibility="Collapsed">
-                        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                        <ScrollViewer x:Name="RuleEditorScroll" HorizontalScrollBarVisibility="Disabled">
                             <StackPanel Spacing="12">
                                 <TextBlock x:Name="EditorTitle" FontSize="20" FontWeight="SemiBold" Text="编辑规则" />
                                 <InfoBar x:Name="EditorInfo" IsClosable="False" IsOpen="False" Severity="Error" />
@@ -143,8 +143,8 @@
                                 <ComboBox x:Name="TriggerTypeCombo" AutomationProperties.Name="触发条件类型" Header="触发条件" SelectionChanged="TriggerTypeCombo_SelectionChanged">
                                     <ComboBoxItem Content="键 + 键" Tag="key_chord" />
                                     <ComboBoxItem Content="键 + 鼠标按钮" Tag="key_mouse_button" />
-                                    <ComboBoxItem Content="长按键" Tag="hold" />
-                                    <ComboBoxItem Content="长按键 + 鼠标按钮" Tag="hold_mouse_button" />
+                                    <ComboBoxItem Content="长按键盘键" Tag="hold" />
+                                    <ComboBoxItem Content="长按键盘键 + 鼠标按钮" Tag="hold_mouse_button" />
                                 </ComboBox>
                                 <TextBlock FontWeight="SemiBold" Text="第一个键" />
                                 <controls:KeyPicker x:Name="PrimaryKeyPicker" CaptureRequested="KeyPicker_CaptureRequested" />
@@ -152,16 +152,17 @@
                                     <TextBlock FontWeight="SemiBold" Text="第二个键" />
                                     <controls:KeyPicker x:Name="SecondaryKeyPicker" CaptureRequested="KeyPicker_CaptureRequested" />
                                 </StackPanel>
+                                <StackPanel x:Name="TimeoutPanel" Spacing="6" Visibility="Collapsed">
+                                    <NumberBox x:Name="TimeoutBox" AutomationProperties.Name="键盘键长按毫秒数" Header="键盘键长按阈值（毫秒）" Maximum="60000" Minimum="1" SpinButtonPlacementMode="Inline" Value="250" />
+                                    <TextBlock x:Name="TimeoutHelpText" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                                </StackPanel>
                                 <StackPanel x:Name="MousePanel" Spacing="6" Visibility="Collapsed">
-                                    <TextBlock FontWeight="SemiBold" Text="鼠标按钮" />
+                                    <TextBlock FontWeight="SemiBold" Text="随后按下的鼠标按钮" />
                                     <Grid ColumnSpacing="8">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                         <ComboBox x:Name="MouseButtonCombo" AutomationProperties.Name="鼠标按钮" HorizontalAlignment="Stretch" />
-                                        <Button Grid.Column="1" AutomationProperties.Name="录制鼠标按钮" Click="RecordMouseButton_Click" Content="录制" />
+                                        <Button x:Name="RecordMouseButtonButton" Grid.Column="1" AutomationProperties.Name="录制鼠标按钮" Click="RecordMouseButton_Click" Content="录制" />
                                     </Grid>
-                                </StackPanel>
-                                <StackPanel x:Name="TimeoutPanel" Spacing="6" Visibility="Collapsed">
-                                    <NumberBox x:Name="TimeoutBox" AutomationProperties.Name="长按毫秒数" Header="长按阈值（毫秒）" Maximum="60000" Minimum="1" SpinButtonPlacementMode="Inline" Value="250" />
                                 </StackPanel>
                                 <TextBlock FontWeight="SemiBold" Text="动作：键盘组合" />
                                 <StackPanel x:Name="ActionKeysPanel" Spacing="8" />
@@ -177,8 +178,8 @@
                 </Grid>
             </Grid>
 
-            <ScrollViewer x:Name="SettingsPage" Grid.Row="3" Visibility="Collapsed">
-                <StackPanel MaxWidth="760" HorizontalAlignment="Left" Spacing="16">
+            <ScrollViewer x:Name="SettingsPage" Grid.Row="3" HorizontalContentAlignment="Stretch" HorizontalScrollBarVisibility="Disabled" Visibility="Collapsed">
+                <StackPanel Spacing="16">
                     <TextBlock FontSize="24" FontWeight="SemiBold" Text="设置与诊断" />
                     <Border Padding="16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="6">
                         <StackPanel Spacing="10">

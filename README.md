@@ -10,13 +10,13 @@ Windows 全局键盘与鼠标输入组合引擎：只暂扣可能构成已启用
 ## 当前状态
 
 - M1–M6 Rust 原型和自动化可靠性加固已经存在；M7 Phase B 的自动化与真实物理输入结果见本轮执行记录。
-- 真实键鼠、UIPI、不同布局和高负载 Hook 存活矩阵仍有未执行项，详见 `check-fix-debug-list/M6-可靠性基线摘要.md`。
+- M6 的菜单/释放墓碑、四类 repeat、回放顺序、UIPI 完整/零写入、高负载、布局/修饰/光标和两秒退出矩阵已完成；partial SendInput 与缺失硬件继续作为明确限制，详见 `check-fix-debug-list/M6-可靠性基线摘要.md`。
 - M7 已确定为：纯 Rust + Win32 的 `inputflow-agent.exe` 常驻，C# + WinUI 3 的 `InputFlow.Settings.exe` 按需启动，以版本化 Windows Named Pipe 通信。
 - M7 Phase A 已建立原生 WinUI 3 工程；当前固定为 unpackaged + framework-dependent。Phase E 已将它升级为正式设置程序，仍不安装 Hook、不直接写配置。
 - M7 Phase B 已完成：ADR-005、完整具名键、logical/physical 双身份匹配、scan-code 回放和严格 Schema v2 均已落地；v1 字符串规则兼容读取并在内存中迁移。en-US 与 Microsoft Pinyin 下的 OEM 观察/回放，以及 Caps Lock 失败回放、命中消费、指示灯和 `F12` pending 恢复均有真实物理输入证据。
 - M7 Phase C 已实现产品级 Rust runtime 与薄 agent：probe/agent 共用生命周期，规则可由 Hook owner 安全热替换，支持 capture session、结构化 apply/save 报告、Win32 托盘、单实例、Explorer 托盘恢复和 Release 无控制台。
 - M7 Phase D 已实现 ADR-006、版本化 length-prefixed JSON 协议、当前用户/LocalSystem ACL 的 overlapped Named Pipe server、agent 全部控制面、有界事件推送，以及独立 C# `InputFlow.Protocol` client。
-- M7 Phase E 的 E0–E4 代码已实现：ADR-007 / Schema v3 持久化规则启停、应用级连接与事件重连、规则草稿/编辑/分组/录制、validate/apply/reconciliation、多客户端变化提示、设置/诊断/关于和 settings 单实例。自动化与 UIA 联合 smoke 已通过；真实物理录制、高对比度/缩放、长稳态资源以及 M6 遗留矩阵尚未完成，因此 Phase E 最终验收仍标为未完成。
+- M7 Phase E 已完成：ADR-007 / Schema v3、正式规则/录制/保存页面、应用级连接与 reconciliation、设置/诊断/关于及单实例均已落地；真实物理录制与三类代表规则、托盘/F12/UI 同步、UIA/高对比度/缩放、五分钟资源及 M6 Windows 矩阵均已验收。keypad Enter、独立播放键、中文 Narrator 语音环境和 partial SendInput 的限制单列保留。
 - 项目不使用 Tauri、React、Node.js、npm、WebView2 或 Electron。
 
 ## 产品原则
@@ -107,7 +107,7 @@ inputflow/
     └── archive/              # 已废弃的历史任务与修复记录
 ```
 
-当前已完成 tag_5 Phase A–D，并完成 Phase E 的 E0–E4 实现；Phase E 的真实物理输入、辅助功能和资源验收仍未完成。Phase F/M8 鼠标方向尚未开始。
+当前已完成 tag_5 Phase A–E；Phase E 的自动化、真实物理输入、辅助功能与资源验收结果见联合验收记录。Phase F/M8 鼠标方向尚未开始。
 
 ## 配置键身份与启停（Schema v3）
 
@@ -124,11 +124,11 @@ Schema v3 在每条规则加入持久化 `enabled`。v1/v2 读取时内存迁移
 
 ## 已知限制
 
-- 完整键盘映射与 Schema v3 迁移已实现自动测试；正式 UI 已接入有界、可取消的单输入 capture 和动态布局键名。Caps/OEM/方向/numpad/媒体键的 UI 物理录制人工矩阵仍未执行。
+- 完整键盘映射与 Schema v3 迁移已实现自动测试；正式 UI 已接入有界、可取消的单输入 capture 和动态布局键名。Caps/OEM/方向/主 Enter 与 Fn 音量键已通过页面物理录制和读回；本机没有 keypad Enter 和独立播放键，故这两项未实测。
 - Caps/Num/Scroll Lock 有 toggle 语义；自动测试已覆盖 Caps 暂存、失败、命中、repeat、pause/overflow 和精确 down/up 回放，Caps 的真实目标窗口、键盘指示灯及 `F12` pending 恢复也已通过。Num/Scroll Lock 的本机物理状态测试仍未执行。
 - OEM 符号键的稳定 identity 是 `Oem*` 或显式 physical scan；UI 通过 Windows API 动态显示当前布局名称，但不会把显示文字写进配置。
 - 鼠标方向规则尚未实现；第一版必须有显式激活条件，普通移动、点击和拖拽直通。
 - `SendInput` 受 UIPI、焦点和当前修饰状态影响，不能承诺 100% 原样回放。
 - 进程强杀时已暂扣的历史输入无法保证恢复。
-- 设置程序关闭后必须完全退出；后台资源目标要通过 CPU、工作集、线程、句柄和 Hook 分位实测验证。
+- 设置程序关闭后完全退出、agent 持续运行已验证；Release 五分钟负载下 stats/callback 分位、工作集、线程、句柄及 Hook 存活已记录。该单机结果不是所有设备的性能保证。
 

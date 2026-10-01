@@ -79,10 +79,10 @@
 
 ### Capture
 
-1. 用户明确点击某个键/按钮字段的“录制”；协调层先确认 event subscription 可用。
-2. control pipe 调用 `begin_capture(10000)`，保存返回 session ID；一次只等待一个 input down。
+1. 用户明确点击某个键/按钮字段的“录制”；页面在发出请求前立即取得 UI intent 锁并固定目标字段，协调层再确认 event subscription 可用。session ID 尚未返回时，其他字段不能覆盖目标。
+2. control pipe 调用 `begin_capture(10000)`，保存返回 session ID；一次只等待一个 input down。若启动期间收到 Esc/取消，页面先使目标字段失效并记住取消意图，取得 session ID 后立即调用 `cancel_capture`。
 3. 只接受同一 session ID 的 `capture_completed`。键字段拒绝鼠标结果，按钮字段拒绝键结果。
-4. Esc 始终作为取消意图，不写入字段；要配置 Escape 使用选择器。取消后立即使 session 失效，再尽力调用 `cancel_capture`，因此即使 Hook 先观察到 Esc，迟到结果也会被丢弃。
+4. Esc 始终作为取消意图，不写入字段；要配置 Escape 使用选择器。取消后立即使 UI intent/session 失效，再尽力调用 `cancel_capture`，因此即使 Hook 先观察到 Esc，迟到结果也会被丢弃。
 5. timeout、owner 断线、订阅丢失、agent shutdown 或窗口关闭都会结束等待；不能确定结果时要求重新录制。
 
 ## 4. 验收分层

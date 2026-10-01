@@ -10,7 +10,7 @@
 - 回放与动作输出用 `SendInput`，需检查实际插入数量并处理 UIPI 完整性级别限制；`SendInput` 不会重置现有键盘状态，组合输出需考虑物理修饰键已按住的情况。
 - `KBDLLHOOKSTRUCT` / `MSLLHOOKSTRUCT` 提供 injected 标志与 `dwExtraInfo`，用于区分本程序生成的事件。
 - Raw Input 用于“设备来源”的后续研究（M8）；MVP 不用它承担抑制功能。
-- 待验证：Hook 超时阈值、`SendInput` 在提升权限窗口/前台切换下的实际行为、与输入法及其他改键软件共存。
+- 已验证普通/提升前台的 `SendInput` 完整/零写入、UIPI integrity preflight、中英布局及高负载 Hook 存活；partial 插入仍无稳定实机触发源，与其他第三方改键软件的广泛共存仍待验证。
 
 ## 2. 已有工具（Kanata / KMonad / AutoHotkey / PowerToys / reWASD）
 
@@ -197,9 +197,18 @@
 - WinUI 页面采用“快捷规则 / 设置 / 关于”：规则按首键分组，支持四种现有 trigger、一种 key_chord action、创建/编辑/删除/持久化启停；键可选择或逐字段录制，默认 logical、advanced physical scan；布局名称通过非 Hook Windows API 查询，稳定 identity 才进入配置。
 - 页面显示真实 phase/suspended/rule_count/last_error/reconciliation，pause/resume 只在 agent 确认后更新；诊断只手动刷新，无样本显示“暂无样本”。设置只接入紧急旁路键和现有诊断，不提供假恢复、登录启动或系统功能开关。
 - settings 用当前 session named mutex 保证单实例，第二进程尝试恢复/激活既有窗口；窗口关闭会取消 capture、释放两条 pipe 并退出。修复了 agent 先退出时关闭事件清理异常可能延迟进程退出的边界，最终以 2 秒有界处置 + 进程退出兜底。
-- 自动验证：Rust 148/148；C# protocol contract 6 项；settings core 9 项覆盖 v1/v2/v3、草稿隔离、保存成功/验证失败/外部变化、timeout applied/rollback/recovery、capture 旧 session 和 event ID 缺口。Debug/Release solution 均 0 warning/0 error；真实 agent live contract 通过。
+- 自动验证：Rust 148/148；C# protocol contract 6 项；settings core 10 项覆盖 v1/v2/v3、草稿隔离、保存成功/验证失败/外部变化、timeout applied/rollback/recovery、capture 旧 session、begin 返回前的字段互斥/取消意图和 event ID 缺口。Debug/Release solution 均 0 warning/0 error；真实 agent live contract 通过。
 - Windows/UIA：可读到 connected、`phase=ready`、规则导航和保存按钮 accessible name；从空配置通过 UI 新建 key_chord、写入草稿并由 agent 保存为 Schema v3；把 fixture 规则开关关闭后读回 `enabled=false`、状态 `rule_count=0` 和“保存完成”。第二 settings 进程退出且首个保持；UI 关闭后 agent 继续运行；agent 先退出再关 UI 也 exit code 0。
-- 未执行：真实硬件的 Caps/OEM/方向/numpad/媒体键页面录制与读回，hold/key_mouse/hold_mouse 的 UI 手工全流程，托盘/F12/UI 可见联动，高对比度/缩放/屏幕阅读器人工遍历，长稳态资源，以及 M6 UIPI/菜单墓碑/repeat/100k 等矩阵。因此 E0–E4 实现完成，但 Phase E 最终验收仍标为未完成。
+- 截至 2026-09-30 尚未执行：真实硬件页面录制、三类规则 UI 全流程、托盘/F12/UI 联动、辅助功能、长稳态资源及 M6 实机矩阵；这些项目随后在下节联合验收中收口。
+
+## 18. Phase E 与 M6 Windows 联合验收（2026-10-01～02）
+
+- 正式页面实测录制 Caps、OEM、方向、主 Enter 和 Fn 音量键；三类代表规则完成创建、保存、重开、物理命中，F12/UI/托盘状态一致。修复录制启动互斥、规则启用刷新、长按字段语义和设置页响应式宽度。
+- 真实输入暴露同步 `SendInput` 持 matcher 锁的重入死锁，现改为锁内只决策、锁外输出；普通目标完整注入通过。另发现 Medium→High 时 `SendInput` 返回完整数量但目标没有 tagged 事件，新增 token integrity/UIAccess 前置判定后提升目标 replay/action 均确定报告零写入并进入旁路。
+- M6-01～M6-07 完成：左右鼠标释放墓碑、四类触发器 repeat/失败/暂停/队列满、失败回放后新物理输入顺序、UIPI 完整/零写入、五分钟高负载、左右修饰/扩展/中英布局/光标及两秒退出边界。partial SendInput 未实机触发，继续只用故障注入证明分支。
+- Release 五分钟共有 297 次 stats 查询、0 错误，p99 16.032 ms；5,458 个 callback 样本 p99 328 µs，output failed/dropped 增量 0，线程和句柄无持续增长。Explorer 真重启后托盘图标与菜单自动恢复。
+- 纯键盘、UIA 名称、高对比度、125%/150% 及恢复 200% 缩放通过。中文 Narrator 语音受本机中文辅助语音环境限制，但 UIA 枚举确认所有可聚焦控件名称非空且非通用。
+- 最终自动门槛：Rust 151/151，C# protocol 6/6、Settings Core 11/11，fmt/Clippy/probe/Release agent 及 Settings Debug/Release 0 warning / 0 error。Phase E 判定完成，保留 keypad Enter/独立播放键、Narrator 语音、partial SendInput 和部署矩阵限制。
 
 ## 变更记录
 
@@ -217,3 +226,5 @@
 - 2026-09-30（M7 Phase C）：抽取 probe/agent 共用 `inputflow-runtime`，实现 Hook-owner 规则热替换、结构化 save/apply、capture session、Win32 托盘/Explorer 恢复、单实例与无控制台 Release；后续审阅修复 F12 托盘同步和热替换超时一致性，128 项测试通过。lifecycle/resource smoke、原托盘人工点击以及修复后 F12 → Paused/Resume → Active 同步复验均通过；Phase C 收口时 Phase D IPC 尚未开始。
 - 2026-09-30（M7 Phase D）：接受 ADR-006，新增安全版本化 Named Pipe、Rust protocol/server、agent runtime adapter、C# client 和共享 golden fixtures；143 项 Rust 测试、C# fixture contract 与真实 agent 跨语言 live contract 通过。正式 WinUI 页面仍留给 Phase E。
 - 2026-09-30（M7 Phase E 实现）：接受 ADR-007 / Schema v3，新增正式 WinUI 页面、settings core/state-machine 测试、单实例和联合构建脚本；UIA 创建/启停/保存、真实 agent live contract 与关闭边界通过。物理 capture、辅助功能和长稳态/M6 遗留验收未执行，Phase E 不宣称最终完成。
+- 2026-10-01（Phase E capture 竞态修复）：审查确认 `begin_capture` 返回 session ID 前页面缺少即时互斥，第二字段可覆盖目标且启动中无法表达取消。新增 UI intent 状态机，在请求前锁定目标；启动中 Esc/取消先使目标失效，取得 ID 后立即取消，竞态 terminal event 不再写入字段。settings core 回归增至 10 项。
+- 2026-10-02（Phase E/M6 联合验收收口）：完成物理 capture/三类规则/状态同步、M6-01～07、高负载、Explorer、UIA/高对比度/缩放；修复启用状态刷新、输出重入死锁、UIPI Complete 误报及设置页宽度。最终 Rust 151 项、C# 17 项通过，Phase E 以明确限制完成。

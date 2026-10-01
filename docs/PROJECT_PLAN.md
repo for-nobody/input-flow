@@ -158,12 +158,12 @@ inputflow/
 | 阶段 | 交付 | 状态/门槛 |
 |---|---|---|
 | M1–M5 | 探针、抑制/回放、状态机、组合与时序规则 | 已有原型与自动测试；真实行为以记录为准。 |
-| M6 | 暂停、配置恢复、诊断、可靠性修复 | 自动部分完成；真实键鼠/UIPI/高负载矩阵仍须核对。 |
+| M6 | 暂停、配置恢复、诊断、可靠性修复 | **已收口**；七项 Windows 人工进入矩阵完成，partial SendInput 与缺失硬件按限制保留。 |
 | M7 Phase A | 固定工具链与 WinUI 原生 smoke | 2026-09-29 已完成 x64 unpackaged + framework-dependent 构建/启动/退出；无 Hook、配置或伪状态。 |
 | M7 Phase B | 输入身份与 Schema v2 | **已完成**；113 项自动测试通过，en-US/Microsoft Pinyin OEM 与 Caps 指示状态的真实物理验收通过。 |
-| M7 Phase C | Rust agent 生命周期 | **已完成**；128 项自动测试、共享 runtime、热应用/capture、托盘/单实例、Release smoke、资源基线与 Active/Pause/Resume/Open Settings/Exit 人工验收已落地；后续审阅已修复 F12 托盘状态同步和热替换超时核对，F12 后 Paused/Resume 展示与恢复 Active 的人工复验已通过；真实 Explorer 重启与 agent 规则输入回归仍须单列。 |
+| M7 Phase C | Rust agent 生命周期 | **已完成**；共享 runtime、热应用/capture、托盘/单实例、Release smoke、资源基线与菜单人工验收已落地；F12 状态同步、热替换超时核对及真实 Explorer 重启恢复均通过。 |
 | M7 Phase D | 版本化 Named Pipe | **已完成**；ADR-006、Rust server/DTO、当前用户 ACL、C# client、golden fixtures 与真实 agent 跨语言 contract 已落地，143 项 Rust 测试通过。 |
-| M7 Phase E | 正式 WinUI 设置、联合/资源/输入验收 | **E0–E4 实现完成，最终验收未完成**；Schema v3、正式页面、UIA 创建/启停/保存、单实例和关闭边界已落地；物理 capture、辅助功能人工遍历、长稳态资源及 M6 遗留矩阵仍未执行。 |
+| M7 Phase E | 正式 WinUI 设置、联合/资源/输入验收 | **完成（含明确硬件/环境限制）**；Schema v3、正式页面、151 项 Rust/17 项 C#、物理 capture/规则流程、UIA/高对比度/缩放、五分钟资源和 M6 实机矩阵均有证据。 |
 | Phase F / M8 | 有激活条件的鼠标方向与其他独立研究 | 尚未执行；需要自动测试和真实高频移动证据。 |
 
 ## 9. 验证矩阵
@@ -212,5 +212,5 @@ M7/M8 设计 ADR 状态：
 
 ### 下一张任务卡
 
-继续执行 `check-fix-debug-list/tag_5.1_InputFlow-M7-Phase-E-WinUI3设置程序实施任务.md` 的验收部分。Phase E 的 E0–E4 代码已落地；下一次最小任务是由用户完成 Caps/OEM/方向/numpad/媒体键真实录制与读回、键盘全流程/高对比度/缩放、托盘/F12/UI 联动和长稳态资源观察。M6 尚未完成的 UIPI、高负载、菜单/墓碑等矩阵仍须单列，未通过前不开始 Phase F/M8。
+Phase E 与 M6 Windows 矩阵已收口。下一张功能任务卡应进入 Phase F/M8：先写 ADR-008，固定显式激活条件、方向/距离/偏轴/超时算法、每次按住最多触发一次及鼠标移动直通，再以纯算法测试和 O(1) 热路径审查作为实现前门槛。安装器/packaged/签名若优先，应另开交付任务，不混入 Phase F。
 

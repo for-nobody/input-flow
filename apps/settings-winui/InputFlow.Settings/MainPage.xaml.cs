@@ -15,6 +15,7 @@ public sealed partial class MainPage : Page
     private readonly DraftSession _draft = new();
     private readonly List<KeyPicker> _actionPickers = [];
     private readonly CancellationTokenSource _pageLifetime = new();
+    private readonly CaptureUiIntentTracker _captureIntent = new();
     private AgentConnectionCoordinator? _coordinator;
     private ConfigSaveService? _saveService;
     private string? _editingOriginalId;
@@ -22,7 +23,6 @@ public sealed partial class MainPage : Page
     private bool _busy;
     private KeyPicker? _captureKeyTarget;
     private bool _captureMouseTarget;
-    private ulong? _captureSession;
     private CancellationTokenSource? _captureCountdown;
 
     public MainPage()
@@ -463,18 +463,15 @@ public sealed partial class MainPage : Page
         if (await dialog.ShowAsync() == ContentDialogResult.Primary) _draft.RemoveRule(id);
     }
 
-    private void RuleEnabled_Toggled(object sender, RoutedEventArgs e)
-    {
-        if (_refreshingRules || sender is not ToggleSwitch toggle || toggle.Tag is not string id) return;
-        _draft.SetRuleEnabled(id, toggle.IsOn);
-    }
-
     private void TriggerTypeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         string type = SelectedTriggerType();
         SecondKeyPanel.Visibility = type == "key_chord" ? Visibility.Visible : Visibility.Collapsed;
         MousePanel.Visibility = type is "key_mouse_button" or "hold_mouse_button" ? Visibility.Visible : Visibility.Collapsed;
         TimeoutPanel.Visibility = type is "hold" or "hold_mouse_button" ? Visibility.Visible : Visibility.Collapsed;
+        TimeoutHelpText.Text = type == "hold_mouse_button"
+            ? "计时对象是上方的键盘键；达到阈值后再按鼠标按钮。鼠标按钮本身不需要长按。"
+            : "计时对象是上方的键盘键；达到阈值后触发动作。";
     }
 
     private void CommitEdit_Click(object sender, RoutedEventArgs e)
@@ -599,32 +596,47 @@ public sealed partial class MainPage : Page
 
     private async Task StartCaptureAsync(KeyPicker? picker, bool mouseTarget)
     {
-        if (_coordinator is null || _captureSession is not null || _busy) return;
+        if (_coordinator is null || _busy || !_captureIntent.TryBegin()) return;
         _captureKeyTarget = picker;
         _captureMouseTarget = mouseTarget;
+        SetCaptureEditorLocked(true);
         CaptureBar.IsOpen = true;
+        CaptureBar.Title = "正在启动录制";
         CaptureBar.Severity = InfoBarSeverity.Informational;
         CaptureBar.Message = "请按下一个输入。一次录制只填写当前字段；Esc 取消且不会写入草稿。";
+
+        CaptureStarted started;
         try
         {
-            CaptureStarted started = await _coordinator.BeginCaptureAsync(10_000, _pageLifetime.Token);
-            _captureSession = started.SessionId;
-            StartCaptureCountdown(started.TimeoutMilliseconds);
-            if (started.CompletedBeforeResponse is not null) HandleCaptureTerminal(started.CompletedBeforeResponse);
+            started = await _coordinator.BeginCaptureAsync(10_000, _pageLifetime.Token);
         }
         catch (Exception error)
         {
+            bool cancellationRequested = _captureIntent.FailBegin();
             FinishCaptureUi();
-            ShowMessage("无法开始录制", error.Message, InfoBarSeverity.Error);
+            ShowMessage(
+                cancellationRequested ? "录制已取消" : "无法开始录制",
+                cancellationRequested ? "取消意图已生效，没有输入会写入字段。" : error.Message,
+                cancellationRequested ? InfoBarSeverity.Informational : InfoBarSeverity.Error);
+            return;
         }
+
+        CaptureBeginDisposition disposition = _captureIntent.CompleteBegin(started.SessionId);
+        if (disposition == CaptureBeginDisposition.CancelImmediately)
+        {
+            await CancelKnownCaptureAsync(started.SessionId);
+            return;
+        }
+
+        StartCaptureCountdown(started.SessionId, started.TimeoutMilliseconds);
+        if (started.CompletedBeforeResponse is not null) HandleCaptureTerminal(started.CompletedBeforeResponse);
     }
 
-    private void StartCaptureCountdown(int timeoutMilliseconds)
+    private void StartCaptureCountdown(ulong sessionId, int timeoutMilliseconds)
     {
         _captureCountdown?.Cancel();
         _captureCountdown = CancellationTokenSource.CreateLinkedTokenSource(_pageLifetime.Token);
         CancellationToken token = _captureCountdown.Token;
-        ulong? session = _captureSession;
         _ = Task.Run(async () =>
         {
             int remaining = (int)Math.Ceiling(timeoutMilliseconds / 1000d);
@@ -633,7 +645,7 @@ public sealed partial class MainPage : Page
                 int shown = remaining--;
                 DispatcherQueue.TryEnqueue(() =>
                 {
-                    if (_captureSession == session) CaptureBar.Title = $"正在录制输入（剩余 {shown} 秒）";
+                    if (_captureIntent.IsActiveSession(sessionId)) CaptureBar.Title = $"正在录制输入（剩余 {shown} 秒）";
                 });
                 await Task.Delay(1000, token).ConfigureAwait(false);
             }
@@ -642,7 +654,7 @@ public sealed partial class MainPage : Page
 
     private void HandleCaptureTerminal(CaptureTerminal terminal)
     {
-        if (_captureSession != terminal.SessionId) return;
+        if (!_captureIntent.TryAcceptTerminal(terminal.SessionId)) return;
         if (terminal.Kind == CaptureTerminalKind.Captured && terminal.Input is CapturedKey key && key.Logical == "Escape")
         {
             FinishCaptureUi();
@@ -677,24 +689,48 @@ public sealed partial class MainPage : Page
 
     private async Task CancelCaptureBestEffortAsync()
     {
-        if (_captureSession is not ulong sessionId || _coordinator is null) return;
-        FinishCaptureUi();
+        if (_coordinator is null || !_captureIntent.IsInProgress) return;
+
+        ulong? sessionId = _captureIntent.RequestCancel();
+        InvalidateCaptureTarget();
+        if (sessionId is null)
+        {
+            CaptureBar.IsOpen = true;
+            CaptureBar.Title = "正在取消录制";
+            CaptureBar.Message = "录制请求正在启动；取得 session ID 后会立即取消，期间不会写入任何字段。";
+            return;
+        }
+
+        await CancelKnownCaptureAsync(sessionId.Value);
+    }
+
+    private async Task CancelKnownCaptureAsync(ulong sessionId)
+    {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(1));
         try
         {
-            await _coordinator.CancelCaptureAsync(sessionId, deadline.Token);
+            await _coordinator!.CancelCaptureAsync(sessionId, deadline.Token);
             ShowMessage("录制已取消", "取消键不会写入草稿。", InfoBarSeverity.Informational);
         }
-        catch
+        catch (Exception error)
         {
             // UI intent is already invalidated. Owner connection disposal and
             // the agent timeout are the final cancellation guarantees.
+            ShowMessage(
+                "取消意图已生效",
+                $"当前字段已失效，不会写入录制结果；Agent 未确认取消：{error.Message}",
+                InfoBarSeverity.Warning);
+        }
+        finally
+        {
+            _captureIntent.CompleteCancellation(sessionId);
+            FinishCaptureUi();
         }
     }
 
     private async void Page_KeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (e.Key == VirtualKey.Escape && _captureSession is not null)
+        if (e.Key == VirtualKey.Escape && _captureIntent.IsInProgress)
         {
             e.Handled = true;
             await CancelCaptureBestEffortAsync();
@@ -703,7 +739,7 @@ public sealed partial class MainPage : Page
 
     private async void CancelCaptureAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        if (_captureSession is null) return;
+        if (!_captureIntent.IsInProgress) return;
         args.Handled = true;
         await CancelCaptureBestEffortAsync();
     }
@@ -713,11 +749,25 @@ public sealed partial class MainPage : Page
         _captureCountdown?.Cancel();
         _captureCountdown?.Dispose();
         _captureCountdown = null;
-        _captureSession = null;
-        _captureKeyTarget = null;
-        _captureMouseTarget = false;
+        InvalidateCaptureTarget();
+        SetCaptureEditorLocked(false);
         CaptureBar.IsOpen = false;
         CaptureBar.Title = "正在录制输入";
+    }
+
+    private void InvalidateCaptureTarget()
+    {
+        _captureKeyTarget = null;
+        _captureMouseTarget = false;
+    }
+
+    private void SetCaptureEditorLocked(bool locked)
+    {
+        RuleEditorScroll.IsEnabled = !locked;
+        PrimaryKeyPicker.CaptureEnabled = !locked;
+        SecondaryKeyPicker.CaptureEnabled = !locked;
+        RecordMouseButtonButton.IsEnabled = !locked;
+        foreach (KeyPicker picker in _actionPickers) picker.CaptureEnabled = !locked;
     }
 
     private void SetEmergencyKey_Click(object sender, RoutedEventArgs e)
@@ -742,7 +792,9 @@ public sealed partial class MainPage : Page
     {
         if (!_draft.IsLoaded) return;
         string selected = GroupFilter.SelectedItem as string ?? "全部规则";
-        List<RuleRow> all = _draft.Draft.Rules.Select(RuleRow.From).ToList();
+        List<RuleRow> all = _draft.Draft.Rules
+            .Select(rule => RuleRow.From(rule, (id, enabled) => _draft.SetRuleEnabled(id, enabled)))
+            .ToList();
         List<string> groups = ["全部规则", .. all.Select(row => row.Group).Distinct().OrderBy(value => value, StringComparer.CurrentCulture)];
         _refreshingRules = true;
         GroupFilter.ItemsSource = groups;
@@ -821,23 +873,44 @@ public sealed partial class MainPage : Page
         _ => InfoBarSeverity.Error,
     };
 
-    private sealed record RuleRow(
-        string Id,
-        bool Enabled,
-        string Group,
-        string TriggerSummary,
-        string ActionSummary)
+    private sealed class RuleRow
     {
+        private readonly RuleEnablementBinding _enablement;
+
+        private RuleRow(
+            string id,
+            bool enabled,
+            string group,
+            string triggerSummary,
+            string actionSummary,
+            Action<string, bool> enabledChanged)
+        {
+            Id = id;
+            Group = group;
+            TriggerSummary = triggerSummary;
+            ActionSummary = actionSummary;
+            _enablement = new RuleEnablementBinding(id, enabled, enabledChanged);
+        }
+
+        public string Id { get; }
+        public bool Enabled { get => _enablement.Enabled; set => _enablement.Enabled = value; }
+        public string Group { get; }
+        public string TriggerSummary { get; }
+        public string ActionSummary { get; }
         public string ToggleAutomationName => $"{Id} 启用状态";
         public string EditAutomationName => $"编辑 {Id}";
         public string DeleteAutomationName => $"删除 {Id}";
+        public string RowAutomationName => $"规则 {Id}，{TriggerSummary}，{ActionSummary}";
 
-        public static RuleRow From(RuleDocument rule) => new(
+        public override string ToString() => RowAutomationName;
+
+        public static RuleRow From(RuleDocument rule, Action<string, bool> enabledChanged) => new(
             rule.Id,
             rule.Enabled,
             InputCatalog.GroupName(rule.Trigger.FirstKey),
             TriggerLabel(rule.Trigger),
-            $"→ {string.Join(" + ", rule.Action.Keys.Select(KeyLabel))}");
+            $"→ {string.Join(" + ", rule.Action.Keys.Select(KeyLabel))}",
+            enabledChanged);
 
         private static string TriggerLabel(RuleTrigger trigger) => trigger switch
         {

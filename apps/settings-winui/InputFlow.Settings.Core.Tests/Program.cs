@@ -135,6 +135,48 @@ Run("capture tracker buffers early completion and rejects stale sessions", () =>
     Assert(tracker.ActiveSession is null, "invalidated begin became active");
 });
 
+Run("capture UI intent locks pending begin and carries cancellation to the session id", () =>
+{
+    var intent = new CaptureUiIntentTracker();
+    string? target = null;
+    bool StartField(string field)
+    {
+        if (!intent.TryBegin()) return false;
+        target = field;
+        return true;
+    }
+
+    Assert(StartField("first"), "first field did not acquire the capture-start lock");
+    Assert(!StartField("second"), "a second field acquired the lock while begin was pending");
+    Assert(target == "first", "a rejected second start replaced the first target field");
+    Assert(intent.RequestCancel() is null, "pending begin exposed a session id too early");
+    Assert(intent.State == CaptureUiIntentState.CancelPending, "cancel intent was not retained during begin");
+    Assert(!intent.TryBegin(), "cancel-pending begin allowed another field to start");
+
+    CaptureBeginDisposition disposition = intent.CompleteBegin(41);
+    Assert(disposition == CaptureBeginDisposition.CancelImmediately, "session id did not carry the pending cancel");
+    Assert(intent.State == CaptureUiIntentState.Cancelling, "known session did not enter cancelling state");
+    Assert(!intent.TryAcceptTerminal(41), "terminal event raced past the user's cancel intent");
+    intent.CompleteCancellation(41);
+    Assert(!intent.IsInProgress && intent.TryBegin(), "capture lock was not released after cancellation");
+});
+
+Run("rule enablement binding ignores initialization and isolates user changes", () =>
+{
+    var writes = new List<(string Id, bool Enabled)>();
+    var first = new RuleEnablementBinding("first", true, (id, enabled) => writes.Add((id, enabled)));
+    var second = new RuleEnablementBinding("second", true, (id, enabled) => writes.Add((id, enabled)));
+
+    Assert(first.Enabled && second.Enabled, "initial enabled values were not preserved");
+    first.Enabled = true;
+    second.Enabled = true;
+    Assert(writes.Count == 0, "binding initialization wrote enabled values back to the draft");
+
+    second.Enabled = false;
+    Assert(writes.SequenceEqual(new[] { ("second", false) }), "one user change affected the wrong rule or wrote more than once");
+    Assert(first.Enabled && !second.Enabled, "one row's change leaked into another row");
+});
+
 Run("event id gaps require an authority resync", () =>
 {
     var tracker = new EventSequenceTracker();

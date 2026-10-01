@@ -1,0 +1,24 @@
+{
+  "schema_version": 3,
+  "emergency_bypass_key": {
+    "match": "logical",
+    "key": "F12"
+  },
+  "rules": [
+    {
+      "id": "accept-key-mouse-a-right",
+      "enabled": true,
+      "trigger": {
+        "type": "key_mouse_button",
+        "key": { "match": "logical", "key": "A" },
+        "button": "Right"
+      },
+      "action": {
+        "type": "key_chord",
+        "keys": [
+          { "match": "logical", "key": "C" }
+        ]
+      }
+    }
+  ]
+}

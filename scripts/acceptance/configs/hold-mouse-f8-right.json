@@ -1,0 +1,25 @@
+{
+  "schema_version": 3,
+  "emergency_bypass_key": {
+    "match": "logical",
+    "key": "F12"
+  },
+  "rules": [
+    {
+      "id": "accept-hold-mouse-f8-right",
+      "enabled": true,
+      "trigger": {
+        "type": "hold_mouse_button",
+        "key": { "match": "logical", "key": "F8" },
+        "timeout_ms": 500,
+        "button": "Right"
+      },
+      "action": {
+        "type": "key_chord",
+        "keys": [
+          { "match": "logical", "key": "C" }
+        ]
+      }
+    }
+  ]
+}

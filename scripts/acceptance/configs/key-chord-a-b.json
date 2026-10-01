@@ -1,0 +1,24 @@
+{
+  "schema_version": 3,
+  "emergency_bypass_key": {
+    "match": "logical",
+    "key": "F12"
+  },
+  "rules": [
+    {
+      "id": "accept-key-chord-a-b",
+      "enabled": true,
+      "trigger": {
+        "type": "key_chord",
+        "first": { "match": "logical", "key": "A" },
+        "second": { "match": "logical", "key": "B" }
+      },
+      "action": {
+        "type": "key_chord",
+        "keys": [
+          { "match": "logical", "key": "C" }
+        ]
+      }
+    }
+  ]
+}

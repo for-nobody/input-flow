@@ -1,0 +1,24 @@
+{
+  "schema_version": 3,
+  "emergency_bypass_key": {
+    "match": "logical",
+    "key": "F12"
+  },
+  "rules": [
+    {
+      "id": "accept-hold-f8",
+      "enabled": true,
+      "trigger": {
+        "type": "hold",
+        "key": { "match": "logical", "key": "F8" },
+        "timeout_ms": 500
+      },
+      "action": {
+        "type": "key_chord",
+        "keys": [
+          { "match": "logical", "key": "C" }
+        ]
+      }
+    }
+  ]
+}

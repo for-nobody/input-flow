@@ -272,7 +272,7 @@
 
 **目标**：将原型拆为纯 Rust + Win32 常驻 agent 与按需启动的 C# + WinUI 3 设置程序，以版本化 Named Pipe 通信；补齐完整键盘的捕获、显示、配置和回放。设置程序不持有 Hook，关闭窗口后进程完全退出。
 
-**进入条件**：先完成 M6 四轮复查记录中的 Windows 菜单/重复键/UIPI/高负载性能验收；未通过前只做不会启用真实拦截规则的视觉与工程骨架。
+**进入条件**：先完成 M6 四轮复查记录中的 Windows 菜单/重复键/UIPI/高负载性能验收；未通过前只做不会启用真实拦截规则的视觉与工程骨架。该进入条件已于 2026-10-01～02 的联合实机验收中收口，partial SendInput 保留明确限制。
 
 ### 7.1 决策与构建基线
 - [x] 接受 ADR-004：Rust agent + WinUI 3 设置程序；不使用 Tauri、React、Node.js 或 WebView。
@@ -287,7 +287,7 @@
 - [x] 定义版本化 IPC：handshake、status、validate/apply、pause/resume、recording、diagnostics、request ID、超时与错误码。
 - [x] Named Pipe 只允许当前交互用户访问；断开设置程序不影响 agent 和已启用规则。
 
-> 2026-09-30 Phase C：新增 probe/agent 共用 `inputflow-runtime`，实现 Hook-owner 规则热替换、结构化 save/apply、capture session、Win32 托盘/Explorer 恢复、单实例和无控制台 Release。后续审阅又移除了独立托盘暂停状态，并为热替换增加取消/确定失败/结果待定三态与延迟完成核对。128 项自动测试、lifecycle/resource smoke、Active/Pause/Resume/Open Settings/Exit 人工托盘验收，以及 F12 后 tooltip/菜单立即显示 Paused/Resume 并可恢复 Active 的人工复验均通过；真实 Explorer 重启仍未执行。版本化 Named Pipe 明确保留给 Phase D。
+> 2026-09-30 Phase C：新增 probe/agent 共用 `inputflow-runtime`，实现 Hook-owner 规则热替换、结构化 save/apply、capture session、Win32 托盘/Explorer 恢复、单实例和无控制台 Release。后续审阅又移除了独立托盘暂停状态，并为热替换增加取消/确定失败/结果待定三态与延迟完成核对。128 项自动测试、lifecycle/resource smoke、Active/Pause/Resume/Open Settings/Exit 人工托盘验收，以及 F12 后 tooltip/菜单立即显示 Paused/Resume 并可恢复 Active 的人工复验均通过；2026-10-01 的真实 Explorer 重启进一步确认图标与菜单自动恢复。版本化 Named Pipe 明确保留给 Phase D。
 
 > 2026-09-30 Phase D：ADR-006 固定 4-byte little-endian length-prefix + UTF-8 JSON、1 MiB 上限、协议 v1、string request ID、重复拒绝、超时/断线/关闭语义和有界推送。agent 已接入当前 session pipe；每个 instance 使用当前用户 + LocalSystem protected DACL、拒绝 remote client 和 overlapped I/O。Rust 实际 pipe 测试覆盖部分帧、损坏/超长、版本、并发、超时放弃、断线、重连、重复 ID、订阅与 shutdown；C# client/golden contract 及 live agent 的 status/config/validate/apply/pause/resume/stats/capture、事件推送和 capture-owner 断线取消均通过。正式页面仍属于 Phase E。
 
@@ -304,13 +304,13 @@
 - [x] 输入录制必须显式开始、超时并可取消；通过 agent 捕获，始终保留 F12 紧急旁路。
 - [x] UI 只提交草稿；agent 验证、原子保存并在成功后热应用，失败返回结构化错误且保持旧规则。
 
-> 2026-09-30 Phase E 实现：ADR-007 / Schema v3 为规则加入持久化 `enabled`；新增 `InputFlow.Settings.Core`、无第三方测试 runner、应用级 control/event 协调、草稿/并发检查、validate/apply/reconciliation、capture session 过滤和正式 WinUI 页面。UIA 已实际完成新建 key_chord、写入草稿、保存落盘和规则禁用保存；settings 单实例、agent 先退出后的关闭边界及 UI 关闭后 agent 存活均通过。真实物理键录制、辅助功能人工遍历和长稳态资源仍未执行，Phase E 最终验收不因此写成完成。
+> 2026-09-30 Phase E 实现：ADR-007 / Schema v3 为规则加入持久化 `enabled`；新增 `InputFlow.Settings.Core`、应用级 control/event 协调、草稿/并发检查、validate/apply/reconciliation、capture session 过滤和正式 WinUI 页面。2026-10-01～02 联合验收又完成页面物理 capture、三类规则与同步、UIA/高对比度/缩放、五分钟资源及 M6 矩阵，并修复录制启动竞态、规则开关刷新、输出重入/UIPI 误报和响应式宽度；Phase E 以明确硬件/环境限制收口。
 
 ### 7.5 资源与联合验收
 - [x] 设置窗口关闭后 UI 进程完全退出；agent 不加载 .NET、WinUI 或 WebView。
-- [ ] agent 空闲/Hook 活跃/鼠标高频移动时记录 CPU、工作集、线程、句柄和回调分位。
-- [ ] 无需手改 JSON 即可完成示例规则与暂停；冲突/非法配置给出可理解错误。
-- [ ] 可录制并往返 Caps Lock、一个 OEM 符号、导航键、数字键盘键和媒体键。
+- [x] agent 空闲/Hook 活跃/鼠标高频移动时记录 CPU、工作集、线程、句柄和回调分位。
+- [x] 无需手改 JSON 即可完成示例规则与暂停；冲突/非法配置给出可理解错误。
+- [x] 可录制并往返 Caps Lock、一个 OEM 符号、导航键和媒体音量键；keypad Enter/独立播放键由 selector/contract 覆盖，本机无相应硬件，未冒充物理实测。
 - [x] Rust、WinUI 和联合构建命令可重复，Windows 实测与未验证项写回 README/BUILD_WINDOWS。
 
 ---

@@ -35,9 +35,18 @@ use inputflow_engine::{
     PercentileSnapshot, PercentileSummary, PercentileTracker, Resolution,
 };
 
-use windows_sys::Win32::Foundation::{GetLastError, LPARAM, LRESULT, WPARAM};
+use windows_sys::Win32::Foundation::{
+    CloseHandle, ERROR_ACCESS_DENIED, GetLastError, HANDLE, LPARAM, LRESULT, WPARAM,
+};
+use windows_sys::Win32::Security::{
+    GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, TOKEN_MANDATORY_LABEL,
+    TOKEN_QUERY, TokenIntegrityLevel, TokenUIAccess,
+};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+use windows_sys::Win32::System::Threading::{
+    GetCurrentProcess, GetCurrentProcessId, GetCurrentThreadId, OpenProcess, OpenProcessToken,
+    PROCESS_QUERY_LIMITED_INFORMATION,
+};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP,
     KEYEVENTF_SCANCODE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN,
@@ -45,10 +54,10 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     MOUSEEVENTF_XUP, MOUSEINPUT, SendInput,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DispatchMessageW, GetMessageW, HC_ACTION, KBDLLHOOKSTRUCT, KillTimer,
-    LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT, PM_NOREMOVE, PeekMessageW, PostThreadMessageW, SetTimer,
-    SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_APP,
-    WM_QUIT, WM_TIMER,
+    CallNextHookEx, DispatchMessageW, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId,
+    HC_ACTION, KBDLLHOOKSTRUCT, KillTimer, LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT, PM_NOREMOVE,
+    PeekMessageW, PostThreadMessageW, SetTimer, SetWindowsHookExW, TranslateMessage,
+    UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_APP, WM_QUIT, WM_TIMER,
 };
 
 use crate::keymap;
@@ -112,6 +121,8 @@ static DEBUG_LOG: AtomicBool = AtomicBool::new(false);
 static CALLBACK_LATENCY: OnceLock<Mutex<PercentileTracker>> = OnceLock::new();
 /// Reservoir of hold-delay samples (first suppress to resolution), in microseconds.
 static HOLD_DELAY: OnceLock<Mutex<PercentileTracker>> = OnceLock::new();
+/// The process token cannot change integrity or UIAccess during this process.
+static CURRENT_PROCESS_SECURITY: OnceLock<Option<ProcessSecurity>> = OnceLock::new();
 /// Start instant of the current hold window, if one is in progress.
 static HOLD_START: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
 /// Physical held-key set used to detect auto-repeat downs (low-level hooks have
@@ -1079,6 +1090,146 @@ struct SendCall {
     last_error: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ProcessSecurity {
+    integrity_rid: u32,
+    ui_access: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct UipiBlock {
+    foreground_pid: u32,
+    sender_integrity_rid: u32,
+    target_integrity_rid: u32,
+}
+
+fn blocks_cross_integrity_output(sender: ProcessSecurity, target: ProcessSecurity) -> bool {
+    !sender.ui_access && target.integrity_rid > sender.integrity_rid
+}
+
+fn process_security(process: HANDLE) -> Option<ProcessSecurity> {
+    let mut token = core::ptr::null_mut();
+    // SAFETY: `process` is either the current-process pseudo handle or a live
+    // process handle opened with query rights; `token` is a valid out pointer.
+    if unsafe { OpenProcessToken(process, TOKEN_QUERY, &mut token) } == 0 {
+        return None;
+    }
+
+    let result = (|| {
+        let mut required = 0u32;
+        // The first call obtains the variable TOKEN_MANDATORY_LABEL size.
+        unsafe {
+            GetTokenInformation(
+                token,
+                TokenIntegrityLevel,
+                core::ptr::null_mut(),
+                0,
+                &mut required,
+            )
+        };
+        if required < core::mem::size_of::<TOKEN_MANDATORY_LABEL>() as u32 {
+            return None;
+        }
+
+        let mut integrity_buffer = vec![0u8; required as usize];
+        // SAFETY: the buffer has `required` writable bytes and all pointers are
+        // valid for the duration of the call.
+        if unsafe {
+            GetTokenInformation(
+                token,
+                TokenIntegrityLevel,
+                integrity_buffer.as_mut_ptr().cast(),
+                required,
+                &mut required,
+            )
+        } == 0
+        {
+            return None;
+        }
+
+        // SAFETY: a successful TokenIntegrityLevel query returns a
+        // TOKEN_MANDATORY_LABEL at the start of the supplied buffer.
+        let label = unsafe { &*(integrity_buffer.as_ptr() as *const TOKEN_MANDATORY_LABEL) };
+        if label.Label.Sid.is_null() {
+            return None;
+        }
+        // SAFETY: `Sid` came from the successful token query and remains valid
+        // while `integrity_buffer` is alive.
+        let subauthority_count = unsafe { GetSidSubAuthorityCount(label.Label.Sid) };
+        if subauthority_count.is_null() {
+            return None;
+        }
+        // SAFETY: the SID owns at least the reported number of subauthorities.
+        let count = unsafe { *subauthority_count };
+        if count == 0 {
+            return None;
+        }
+        // SAFETY: `count - 1` is within the SID subauthority array.
+        let integrity_rid = unsafe { *GetSidSubAuthority(label.Label.Sid, u32::from(count - 1)) };
+
+        let mut ui_access = 0u32;
+        let mut returned = 0u32;
+        // SAFETY: `ui_access` is a correctly sized writable DWORD for
+        // TokenUIAccess and `returned` is a valid out pointer.
+        if unsafe {
+            GetTokenInformation(
+                token,
+                TokenUIAccess,
+                (&mut ui_access as *mut u32).cast(),
+                core::mem::size_of::<u32>() as u32,
+                &mut returned,
+            )
+        } == 0
+        {
+            return None;
+        }
+
+        Some(ProcessSecurity {
+            integrity_rid,
+            ui_access: ui_access != 0,
+        })
+    })();
+
+    // SAFETY: `token` was returned by OpenProcessToken and is owned here.
+    unsafe { CloseHandle(token) };
+    result
+}
+
+fn foreground_uipi_block() -> Option<UipiBlock> {
+    // SAFETY: these functions have no pointer preconditions. A null foreground
+    // handle simply means there is no preflight decision to make.
+    let foreground = unsafe { GetForegroundWindow() };
+    if foreground.is_null() {
+        return None;
+    }
+    let mut foreground_pid = 0u32;
+    unsafe { GetWindowThreadProcessId(foreground, &mut foreground_pid) };
+    if foreground_pid == 0 || foreground_pid == unsafe { GetCurrentProcessId() } {
+        return None;
+    }
+
+    let sender = *CURRENT_PROCESS_SECURITY
+        .get_or_init(|| process_security(unsafe { GetCurrentProcess() }))
+        .as_ref()?;
+    // SAFETY: the PID came from the live foreground window. Failure to open is
+    // treated as an inconclusive preflight and falls back to SendInput.
+    let target_process =
+        unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, foreground_pid) };
+    if target_process.is_null() {
+        return None;
+    }
+    let target = process_security(target_process);
+    // SAFETY: `target_process` is owned by this function after OpenProcess.
+    unsafe { CloseHandle(target_process) };
+    let target = target?;
+
+    blocks_cross_integrity_output(sender, target).then_some(UipiBlock {
+        foreground_pid,
+        sender_integrity_rid: sender.integrity_rid,
+        target_integrity_rid: target.integrity_rid,
+    })
+}
+
 fn attempt_output_with(
     command: &Command,
     mut sender: impl FnMut(&[INPUT]) -> SendCall,
@@ -1102,28 +1253,43 @@ fn attempt_output_with(
 }
 
 fn execute_report(command: &Command) -> OutputReport {
-    let report = attempt_output_with(command, |inputs| {
-        // SAFETY: `inputs` is fully initialized; `pinputs` points to `len` valid
-        // elements; `cbsize` is `size_of::<INPUT>()`.
-        let inserted = unsafe {
-            SendInput(
-                inputs.len() as u32,
-                inputs.as_ptr(),
-                core::mem::size_of::<INPUT>() as i32,
-            )
-        };
-        // GetLastError cannot identify UIPI, but capture it immediately so the
-        // diagnostic is still useful for other failures.
-        let last_error = if inserted == inputs.len() as u32 {
-            0
-        } else {
-            unsafe { GetLastError() }
-        };
-        SendCall {
-            inserted,
-            last_error,
+    let uipi_block = foreground_uipi_block();
+    let report = if uipi_block.is_some() {
+        let requested = build_inputs(command).len() as u32;
+        OutputReport {
+            requested,
+            inserted: 0,
+            last_error: ERROR_ACCESS_DENIED,
+            status: if requested == 0 {
+                OutputStatus::Complete
+            } else {
+                OutputStatus::ZeroInserted
+            },
         }
-    });
+    } else {
+        attempt_output_with(command, |inputs| {
+            // SAFETY: `inputs` is fully initialized; `pinputs` points to `len` valid
+            // elements; `cbsize` is `size_of::<INPUT>()`.
+            let inserted = unsafe {
+                SendInput(
+                    inputs.len() as u32,
+                    inputs.as_ptr(),
+                    core::mem::size_of::<INPUT>() as i32,
+                )
+            };
+            // GetLastError cannot identify UIPI, but capture it immediately so the
+            // diagnostic is still useful for other failures.
+            let last_error = if inserted == inputs.len() as u32 {
+                0
+            } else {
+                unsafe { GetLastError() }
+            };
+            SendCall {
+                inserted,
+                last_error,
+            }
+        })
+    };
     if report.status == OutputStatus::Complete {
         OUTPUT_SENT.fetch_add(1, Ordering::Relaxed);
     } else {
@@ -1133,8 +1299,19 @@ fn execute_report(command: &Command) -> OutputReport {
             OutputStatus::PartiallyInserted => "partial_insert",
             OutputStatus::Complete => unreachable!(),
         };
+        let cause = uipi_block.map_or_else(
+            || "sendinput".to_string(),
+            |block| {
+                format!(
+                    "uipi_preflight foreground_pid={} sender_integrity=0x{:X} target_integrity=0x{:X}",
+                    block.foreground_pid,
+                    block.sender_integrity_rid,
+                    block.target_integrity_rid
+                )
+            },
+        );
         send_log(format!(
-            "sendinput_failed: kind={kind} inserted={} requested={} last_error={}; entering bypass; prior suppressed input is not guaranteed recovered",
+            "sendinput_failed: cause={cause} kind={kind} inserted={} requested={} last_error={}; entering bypass; prior suppressed input is not guaranteed recovered",
             report.inserted, report.requested, report.last_error
         ));
         // This protects only future input. Previously suppressed events may
@@ -1170,10 +1347,18 @@ fn send_log(line: String) {
 /// resulting replay / action command is executed synchronously via `SendInput`.
 /// The enclosing hook callback records full wall time.
 fn process(event: InputEvent) -> Decision {
-    let resolution_start = Instant::now();
     let Some(matcher) = MATCHER.get() else {
         return Decision::PassThrough;
     };
+    process_with_dispatch(matcher, event, dispatch_command)
+}
+
+fn process_with_dispatch(
+    matcher: &Mutex<Matcher>,
+    event: InputEvent,
+    mut dispatch: impl FnMut(&Command) -> OutputReport,
+) -> Decision {
+    let resolution_start = Instant::now();
     let Ok(mut guard) = matcher.lock() else {
         // Poisoned lock: fail safe by passing through.
         return Decision::PassThrough;
@@ -1181,7 +1366,8 @@ fn process(event: InputEvent) -> Decision {
     // BYPASS normally accompanies matcher pause/bypass, but output failure sets
     // the atomic first. Synchronize here before handling the next event. The
     // matcher still consumes release tombstones before applying pause.
-    if is_bypassed() {
+    let was_bypassed = is_bypassed();
+    if was_bypassed {
         guard.set_paused(true);
     }
     let (mut decision, resolution) = guard.on_event(event);
@@ -1200,7 +1386,9 @@ fn process(event: InputEvent) -> Decision {
     // platform level so the hook callbacks short-circuit process().
     if guard.is_bypassed() {
         set_bypassed(true);
-        send_log("queue_overflow: entering bypass".to_string());
+        if !was_bypassed {
+            send_log("queue_overflow: entering bypass".to_string());
+        }
     }
 
     let command = match resolution {
@@ -1208,19 +1396,27 @@ fn process(event: InputEvent) -> Decision {
         Resolution::Failed { replay } => Some(Command::Replay { events: replay }),
         Resolution::Pending => None,
     };
+    // SendInput can synchronously re-enter this hook thread with a physical
+    // event that was already queued by the OS. Never hold the non-reentrant
+    // matcher mutex across output, or that nested callback deadlocks while the
+    // outer SendInput waits for it to return.
+    drop(guard);
     if let Some(command) = command {
-        let report = dispatch_command(&command);
+        let report = dispatch(&command);
         if report.status != OutputStatus::Complete {
             // Enter matcher bypass atomically with the failed decision and keep
             // consumed release tombstones. Any still-pending events cannot be
             // truthfully described as recovered, so only diagnose them.
-            let stranded = guard.set_paused(true);
-            guard.set_bypassed(true);
-            if !stranded.is_empty() {
-                send_log(format!(
-                    "output_failure_stranded: {} additional held event(s) could not be replayed",
-                    stranded.len()
-                ));
+            set_bypassed(true);
+            if let Ok(mut guard) = matcher.lock() {
+                let stranded = guard.set_paused(true);
+                guard.set_bypassed(true);
+                if !stranded.is_empty() {
+                    send_log(format!(
+                        "output_failure_stranded: {} additional held event(s) could not be replayed",
+                        stranded.len()
+                    ));
+                }
             }
             // If replay inserted nothing and the current suppressed event is the
             // final replay item, the hook can still fail open for that one event
@@ -1292,22 +1488,36 @@ fn drive_timeouts() {
     let Some(matcher) = MATCHER.get() else {
         return;
     };
-    let Ok(mut guard) = matcher.lock() else {
-        return;
-    };
-    let mut resolved = 0usize;
-    for command in guard.poll_timeouts() {
-        resolved += 1;
-        let report = dispatch_command(&command);
-        if report.status != OutputStatus::Complete {
-            guard.set_paused(true);
-            guard.set_bypassed(true);
-            break;
-        }
-    }
+    let resolved = drive_timeouts_with_dispatch(matcher, dispatch_command);
     if resolved > 0 {
         send_log(format!("timeout: {resolved} deadline(s) resolved"));
     }
+}
+
+fn drive_timeouts_with_dispatch(
+    matcher: &Mutex<Matcher>,
+    mut dispatch: impl FnMut(&Command) -> OutputReport,
+) -> usize {
+    let commands = match matcher.lock() {
+        Ok(mut guard) => guard.poll_timeouts(),
+        Err(_) => return 0,
+    };
+    let mut resolved = 0usize;
+    for command in commands {
+        resolved += 1;
+        // As in process_with_dispatch, release the matcher before SendInput so
+        // a physical callback re-entering during output cannot self-deadlock.
+        let report = dispatch(&command);
+        if report.status != OutputStatus::Complete {
+            set_bypassed(true);
+            if let Ok(mut guard) = matcher.lock() {
+                guard.set_paused(true);
+                guard.set_bypassed(true);
+            }
+            break;
+        }
+    }
+    resolved
 }
 
 /// Build the `INPUT` array for an output command.
@@ -2113,6 +2323,27 @@ mod tests {
     }
 
     #[test]
+    fn uipi_preflight_blocks_only_higher_integrity_without_ui_access() {
+        let medium = ProcessSecurity {
+            integrity_rid: 0x2000,
+            ui_access: false,
+        };
+        let high = ProcessSecurity {
+            integrity_rid: 0x3000,
+            ui_access: false,
+        };
+        let medium_ui_access = ProcessSecurity {
+            integrity_rid: 0x2000,
+            ui_access: true,
+        };
+
+        assert!(blocks_cross_integrity_output(medium, high));
+        assert!(!blocks_cross_integrity_output(medium, medium));
+        assert!(!blocks_cross_integrity_output(high, medium));
+        assert!(!blocks_cross_integrity_output(medium_ui_access, high));
+    }
+
+    #[test]
     fn zero_replay_forwards_only_the_current_event() {
         let first = key_event(0, Key::LeftCtrl, true);
         let current = key_event(1, Key::A, true);
@@ -2190,6 +2421,104 @@ mod tests {
         });
         assert_eq!(report.status, OutputStatus::ZeroInserted);
         assert_ne!(report.status, OutputStatus::Complete);
+    }
+
+    #[test]
+    fn event_output_releases_matcher_before_physical_reentrancy() {
+        set_bypassed(false);
+        let index = RuleIndex::compile(vec![Rule {
+            id: "hold-click".to_string(),
+            trigger: Trigger::HoldMouseButton {
+                key: Key::F9,
+                timeout_ms: 200,
+                button: MouseButton::Right,
+            },
+            action: Action::KeyChord(vec![Key::C]),
+        }])
+        .unwrap();
+        let matcher = Mutex::new(Matcher::new(Box::new(ManualClock::new(0)), index, 16));
+
+        assert_eq!(
+            process_with_dispatch(&matcher, key_event(0, Key::F9, true), |_| {
+                panic!("the first hold event must remain pending")
+            }),
+            Decision::Suppress { event_id: 0 }
+        );
+
+        let right_down = InputEvent {
+            seq: 1,
+            time_ms: 1,
+            injected: false,
+            source: InputSource::Mouse {
+                kind: MouseKind::ButtonDown(MouseButton::Right),
+                x: 10,
+                y: 20,
+            },
+        };
+        let mut dispatched = false;
+        assert_eq!(
+            process_with_dispatch(&matcher, right_down, |command| {
+                let Command::Replay { events } = command else {
+                    panic!("an early mouse button must replay the pending hold")
+                };
+                assert_eq!(events.len(), 2);
+                assert!(
+                    matcher.try_lock().is_ok(),
+                    "a physical callback re-entering during SendInput must not self-deadlock"
+                );
+                dispatched = true;
+                OutputReport {
+                    requested: 2,
+                    inserted: 2,
+                    last_error: 0,
+                    status: OutputStatus::Complete,
+                }
+            }),
+            Decision::Suppress { event_id: 1 }
+        );
+        assert!(dispatched);
+    }
+
+    #[test]
+    fn timer_output_releases_matcher_before_physical_reentrancy() {
+        set_bypassed(false);
+        let clock = ManualClock::new(0);
+        let index = RuleIndex::compile(vec![Rule {
+            id: "hold".to_string(),
+            trigger: Trigger::Hold {
+                key: Key::F8,
+                timeout_ms: 100,
+            },
+            action: Action::KeyChord(vec![Key::C]),
+        }])
+        .unwrap();
+        let matcher = Mutex::new(Matcher::new(Box::new(clock.clone()), index, 16));
+        assert_eq!(
+            matcher
+                .lock()
+                .unwrap()
+                .on_event(key_event(0, Key::F8, true))
+                .0,
+            Decision::Suppress { event_id: 0 }
+        );
+        clock.advance(100);
+
+        assert_eq!(
+            drive_timeouts_with_dispatch(&matcher, |command| {
+                assert!(matches!(command, Command::Emit { .. }));
+                assert!(
+                    matcher.try_lock().is_ok(),
+                    "a timer action must not hold the matcher across SendInput"
+                );
+                OutputReport {
+                    requested: 2,
+                    inserted: 2,
+                    last_error: 0,
+                    status: OutputStatus::Complete,
+                }
+            }),
+            1
+        );
     }
 
     #[test]

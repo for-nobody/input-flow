@@ -1,6 +1,6 @@
 # InputFlow Windows 构建与运行基线
 
-> 状态：M7 Phase A–D 已完成；Phase E 的 E0–E4 实现已验证到自动化/UIA 联合 smoke（更新于 2026-09-30）。当前已有共享 Rust runtime、常驻 Win32 agent/托盘、完整键盘身份/Schema v3、版本化 Named Pipe，以及正式 WinUI 3 设置程序。Phase E 的真实物理 capture、辅助功能人工遍历、长稳态资源与 M6 遗留矩阵仍未完成；未执行项不得写成已通过。
+> 状态：M7 Phase A–E 已完成（更新于 2026-10-02）。当前已有共享 Rust runtime、常驻 Win32 agent/托盘、完整键盘身份/Schema v3、版本化 Named Pipe，以及通过物理输入、辅助功能和资源联合验收的正式 WinUI 3 设置程序。缺失硬件、中文 Narrator 语音环境、partial SendInput 和部署矩阵继续明确单列。
 
 ## 1. 目标产物与当前进度
 
@@ -41,7 +41,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo build -p probe-cli
 ```
 
-2026-09-30 Phase E 结果：全部通过；测试总数 148（agent 4、config 28、engine 74、protocol 12、runtime 6、windows 24、probe 0）。Phase B 的 no-input hook lifecycle 与 Phase C agent smoke 仍是独立证据，不能作为真实输入或性能验收。
+2026-10-02 Phase E 最终结果：全部通过；测试总数 151（agent 4、config 28、engine 74、protocol 12、runtime 6、windows 27、probe 0）。自动测试、无输入 lifecycle 和真实物理输入/性能证据仍按不同层级记录。
 
 运行原型：
 
@@ -140,7 +140,7 @@ Phase C 自动 smoke 示例（不含物理输入）：
 5. 关闭设置窗口，确认设置进程退出；agent、托盘和规则继续运行。
 6. 从托盘再次打开设置，确认单实例/激活现有窗口语义。
 
-第 1–2 步的 agent、Named Pipe 和 C# client contract 属于 Phase D；正式页面绑定、关闭/重开和 UIA 保存流程已落地。物理键录制、高对比度/缩放、屏幕阅读器人工遍历和长稳态资源仍属于 Phase E 未完成验收，构建与 UIA 不能替代。
+第 1–2 步的 agent、Named Pipe 和 C# client contract 属于 Phase D；正式页面绑定、关闭/重开、UIA、物理键录制、高对比度/缩放和长稳态资源均已完成 Phase E 验收。中文 Narrator 实际语音因本机语音环境不足保持限制，但应用侧 UIA 名称已逐项核验。
 
 ## 8. 联合构建入口
 
@@ -153,19 +153,19 @@ Phase C 自动 smoke 示例（不含物理输入）：
 
 ## 9. 验证状态
 
-| 类别 | 截至 2026-09-30 的证据 |
+| 类别 | 截至 2026-10-02 的证据 |
 |---|---|
-| Rust 自动化 | Phase E fmt/test/clippy/build 通过；148/148 测试通过（agent 4、config 28、engine 74、protocol 12、runtime 6、windows 24），新增 v1/v2→v3、禁用规则索引/计数及替换 pending/tombstone 覆盖 |
-| 完整键盘 / Schema v3 | mapping、matcher、scan replay、v1/v2 migration、v3 golden/strict round-trip 自动测试通过；en-US/Microsoft Pinyin OEM 与 Caps 指示状态的既有实测仍通过，Phase E 页面物理录制未执行 |
+| Rust 自动化 | fmt/test/clippy/build 通过；151/151 测试通过（agent 4、config 28、engine 74、protocol 12、runtime 6、windows 27），包含 UIPI preflight 与同步输出重入回归 |
+| 完整键盘 / Schema v3 | mapping、matcher、scan replay、v1/v2 migration、v3 golden/strict round-trip 自动测试通过；正式页面实测 Caps、OEM、方向、主 Enter 和 Fn 音量键录制/读回；keypad Enter/独立播放键因无硬件未实测 |
 | Rust Windows smoke | Phase C agent 执行 100 次 pause/resume、apply、begin/cancel capture 后 clean quit，exit code 0、marker 清除、0 failed/0 dropped；带 2 条规则的 Phase B 物理验收仍为 1209 个观察事件、7 个完整输出批次 |
-| WinUI 自动化 | restore、Debug、Release 通过，均 0 warning/0 error；protocol contract 6 项、settings core 9 项通过；真实 agent live contract 通过 |
+| WinUI 自动化 | restore、Debug、Release 通过，均 0 warning/0 error；protocol contract 6 项、settings core 11 项通过；覆盖 capture 启动互斥/取消、规则启用绑定与既有状态机；真实 agent live contract 通过 |
 | WinUI 生命周期 | x64 原生窗口、settings 单实例、正常关闭、agent 先退出再关 UI 均 exit code 0；UI 关闭后 agent 继续运行 |
-| WinUI 功能 | UIA 读到 connected/ready/规则导航/保存 accessible name；UIA 新建 key_chord 并由 agent 保存为 v3；UIA 禁用 fixture 规则后正式配置 `enabled=false` 且状态 `rule_count=0` |
+| WinUI 功能 | 页面完成三类代表规则的创建/保存/重开/物理命中和 F12/UI/托盘同步；所有可聚焦控件 UIA Name 非空非通用，高对比度、125%/150% 与恢复 200% 缩放通过 |
 | Packaged 启动 | 未通过：Developer Mode 未启用；不是代码构建失败 |
-| Agent / 托盘 | Release PE subsystem=2（Windows GUI），加载模块中 .NET/WinUI/WebView 命中 0；真实 tray/Hook 限时运行 exit code 0；第二实例 3/3 返回 0 并分别启动设置；用户已人工通过 Active/Pause/Resume/Open Settings/Exit，并在修复后通过 F12 → Paused/Resume → Active 同步复验；Explorer 恢复代码已实现但真实 Explorer 重启待执行 |
-| Agent 资源 | Release 空闲约 10.3 MiB working set、1.6 MiB private bytes、6 threads、143 handles；1000 次 pause/resume 后约 10.0 MiB/1.7 MiB、7 threads、145 handles，3 次打开设置请求并关闭后 agent 指标增长均为 0。单机短样本，不是最终性能门槛 |
+| Agent / 托盘 | Release PE subsystem=2（Windows GUI），不加载 .NET/WinUI/WebView；Active/Pause/Resume/Open Settings/Exit、F12 同步及 Explorer 真重启后的图标/菜单恢复均通过 |
+| Agent 资源 | Release 五分钟 297 次 stats 查询 0 错误，p99 16.032 ms；5,458 个 callback 样本 p99 328 µs，failed/dropped 增量 0，线程 7→7、句柄 161→161。单机结果不是所有设备保证 |
 | IPC | Phase D 已完成：ADR-006、1 MiB length-prefix JSON v1、当前用户 + SYSTEM DACL、handshake/request ID/错误、全部最小方法和有界事件订阅；Rust/C# golden contract 通过，真实 agent live contract（含事件与断线取消 capture）退出码 0 |
-| M6/Phase B 真实输入 | Phase B 的 en-US/Microsoft Pinyin OEM、Caps 失败/命中/指示灯与 `F12` pending 恢复通过；M6 菜单/墓碑、UIPI、100k/高负载等仍未执行 |
+| M6/Phase B 真实输入 | M6-01～07 菜单/墓碑、四类 repeat、回放顺序、UIPI 完整/零写入、高负载、布局/修饰/光标和两秒退出均完成；partial SendInput 未实机触发，保留自动故障注入证据 |
 | 部署 | 本机 runtime 安装和两种 unpackaged 启动已验证；干净机/升级/卸载未执行 |
 
 自动测试、无输入 smoke 与真实桌面输入观察必须分栏报告。没有执行的项目写“未执行”，不能推断为通过。

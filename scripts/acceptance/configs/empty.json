@@ -1,0 +1,8 @@
+{
+  "schema_version": 3,
+  "emergency_bypass_key": {
+    "match": "logical",
+    "key": "F12"
+  },
+  "rules": []
+}
