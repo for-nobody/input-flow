@@ -210,6 +210,16 @@
 - 纯键盘、UIA 名称、高对比度、125%/150% 及恢复 200% 缩放通过。中文 Narrator 语音受本机中文辅助语音环境限制，但 UIA 枚举确认所有可聚焦控件名称非空且非通用。
 - 最终自动门槛：Rust 151/151，C# protocol 6/6、Settings Core 11/11，fmt/Clippy/probe/Release agent 及 Settings Debug/Release 0 warning / 0 error。Phase E 判定完成，保留 keypad Enter/独立播放键、Narrator 语音、partial SendInput 和部署矩阵限制。
 
+## 19. Phase F：键盘激活鼠标方向（2026-10-08，代码／自动验证）
+
+- ADR-008 比较路径总长度、Raw Input 相对位移和低级 Hook 屏幕坐标净位移，选择最后一项。激活键首次非 repeat Down 通过 `GetCursorPos` 取起点，move 使用 `MSLLHOOKSTRUCT.pt`；x／y 差值以 i64 计算，主轴决定四方向，等轴不命中。默认／范围固定为 80 px（10～2000）、500 ms（100～5000）、40 px 偏轴（0～2000）。
+- 同一激活 identity 的启用规则预编译为固定四槽方向组，同方向重复、组参数不一致以及与 Hold／Chord／HoldMouseButton 共享前缀均拒绝。physical／logical 同时可匹配时继续 physical-first；每次按住最多命中一次，真实 Up 后才重新武装。
+- 激活 Down／repeat 复用 16 项 pending FIFO。失败、提前 Up、其他键／按钮、wheel、第三方 injected move、pause／replace 和超时按 owner 顺序回放；命中先清 pending、建立 release tombstone，再在 matcher 锁外执行现有 `SendInput`。mouse move 始终 `CallNextHookEx`，不进入 FIFO、不保存轨迹、不逐点日志或 IPC；没有方向规则／旁路时保持快速直通。
+- Schema 升到严格 v4，新增 `mouse_direction` trigger；v1／v2／v3 继续严格读取并在内存中迁移，保留 enabled、身份、顺序和动作。Named Pipe wire 仍为 v1，handshake 改报 schema 4／`config_v4`。Rust、C# 和 protocol fixture 使用 `v4-valid.json` 交叉验证。
+- WinUI 复用现有草稿／保存链，加入方向、距离、时间窗、偏轴控件和显式、可取消、约 33 ms 更新的有限预览。预览只保留起点／当前点和摘要，不安装 Hook、不执行动作；Agent 仍是配置校验和运行时权威。
+- 自动门槛为 Rust 169／169（agent 4、config 32、engine 87、protocol 12、runtime 6、windows 28）、C# protocol 6／6、Settings Core 11／11；fmt、Clippy `-D warnings`、probe、Release agent 及 WinUI Debug／Release／联合构建通过。Release 首次在仅做默认配置 restore 的环境缺少 runtime／ILLink pack，联合脚本现分别 restore Debug 和 Release，避免依赖开发机缓存。
+- 当前不宣称 Phase F 完成：F-PHY-01～07 的真实四方向、普通点击／拖拽、F12／pause／replace／preview／quit 和约五分钟物理 move 资源样本未执行。125／500／1000 Hz 只是确定性事件序列，不代表实际鼠标 polling rate；多屏／跨 DPI 也仍待实际硬件。
+
 ## 变更记录
 
 - 2026-09-26（M0）：建立四条主线的初始调研结论，均标注“待验证”；尚未进行 Windows 实机实验。
@@ -228,3 +238,4 @@
 - 2026-09-30（M7 Phase E 实现）：接受 ADR-007 / Schema v3，新增正式 WinUI 页面、settings core/state-machine 测试、单实例和联合构建脚本；UIA 创建/启停/保存、真实 agent live contract 与关闭边界通过。物理 capture、辅助功能和长稳态/M6 遗留验收未执行，Phase E 不宣称最终完成。
 - 2026-10-01（Phase E capture 竞态修复）：审查确认 `begin_capture` 返回 session ID 前页面缺少即时互斥，第二字段可覆盖目标且启动中无法表达取消。新增 UI intent 状态机，在请求前锁定目标；启动中 Esc/取消先使目标失效，取得 ID 后立即取消，竞态 terminal event 不再写入字段。settings core 回归增至 10 项。
 - 2026-10-02（Phase E/M6 联合验收收口）：完成物理 capture/三类规则/状态同步、M6-01～07、高负载、Explorer、UIA/高对比度/缩放；修复启用状态刷新、输出重入死锁、UIPI Complete 误报及设置页宽度。最终 Rust 151 项、C# 17 项通过，Phase E 以明确限制完成。
+- 2026-10-08（Phase F 代码／自动验证）：接受 ADR-008，加入固定四槽鼠标方向组、净位移 matcher、Windows move 直通接入、Schema v4／`config_v4`、WinUI 编辑与有限预览；自动验证与联合构建通过。真实 F-PHY-01～07 未执行，Phase F 保持进行中。

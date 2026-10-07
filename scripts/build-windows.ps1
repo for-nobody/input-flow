@@ -32,7 +32,10 @@ try {
     Invoke-Checked { cargo build -p inputflow-agent --release } 'Release agent build'
 
     if (-not $SkipRestore) {
-        Invoke-Checked { dotnet restore $solution } 'WinUI solution restore'
+        Invoke-Checked { dotnet restore $solution -p:Configuration=Debug } 'WinUI Debug solution restore'
+        # Release enables trimming and ReadyToRun in the application project,
+        # which require additional locked runtime/tool packs on a clean machine.
+        Invoke-Checked { dotnet restore $solution -p:Configuration=Release } 'WinUI Release solution restore'
     }
     Invoke-Checked { dotnet build $solution -c Debug --no-restore } 'WinUI Debug build'
     Invoke-Checked { dotnet build $solution -c Release --no-restore } 'WinUI Release build'

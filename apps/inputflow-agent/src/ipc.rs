@@ -128,7 +128,7 @@ impl ProtocolHandler for AgentProtocolHandler {
             schema_version: current_schema_version(),
             capabilities: vec![
                 "status".to_string(),
-                "config_v3".to_string(),
+                "config_v4".to_string(),
                 "validate_apply".to_string(),
                 "pause_resume".to_string(),
                 "stats".to_string(),

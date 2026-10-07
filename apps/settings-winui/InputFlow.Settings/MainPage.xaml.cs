@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using InputFlow.Settings.Core;
@@ -24,12 +25,28 @@ public sealed partial class MainPage : Page
     private KeyPicker? _captureKeyTarget;
     private bool _captureMouseTarget;
     private CancellationTokenSource? _captureCountdown;
+    private DispatcherTimer? _directionPreviewTimer;
+    private Stopwatch? _directionPreviewClock;
+    private CursorPoint _directionPreviewOrigin;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CursorPoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetCursorPos(out CursorPoint point);
 
     public MainPage()
     {
         InitializeComponent();
         MouseButtonCombo.ItemsSource = InputCatalog.MouseButtons;
         MouseButtonCombo.SelectedIndex = 1;
+        DirectionCombo.ItemsSource = InputCatalog.MouseDirections;
+        DirectionCombo.SelectedItem = MouseDirection.Right;
         TriggerTypeCombo.SelectedIndex = 0;
         Version version = Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 1, 0);
         VersionText.Text = $"版本 {version.ToString(3)}　进程架构 {RuntimeInformation.ProcessArchitecture}　配置 Schema v{ConfigDocument.CurrentSchemaVersion}";
@@ -114,6 +131,7 @@ public sealed partial class MainPage : Page
 
     private void Page_Unloaded(object sender, RoutedEventArgs e)
     {
+        StopDirectionPreview("预览已停止。", resetProgress: false);
         _pageLifetime.Cancel();
         _captureCountdown?.Cancel();
         if (_coordinator is not null)
@@ -135,6 +153,10 @@ public sealed partial class MainPage : Page
 
     private void UpdateConnection(AgentConnectionSnapshot snapshot)
     {
+        if (!snapshot.ControlConnected && _directionPreviewTimer is not null)
+        {
+            StopDirectionPreview("Agent 连接已断开；方向预览已取消。", resetProgress: false);
+        }
         ConnectionBar.IsOpen = true;
         ConnectionBar.Title = snapshot.Kind == AgentConnectionKind.Online ? "Agent 已连接" : "Agent 连接状态";
         ConnectionBar.Message = snapshot.Message;
@@ -403,6 +425,10 @@ public sealed partial class MainPage : Page
         SecondaryKeyPicker.SetIdentity(KeyIdentity.Logical("B"));
         MouseButtonCombo.SelectedItem = "Right";
         TimeoutBox.Value = 250;
+        DirectionCombo.SelectedItem = MouseDirection.Right;
+        DirectionDistanceBox.Value = 80;
+        DirectionDurationBox.Value = 500;
+        DirectionToleranceBox.Value = 40;
         ClearActionPickers();
         AddActionPicker(KeyIdentity.Logical("LeftCtrl"));
         AddActionPicker(KeyIdentity.Logical("C"));
@@ -438,6 +464,12 @@ public sealed partial class MainPage : Page
                 TimeoutBox.Value = holdMouse.TimeoutMilliseconds;
                 MouseButtonCombo.SelectedItem = holdMouse.Button;
                 break;
+            case MouseDirectionTrigger direction:
+                DirectionCombo.SelectedItem = direction.Direction;
+                DirectionDistanceBox.Value = direction.MinimumDistancePixels;
+                DirectionDurationBox.Value = direction.MaximumDurationMilliseconds;
+                DirectionToleranceBox.Value = direction.OffAxisTolerancePixels;
+                break;
         }
 
         ClearActionPickers();
@@ -469,6 +501,8 @@ public sealed partial class MainPage : Page
         SecondKeyPanel.Visibility = type == "key_chord" ? Visibility.Visible : Visibility.Collapsed;
         MousePanel.Visibility = type is "key_mouse_button" or "hold_mouse_button" ? Visibility.Visible : Visibility.Collapsed;
         TimeoutPanel.Visibility = type is "hold" or "hold_mouse_button" ? Visibility.Visible : Visibility.Collapsed;
+        DirectionPanel.Visibility = type == "mouse_direction" ? Visibility.Visible : Visibility.Collapsed;
+        if (type != "mouse_direction") StopDirectionPreview("预览不保存轨迹，也不执行动作；点击开始相当于临时激活。", resetProgress: true);
         TimeoutHelpText.Text = type == "hold_mouse_button"
             ? "计时对象是上方的键盘键；达到阈值后再按鼠标按钮。鼠标按钮本身不需要长按。"
             : "计时对象是上方的键盘键；达到阈值后触发动作。";
@@ -482,6 +516,7 @@ public sealed partial class MainPage : Page
             return;
         }
 
+        StopDirectionPreview("预览已停止。", resetProgress: false);
         _draft.UpsertRule(rule!, _editingOriginalId);
         RuleEditor.Visibility = Visibility.Collapsed;
         UpdateResponsiveEditor();
@@ -489,6 +524,7 @@ public sealed partial class MainPage : Page
 
     private void CancelEdit_Click(object sender, RoutedEventArgs e)
     {
+        StopDirectionPreview("预览已取消。", resetProgress: false);
         RuleEditor.Visibility = Visibility.Collapsed;
         EditorInfo.IsOpen = false;
         _editingOriginalId = null;
@@ -517,7 +553,7 @@ public sealed partial class MainPage : Page
         {
             trigger = new KeyMouseButtonTrigger(first!, MouseButtonCombo.SelectedItem as string ?? "Right");
         }
-        else
+        else if (type is "hold" or "hold_mouse_button")
         {
             if (double.IsNaN(TimeoutBox.Value) || TimeoutBox.Value is < 1 or > 60000)
             {
@@ -529,6 +565,19 @@ public sealed partial class MainPage : Page
             trigger = type == "hold"
                 ? new HoldTrigger(first!, timeout)
                 : new HoldMouseButtonTrigger(first!, timeout, MouseButtonCombo.SelectedItem as string ?? "Right");
+        }
+        else
+        {
+            if (DirectionCombo.SelectedItem is not MouseDirection direction)
+            {
+                error = "请选择鼠标方向。";
+                return false;
+            }
+            if (!TryDirectionParameters(out uint distance, out ulong duration, out uint tolerance, out error))
+            {
+                return false;
+            }
+            trigger = new MouseDirectionTrigger(first!, direction, distance, duration, tolerance);
         }
 
         var actionKeys = new List<KeyIdentity>();
@@ -554,6 +603,148 @@ public sealed partial class MainPage : Page
         error = null;
         return true;
     }
+
+    private bool TryDirectionParameters(
+        out uint distance,
+        out ulong duration,
+        out uint tolerance,
+        out string? error)
+    {
+        distance = 0;
+        duration = 0;
+        tolerance = 0;
+        double distanceValue = DirectionDistanceBox.Value;
+        double durationValue = DirectionDurationBox.Value;
+        double toleranceValue = DirectionToleranceBox.Value;
+        if (double.IsNaN(distanceValue) || distanceValue is < 10 or > 2000 || distanceValue != Math.Truncate(distanceValue))
+        {
+            error = "最小净位移必须是 10–2000 的整数屏幕像素。";
+            return false;
+        }
+        if (double.IsNaN(durationValue) || durationValue is < 100 or > 5000 || durationValue != Math.Truncate(durationValue))
+        {
+            error = "最大时间窗必须是 100–5000 的整数毫秒。";
+            return false;
+        }
+        if (double.IsNaN(toleranceValue) || toleranceValue is < 0 or > 2000 || toleranceValue != Math.Truncate(toleranceValue))
+        {
+            error = "偏轴容差必须是 0–2000 的整数屏幕像素。";
+            return false;
+        }
+        distance = (uint)distanceValue;
+        duration = (ulong)durationValue;
+        tolerance = (uint)toleranceValue;
+        error = null;
+        return true;
+    }
+
+    private void StartDirectionPreview_Click(object sender, RoutedEventArgs e)
+    {
+        if (_captureIntent.IsInProgress)
+        {
+            ShowEditorError("输入录制进行中；请先取消录制再开始方向预览。");
+            return;
+        }
+        if (DirectionCombo.SelectedItem is not MouseDirection expected)
+        {
+            ShowEditorError("请选择鼠标方向。");
+            return;
+        }
+        if (!TryDirectionParameters(out uint distance, out ulong duration, out uint tolerance, out string? error))
+        {
+            ShowEditorError(error ?? "方向预览参数不完整。");
+            return;
+        }
+        if (!GetCursorPos(out _directionPreviewOrigin))
+        {
+            ShowEditorError("无法读取当前光标屏幕坐标，方向预览没有开始。");
+            return;
+        }
+
+        StopDirectionPreview("", resetProgress: true);
+        EditorInfo.IsOpen = false;
+        _directionPreviewClock = Stopwatch.StartNew();
+        _directionPreviewTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
+        _directionPreviewTimer.Tick += (_, _) => UpdateDirectionPreview(expected, distance, duration, tolerance);
+        _directionPreviewTimer.Start();
+        StartDirectionPreviewButton.IsEnabled = false;
+        CancelDirectionPreviewButton.IsEnabled = true;
+        DirectionPreviewText.Text = $"预览已开始：起点 ({_directionPreviewOrigin.X}, {_directionPreviewOrigin.Y})。无需按激活键；本按钮只替代本次临时激活，最多 {duration} ms。";
+    }
+
+    private void CancelDirectionPreview_Click(object sender, RoutedEventArgs e) =>
+        StopDirectionPreview("预览已取消；未保存坐标轨迹，也未执行动作。", resetProgress: false);
+
+    private void UpdateDirectionPreview(MouseDirection expected, uint distance, ulong duration, uint tolerance)
+    {
+        if (_directionPreviewClock is null || _directionPreviewClock.ElapsedMilliseconds > (long)duration)
+        {
+            StopDirectionPreview("预览时间窗已结束；未命中且未执行动作。", resetProgress: false);
+            return;
+        }
+        if (!GetCursorPos(out CursorPoint current))
+        {
+            StopDirectionPreview("读取光标位置失败；预览已安全停止。", resetProgress: false);
+            return;
+        }
+
+        long dx = (long)current.X - _directionPreviewOrigin.X;
+        long dy = (long)current.Y - _directionPreviewOrigin.Y;
+        ulong absoluteX = (ulong)Math.Abs(dx);
+        ulong absoluteY = (ulong)Math.Abs(dy);
+        if (absoluteX == absoluteY)
+        {
+            DirectionPreviewProgress.Value = Math.Min(100, absoluteX * 100.0 / distance);
+            DirectionPreviewText.Text = $"净位移 dx={dx}, dy={dy} px；主轴相等，方向尚未确定。";
+            return;
+        }
+
+        MouseDirection observed;
+        ulong primary;
+        ulong offAxis;
+        if (absoluteX > absoluteY)
+        {
+            observed = dx < 0 ? MouseDirection.Left : MouseDirection.Right;
+            primary = absoluteX;
+            offAxis = absoluteY;
+        }
+        else
+        {
+            observed = dy < 0 ? MouseDirection.Up : MouseDirection.Down;
+            primary = absoluteY;
+            offAxis = absoluteX;
+        }
+
+        DirectionPreviewProgress.Value = Math.Min(100, primary * 100.0 / distance);
+        bool matches = observed == expected && primary >= distance && offAxis <= tolerance;
+        DirectionPreviewText.Text = $"方向 {DirectionLabel(observed)}；净位移 dx={dx}, dy={dy} px；主轴 {primary} px，偏轴 {offAxis} px。";
+        if (matches)
+        {
+            StopDirectionPreview($"预览命中 {DirectionLabel(observed)}；这里只显示摘要，不执行动作。", resetProgress: false);
+            DirectionPreviewProgress.Value = 100;
+        }
+    }
+
+    private void StopDirectionPreview(string message, bool resetProgress)
+    {
+        _directionPreviewTimer?.Stop();
+        _directionPreviewTimer = null;
+        _directionPreviewClock?.Stop();
+        _directionPreviewClock = null;
+        if (resetProgress) DirectionPreviewProgress.Value = 0;
+        StartDirectionPreviewButton.IsEnabled = true;
+        CancelDirectionPreviewButton.IsEnabled = false;
+        if (message.Length > 0) DirectionPreviewText.Text = message;
+    }
+
+    private static string DirectionLabel(MouseDirection direction) => direction switch
+    {
+        MouseDirection.Left => "左",
+        MouseDirection.Right => "右",
+        MouseDirection.Up => "上",
+        MouseDirection.Down => "下",
+        _ => direction.ToString(),
+    };
 
     private void AddActionKey_Click(object sender, RoutedEventArgs e) => AddActionPicker(KeyIdentity.Logical("A"));
 
@@ -596,6 +787,7 @@ public sealed partial class MainPage : Page
 
     private async Task StartCaptureAsync(KeyPicker? picker, bool mouseTarget)
     {
+        StopDirectionPreview("方向预览已停止，正在录制输入。", resetProgress: false);
         if (_coordinator is null || _busy || !_captureIntent.TryBegin()) return;
         _captureKeyTarget = picker;
         _captureMouseTarget = mouseTarget;
@@ -730,6 +922,12 @@ public sealed partial class MainPage : Page
 
     private async void Page_KeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if (e.Key == VirtualKey.Escape && _directionPreviewTimer is not null)
+        {
+            e.Handled = true;
+            StopDirectionPreview("预览已由 Esc 取消；未保存坐标轨迹，也未执行动作。", resetProgress: false);
+            return;
+        }
         if (e.Key == VirtualKey.Escape && _captureIntent.IsInProgress)
         {
             e.Handled = true;
@@ -739,6 +937,12 @@ public sealed partial class MainPage : Page
 
     private async void CancelCaptureAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
+        if (_directionPreviewTimer is not null)
+        {
+            args.Handled = true;
+            StopDirectionPreview("预览已由 Esc 取消；未保存坐标轨迹，也未执行动作。", resetProgress: false);
+            return;
+        }
         if (!_captureIntent.IsInProgress) return;
         args.Handled = true;
         await CancelCaptureBestEffortAsync();
@@ -918,6 +1122,8 @@ public sealed partial class MainPage : Page
             KeyMouseButtonTrigger mouse => $"{KeyLabel(mouse.Key)} + 鼠标 {mouse.Button}",
             HoldTrigger hold => $"长按 {KeyLabel(hold.Key)} {hold.TimeoutMilliseconds} ms",
             HoldMouseButtonTrigger holdMouse => $"长按 {KeyLabel(holdMouse.Key)} {holdMouse.TimeoutMilliseconds} ms + 鼠标 {holdMouse.Button}",
+            MouseDirectionTrigger direction =>
+                $"按住 {KeyLabel(direction.Key)} + 鼠标{DirectionLabel(direction.Direction)} ≥{direction.MinimumDistancePixels}px / {direction.MaximumDurationMilliseconds}ms / 偏轴≤{direction.OffAxisTolerancePixels}px",
             _ => trigger.Type,
         };
 

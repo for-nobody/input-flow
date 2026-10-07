@@ -1,10 +1,10 @@
 # InputFlow Windows 构建与运行基线
 
-> 状态：M7 Phase A–E 已完成（更新于 2026-10-02）。当前已有共享 Rust runtime、常驻 Win32 agent/托盘、完整键盘身份/Schema v3、版本化 Named Pipe，以及通过物理输入、辅助功能和资源联合验收的正式 WinUI 3 设置程序。缺失硬件、中文 Narrator 语音环境、partial SendInput 和部署矩阵继续明确单列。
+> 状态：M7 Phase A–E 已完成；Phase F 代码与自动验证已完成、Windows 物理验收待执行（更新于 2026-10-08）。当前已有共享 Rust runtime、常驻 Win32 agent/托盘、完整键盘身份/Schema v4、版本化 Named Pipe，以及正式 WinUI 3 设置程序。缺失硬件、中文 Narrator 语音环境、partial SendInput、Phase F 物理输入和部署矩阵继续明确单列。
 
-## 0. 首版交付修订（2026-10-02）
+## 0. 首版交付修订（2026-10-08）
 
-本文第 1～10 节保留已验证开发基线；没有因本次文档更新改变工具链或产物。当前新增规划为 F → G-PRE → H → RC → 首个 Pre-release → G-POST，详见 `RELEASE_ROADMAP.md` 和 tag_6。鼠标方向必须在首版，24／72 小时长测安排在首版发布后。
+本文保留 Phase E 的历史开发基线，并在第 3、4、9 节追加当前结果。Phase F 的 ADR-008、方向 matcher／Hook、Schema v4、IPC capability 和 WinUI 编辑／有限预览已经实现；当前顺序为 F4／F5 物理收口 → G-PRE → H → RC → 首个 Pre-release → G-POST。鼠标方向必须在首版，24／72 小时长测安排在首版发布后。
 
 Phase A–E 的开发构建成功不代表 `dotnet publish` 最终目录、依赖、自启动、升级／移除或干净环境已经验收。下方的 framework-dependent 是当前实现，首版 self-contained 只是待验证的 H 方案。
 
@@ -14,7 +14,7 @@ Phase A–E 的开发构建成功不代表 `dotnet publish` 最终目录、依�
 |---|---|---|
 | `probe-cli.exe` | Rust + Win32 | M1–M6 诊断原型，可构建和完成无输入 lifecycle smoke |
 | `inputflow-agent.exe` | 纯 Rust + `windows-sys` + Win32 | M7 Phase D 已接入安全 Named Pipe；Hook/runtime、托盘、单实例、配置热应用、capture 与事件订阅均由 agent 权威实现 |
-| `InputFlow.Settings.exe` | C# + WinUI 3 + Windows App SDK | Phase E 正式页面已接入 agent 状态、Schema v3 草稿、规则编辑/启停/删除、capture、保存核对、诊断和单实例 |
+| `InputFlow.Settings.exe` | C# + WinUI 3 + Windows App SDK | 正式页面已接入 agent 状态、Schema v4 草稿、方向规则编辑／有限预览、启停/删除、capture、保存核对、诊断和单实例 |
 
 禁止把 Tauri、React、Node.js、npm、WebView2 或 Electron 加入 M7 构建链。WinUI 3 设置程序不得安装 Hook，也不得嵌入 agent 进程。
 
@@ -49,6 +49,8 @@ cargo build -p probe-cli
 
 2026-10-02 Phase E 最终结果：全部通过；测试总数 151（agent 4、config 28、engine 74、protocol 12、runtime 6、windows 27、probe 0）。自动测试、无输入 lifecycle 和真实物理输入/性能证据仍按不同层级记录。
 
+2026-10-08 Phase F 当前结果：`cargo fmt --check`、workspace test、Clippy `-D warnings` 和构建通过；测试总数 169（agent 4、config 32、engine 87、protocol 12、runtime 6、windows 28、probe 0）。新增自动覆盖四方向／阈值／偏轴／净位移、时间边界、一次命中、取消／repeat／overflow、pause／replace tombstone、physical-first、极端负坐标、注入 move、锁外输出、pre-v4 结构隔离、四方向验收配置和 125／500／1000 Hz 确定性序列。该结果不是物理鼠标证据。
+
 运行原型：
 
 ```powershell
@@ -81,7 +83,8 @@ apps/settings-winui/
 实际可重复命令：
 
 ```powershell
-dotnet restore .\apps\settings-winui\InputFlow.Settings.slnx
+dotnet restore .\apps\settings-winui\InputFlow.Settings.slnx -p:Configuration=Debug
+dotnet restore .\apps\settings-winui\InputFlow.Settings.slnx -p:Configuration=Release
 dotnet build .\apps\settings-winui\InputFlow.Settings.slnx -c Debug --no-restore
 dotnet build .\apps\settings-winui\InputFlow.Settings.slnx -c Release --no-restore
 dotnet run --project .\apps\settings-winui\InputFlow.Protocol.ContractTests\InputFlow.Protocol.ContractTests.csproj -c Debug --no-build
@@ -159,12 +162,13 @@ Phase C 自动 smoke 示例（不含物理输入）：
 
 ## 9. 验证状态
 
-| 类别 | 截至 2026-10-02 的证据 |
+| 类别 | 截至 2026-10-08 的证据 |
 |---|---|
-| Rust 自动化 | fmt/test/clippy/build 通过；151/151 测试通过（agent 4、config 28、engine 74、protocol 12、runtime 6、windows 27），包含 UIPI preflight 与同步输出重入回归 |
-| 完整键盘 / Schema v3 | mapping、matcher、scan replay、v1/v2 migration、v3 golden/strict round-trip 自动测试通过；正式页面实测 Caps、OEM、方向、主 Enter 和 Fn 音量键录制/读回；keypad Enter/独立播放键因无硬件未实测 |
+| Rust 自动化 | fmt/test/clippy/build 通过；169/169 测试通过（agent 4、config 32、engine 87、protocol 12、runtime 6、windows 28），包含方向状态机、严格 schema 代际隔离、四方向验收配置、UIPI preflight 与同步输出重入回归 |
+| 完整键盘 / Schema v4 | mapping、matcher、scan replay、v1/v2/v3 migration、v4 direction golden/strict round-trip 自动测试通过；Phase E 正式页面实测 Caps、OEM、方向、主 Enter 和 Fn 音量键录制/读回；keypad Enter/独立播放键因无硬件未实测 |
 | Rust Windows smoke | Phase C agent 执行 100 次 pause/resume、apply、begin/cancel capture 后 clean quit，exit code 0、marker 清除、0 failed/0 dropped；带 2 条规则的 Phase B 物理验收仍为 1209 个观察事件、7 个完整输出批次 |
-| WinUI 自动化 | restore、Debug、Release 通过，均 0 warning/0 error；protocol contract 6 项、settings core 11 项通过；覆盖 capture 启动互斥/取消、规则启用绑定与既有状态机；真实 agent live contract 通过 |
+| WinUI 自动化 | restore、Debug、Release 通过，均 0 warning/0 error；protocol contract 6 项、settings core 11 项通过；v4 fixture／direction typed round-trip、capture 启动互斥/取消、规则启用绑定与既有状态机通过；Phase E 真实 agent live contract 为历史证据 |
+| Phase F 物理输入 | 未执行 F-PHY-01～07：真实四方向、普通点击／拖拽、pause／replace／preview／quit、约五分钟物理 move 和资源分位仍待记录；合成频率不替代设备 polling rate |
 | WinUI 生命周期 | x64 原生窗口、settings 单实例、正常关闭、agent 先退出再关 UI 均 exit code 0；UI 关闭后 agent 继续运行 |
 | WinUI 功能 | 页面完成三类代表规则的创建/保存/重开/物理命中和 F12/UI/托盘同步；所有可聚焦控件 UIA Name 非空非通用，高对比度、125%/150% 与恢复 200% 缩放通过 |
 | Packaged 启动 | 未验证：Developer Mode 未启用；不是代码构建失败；首版不默认要求 MSIX |

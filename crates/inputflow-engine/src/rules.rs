@@ -11,6 +11,73 @@ use std::fmt;
 
 use crate::event::{Key, MouseButton};
 
+/// One of the four screen-coordinate mouse movement directions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum MouseDirection {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+impl MouseDirection {
+    const fn index(self) -> usize {
+        match self {
+            Self::Left => 0,
+            Self::Right => 1,
+            Self::Up => 2,
+            Self::Down => 3,
+        }
+    }
+}
+
+/// Shared, prevalidated geometry and timing for one activation-key direction
+/// group. Distances use screen pixels and time uses the matcher's monotonic
+/// clock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MouseDirectionParameters {
+    pub min_distance_px: u32,
+    pub max_duration_ms: u64,
+    pub off_axis_tolerance_px: u32,
+}
+
+/// The at-most-four actions belonging to one activation key. This fixed-size
+/// representation keeps mouse-move processing independent of total rule count.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MouseDirectionGroup {
+    pub parameters: MouseDirectionParameters,
+    actions: [Option<(String, Action)>; 4],
+}
+
+impl MouseDirectionGroup {
+    fn new(parameters: MouseDirectionParameters) -> Self {
+        Self {
+            parameters,
+            actions: std::array::from_fn(|_| None),
+        }
+    }
+
+    pub fn action(&self, direction: MouseDirection) -> Option<&(String, Action)> {
+        self.actions[direction.index()].as_ref()
+    }
+
+    fn insert(
+        &mut self,
+        direction: MouseDirection,
+        rule_id: String,
+        action: Action,
+    ) -> Result<(), RuleError> {
+        let slot = &mut self.actions[direction.index()];
+        if slot.is_some() {
+            return Err(RuleError::DuplicateTrigger(format!(
+                "mouse direction {direction:?} for the same activation key"
+            )));
+        }
+        *slot = Some((rule_id, action));
+        Ok(())
+    }
+}
+
 /// Output action carried by a matched rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
@@ -32,6 +99,14 @@ pub enum Trigger {
         key: Key,
         timeout_ms: u64,
         button: MouseButton,
+    },
+    /// Mouse net displacement while a keyboard activation key is held.
+    MouseDirection {
+        key: Key,
+        direction: MouseDirection,
+        min_distance_px: u32,
+        max_duration_ms: u64,
+        off_axis_tolerance_px: u32,
     },
 }
 
@@ -71,6 +146,9 @@ fn trigger_desc(trigger: &Trigger) -> String {
             timeout_ms,
             button,
         } => format!("{key:?} held {timeout_ms}ms + {button:?}"),
+        Trigger::MouseDirection { key, direction, .. } => {
+            format!("{key:?} + mouse {direction:?}")
+        }
     }
 }
 
@@ -87,6 +165,8 @@ pub struct RuleIndex {
     holds: BTreeMap<Key, (String, u64, Action)>,
     /// `HoldMouseButton` rules keyed by `key` (at most one per key in the MVP).
     hold_buttons: BTreeMap<Key, (String, u64, MouseButton, Action)>,
+    /// Mouse direction groups keyed by their keyboard activation identity.
+    directions: BTreeMap<Key, MouseDirectionGroup>,
 }
 
 impl RuleIndex {
@@ -148,6 +228,32 @@ impl RuleIndex {
                         )));
                     }
                 },
+                Trigger::MouseDirection {
+                    key,
+                    direction,
+                    min_distance_px,
+                    max_duration_ms,
+                    off_axis_tolerance_px,
+                } => {
+                    let parameters = MouseDirectionParameters {
+                        min_distance_px,
+                        max_duration_ms,
+                        off_axis_tolerance_px,
+                    };
+                    let group = index
+                        .directions
+                        .entry(key)
+                        .or_insert_with(|| MouseDirectionGroup::new(parameters));
+                    if group.parameters != parameters {
+                        errors.push(RuleError::Conflict(format!(
+                            "mouse direction rules sharing activation key {key:?} must use identical distance, duration, and off-axis tolerance"
+                        )));
+                        continue;
+                    }
+                    if let Err(error) = group.insert(direction, rule.id, rule.action) {
+                        errors.push(error);
+                    }
+                }
             }
         }
 
@@ -162,17 +268,20 @@ impl RuleIndex {
             .copied()
             .collect();
         let hold_button_keys: BTreeSet<Key> = index.hold_buttons.keys().copied().collect();
+        let direction_keys: BTreeSet<Key> = index.directions.keys().copied().collect();
 
         let mut all_keys: BTreeSet<Key> = BTreeSet::new();
         all_keys.extend(hold_keys.iter().copied());
         all_keys.extend(chord_keys.iter().copied());
         all_keys.extend(hold_button_keys.iter().copied());
+        all_keys.extend(direction_keys.iter().copied());
 
         for key in all_keys {
             let kinds = [
                 hold_keys.contains(&key),
                 chord_keys.contains(&key),
                 hold_button_keys.contains(&key),
+                direction_keys.contains(&key),
             ];
             if kinds.iter().filter(|&&present| present).count() > 1 {
                 errors.push(RuleError::Conflict(format!(
@@ -190,7 +299,10 @@ impl RuleIndex {
 
     /// Whether no rules are enabled (everything passes through).
     pub fn is_empty(&self) -> bool {
-        self.first_keys.is_empty() && self.holds.is_empty() && self.hold_buttons.is_empty()
+        self.first_keys.is_empty()
+            && self.holds.is_empty()
+            && self.hold_buttons.is_empty()
+            && self.directions.is_empty()
     }
 
     /// Whether `key` can start a `KeyChord` or `KeyMouseButton` rule.
@@ -223,6 +335,16 @@ impl RuleIndex {
     /// The `HoldMouseButton` rule for `key`, if any.
     pub fn hold_button(&self, key: Key) -> Option<&(String, u64, MouseButton, Action)> {
         self.hold_buttons.get(&key)
+    }
+
+    /// The fixed-size mouse direction group for an activation key, if any.
+    pub fn mouse_directions(&self, key: Key) -> Option<&MouseDirectionGroup> {
+        self.directions.get(&key)
+    }
+
+    /// Whether any enabled mouse direction rule exists.
+    pub fn has_mouse_directions(&self) -> bool {
+        !self.directions.is_empty()
     }
 }
 
@@ -373,5 +495,70 @@ mod tests {
         let err = RuleIndex::compile(rules).unwrap_err();
         assert_eq!(err.len(), 1);
         assert!(matches!(&err[0], RuleError::Conflict(_)));
+    }
+
+    fn direction(id: &str, key: Key, direction: MouseDirection, distance: u32) -> Rule {
+        Rule {
+            id: id.to_string(),
+            trigger: Trigger::MouseDirection {
+                key,
+                direction,
+                min_distance_px: distance,
+                max_duration_ms: 500,
+                off_axis_tolerance_px: 40,
+            },
+            action: Action::KeyChord(vec![Key::C]),
+        }
+    }
+
+    #[test]
+    fn compiles_fixed_direction_group_and_rejects_duplicates_or_mixed_parameters() {
+        let index = RuleIndex::compile(vec![
+            direction("left", Key::F8, MouseDirection::Left, 80),
+            direction("right", Key::F8, MouseDirection::Right, 80),
+        ])
+        .unwrap();
+        let group = index.mouse_directions(Key::F8).unwrap();
+        assert_eq!(group.parameters.min_distance_px, 80);
+        assert_eq!(group.action(MouseDirection::Left).unwrap().0, "left");
+        assert_eq!(group.action(MouseDirection::Right).unwrap().0, "right");
+        assert!(group.action(MouseDirection::Up).is_none());
+
+        let duplicate = RuleIndex::compile(vec![
+            direction("one", Key::F8, MouseDirection::Left, 80),
+            direction("two", Key::F8, MouseDirection::Left, 120),
+        ])
+        .unwrap_err();
+        assert!(
+            duplicate
+                .iter()
+                .any(|error| matches!(error, RuleError::DuplicateTrigger(_)))
+        );
+
+        let mixed = RuleIndex::compile(vec![
+            direction("left", Key::F8, MouseDirection::Left, 80),
+            direction("up", Key::F8, MouseDirection::Up, 120),
+        ])
+        .unwrap_err();
+        assert!(mixed.iter().any(
+            |error| matches!(error, RuleError::Conflict(message) if message.contains("identical"))
+        ));
+    }
+
+    #[test]
+    fn direction_group_conflicts_with_existing_prefix_kinds() {
+        let errors = RuleIndex::compile(vec![
+            direction("move", Key::F8, MouseDirection::Right, 80),
+            Rule {
+                id: "hold".to_string(),
+                trigger: Trigger::Hold {
+                    key: Key::F8,
+                    timeout_ms: 250,
+                },
+                action: Action::KeyChord(vec![Key::C]),
+            },
+        ])
+        .unwrap_err();
+        assert!(errors.iter().any(|error| matches!(error, RuleError::Conflict(message) if message.contains("different kinds"))));
     }
 }

@@ -3,6 +3,8 @@
 > 日期：2026-10-02（Australia/Brisbane）  
 > 适用基线：用户提供的 `input-flow(3).zip`；实际 Git HEAD、分支及未提交改动以 Codex 打开的仓库为准。  
 > 本次交付只有 Markdown 文档，不包含代码变更、测试执行结果或重新打包的项目。
+>
+> 执行更新（2026-10-08）：已按本入口完成 Phase F 的 F0～F3 代码与自动验证；ADR-008、Schema v4、方向 matcher／Hook、IPC 和 WinUI 扩展已落地。F-PHY-01～07 真实 Windows 输入未执行，当前从 F4 继续；详见 tag_6 执行记录。
 
 ## 1. 用户已经确定的顺序
 
@@ -41,10 +43,10 @@
 2. 仓库实际适用的 `AGENTS.md`、Git 状态和最新代码。
 3. `README.md`、两份项目规划、`Steps.md`、`docs/BUILD_WINDOWS.md`。
 4. `check-fix-debug-list/M6-可靠性基线摘要.md`、`M7-Phase-E与M6-Windows实机验收记录.md`、`tag_5_InputFlow-M7-WinUI3架构与输入扩展记录.md`。
-5. ADR-000～007；当前 engine/config/runtime/windows/protocol/agent/WinUI 代码。
-6. `check-fix-debug-list/tag_6_InputFlow-Phase-F-鼠标方向实施任务.md`，从 F0 开始。
+5. ADR-000～008；当前 engine/config/runtime/windows/protocol/agent/WinUI 代码。
+6. `check-fix-debug-list/tag_6_InputFlow-Phase-F-鼠标方向实施任务.md`；F0～F3 已完成，从 F4 真实输入验收继续。
 
-当前任务按 F → G-PRE → H → RC → 首个 Pre-release → G-POST 推进。无需等待 24／72 小时长测，也不在 F 中夹带 URL、启动程序或其他新功能。
+当前任务按 F4／F5 → G-PRE → H → RC → 首个 Pre-release → G-POST 推进。无需等待 24／72 小时长测，也不在 F 中夹带 URL、启动程序或其他新功能。
 
 ## 4. 可直接交给 Codex 的入口提示词
 
@@ -54,7 +56,7 @@
 
 - 本次共 12 份文件；两份项目规划应内容一致。
 - 本次仅调整文件中的后续规划；报告中已有 Rust 151／151 和 C# 17／17 是历史记录，不是本次重新运行的测试。
-- 新任务书要求的脚本、ADR、Schema、安装或自启动能力均是待实现内容；不要在 README 写成已经支持。
+- ADR-008、Schema v4 和 Phase F 代码已经实现；F4 物理验收、H 阶段安装／自启动能力仍是待实现或待验证内容，不要把它们写成已支持。
 - 文档和 ADR 使用中文；代码标识符、注释、测试名及提交信息使用英文。
 - 自动测试、故障注入、脚本输入、真实物理输入和用户观察分开记录。
 - 正常的本地开发、文档更新和隔离测试可以持续推进；系统级设置、签名身份、许可证选择及远端发布等实际需要用户决定的事项，先完成独立工作和可审阅结果，不反复询问已确认的产品方向。

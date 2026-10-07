@@ -1,0 +1,33 @@
+{
+  "schema_version": 4,
+  "emergency_bypass_key": {
+    "match": "logical",
+    "key": "F12"
+  },
+  "rules": [
+    {
+      "id": "f8-mouse-left",
+      "enabled": true,
+      "trigger": { "type": "mouse_direction", "key": { "match": "logical", "key": "F8" }, "direction": "left", "min_distance_px": 80, "max_duration_ms": 500, "off_axis_tolerance_px": 40 },
+      "action": { "type": "key_chord", "keys": [{ "match": "logical", "key": "LeftCtrl" }, { "match": "logical", "key": "C" }] }
+    },
+    {
+      "id": "f8-mouse-right",
+      "enabled": true,
+      "trigger": { "type": "mouse_direction", "key": { "match": "logical", "key": "F8" }, "direction": "right", "min_distance_px": 80, "max_duration_ms": 500, "off_axis_tolerance_px": 40 },
+      "action": { "type": "key_chord", "keys": [{ "match": "logical", "key": "LeftCtrl" }, { "match": "logical", "key": "V" }] }
+    },
+    {
+      "id": "f8-mouse-up",
+      "enabled": true,
+      "trigger": { "type": "mouse_direction", "key": { "match": "logical", "key": "F8" }, "direction": "up", "min_distance_px": 80, "max_duration_ms": 500, "off_axis_tolerance_px": 40 },
+      "action": { "type": "key_chord", "keys": [{ "match": "logical", "key": "LeftCtrl" }, { "match": "logical", "key": "Z" }] }
+    },
+    {
+      "id": "f8-mouse-down",
+      "enabled": true,
+      "trigger": { "type": "mouse_direction", "key": { "match": "logical", "key": "F8" }, "direction": "down", "min_distance_px": 80, "max_duration_ms": 500, "off_axis_tolerance_px": 40 },
+      "action": { "type": "key_chord", "keys": [{ "match": "logical", "key": "LeftCtrl" }, { "match": "logical", "key": "Y" }] }
+    }
+  ]
+}

@@ -484,7 +484,7 @@ public sealed class AgentConnectionCoordinator : IAgentGateway, IAsyncDisposable
         }
 
         if (handshake.SchemaVersion != ConfigDocument.CurrentSchemaVersion ||
-            !handshake.Capabilities.Contains("config_v3", StringComparer.Ordinal))
+            !handshake.Capabilities.Contains("config_v4", StringComparer.Ordinal))
         {
             throw new ProtocolException(
                 "unsupported_schema",

@@ -491,7 +491,7 @@ mod tests {
         };
         let result: ConfigResult = serde_json::from_value(result).unwrap();
         let config_golden = inputflow_config::parse_and_migrate_json(include_str!(
-            "../../../fixtures/config/v3-valid.json"
+            "../../../fixtures/config/v4-valid.json"
         ))
         .unwrap();
         assert_eq!(result.config, config_golden.config);

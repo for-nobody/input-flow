@@ -1,6 +1,6 @@
 # InputFlow 项目规划与 AI 开发规格
 
-> 状态：规划稿 v0.3（2026-10-02）；M6／Phase E 已收口，F 与首版发布待实施  
+> 状态：规划稿 v0.4（2026-10-08）；Phase F 代码与自动验证已完成，Windows 物理验收待执行
 > 平台：Windows 10/11 桌面  
 > 本文用途：定义产品边界、架构约束、验收条件和开发顺序；后续 Codex 实现时以本文、ADR 和当前代码为准。  
 > 架构修订：桌面方案为“纯 Rust + Win32 常驻 agent”和“按需启动、关闭即退出的 C# + WinUI 3 设置程序”。详见 ADR-004。
@@ -42,7 +42,7 @@ InputFlow 是 Windows 全局键盘与鼠标输入组合引擎。它像一把扳�
 - 当前交互用户可访问的版本化 Windows Named Pipe。
 - 规则列表、编辑、启停/删除、状态、冲突/延迟提示、诊断、恢复与显式输入录制。
 - 完整键盘身份的捕获、显示、配置、持久化和回放。
-- Schema v3（v2 键身份 + 持久化规则启停），并保持 Schema v1/v2 可读和确定迁移。
+- Schema v4（v2 键身份 + v3 持久化启停 + 鼠标方向），并保持 Schema v1/v2/v3 可读和确定迁移。
 - 可重复的 Rust、WinUI 和联合构建说明；真实 Windows 验收记录。
 
 ### 2.2 M8 目标
@@ -123,16 +123,16 @@ Named Pipe 至少定义：handshake、协议版本、请求 ID、超时、status
 - OEM 保存稳定 `Oem*` 或 physical identity；当前布局名称由未来 UI 动态查询，不写入稳定配置。
 - Caps 自动测试覆盖命中、失败回放、暂停/控制冲刷、自动重复、overflow 和 down/up 数量；en-US/Microsoft Pinyin 目标字符、失败回放、命中消费、`F12` pending 恢复和键盘指示灯已有真实物理输入证据。
 - 未知 VK 在观察/回放路径保留原始值，不静默映射；配置只允许已知 logical 或非零 physical scan。
-- Schema v1/v2 可读并内存迁移为 v3；旧规则默认启用，v3 的 disabled 规则保留但不进入运行时索引；golden fixture 和 backup 回滚测试已落地。
+- Schema v1/v2/v3 可读并内存迁移为 v4；旧规则默认启用，disabled 规则保留但不进入运行时索引；golden fixture 和 backup 回滚测试已落地。
 
 鼠标方向第一版：
 
 - 首版必须有键盘激活键；鼠标按钮激活后续独立评估，不做无条件全局手势。
-- move 热路径只做无分配 O(1) 累计，不逐点记录、不发送到无界队列。
+- move 热路径使用预编译固定四槽组和 O(1) 净位移计算，不逐点记录、不发送到 IPC 或无界队列。
 - 第一版 move 始终直通，不抑制／重放轨迹，不复位光标。
-- 激活键 down／repeat／up 的暂扣、失败回放和命中释放归属必须由 ADR-008 明确；移动不进入 PendingQueue。
+- 激活键 down／repeat／up 的暂扣、失败回放和命中释放归属已由 ADR-008 固定；移动不进入 PendingQueue。
 - 同一键四方向组合法，跨类型前缀冲突与 physical 优先继承既有策略；每次按住最多一次，释放后重新武装。
-- 方向配置默认计划新增 Schema v4，保留 v1／v2／v3 读取、enabled 和备份语义；最终方案由 ADR-008 及 Rust／C# contract 固定。当前已实现 Schema 仍为 v3。
+- 方向配置使用严格 Schema v4，保留 v1／v2／v3 读取、enabled 和备份语义；Rust／C# fixture、protocol v1 handshake 和 WinUI 编辑／有限预览已同步。真实四方向与高频物理 move 仍待 F4。
 
 ## 7. 技术选型与构建
 
@@ -142,7 +142,7 @@ Named Pipe 至少定义：handshake、协议版本、请求 ID、超时、status
 | 输入 | `WH_KEYBOARD_LL`、`WH_MOUSE_LL`、`SendInput` |
 | 设置程序 | C# + WinUI 3 / Windows App SDK |
 | IPC | Windows Named Pipe + 版本化消息 |
-| 配置 | JSON + serde，Schema v1/v2→v3 兼容 |
+| 配置 | JSON + serde，Schema v1/v2/v3→v4 兼容 |
 | 构建 | Cargo + dotnet/MSBuild + Windows 实机 |
 
 项目不使用 Tauri 2、React、Node.js、npm、WebView2 或 Electron。开发机版本、Visual Studio 工作负载、.NET SDK、Windows SDK、Windows App SDK、WinUI 模板、packaged/unpackaged 决策和真实命令必须写入 `docs/BUILD_WINDOWS.md`，不能猜测为已验证。
@@ -178,7 +178,7 @@ inputflow/
 | M7 Phase C | Rust agent 生命周期 | **已完成**；共享 runtime、热应用/capture、托盘/单实例、Release smoke、资源基线与菜单人工验收已落地；F12 状态同步、热替换超时核对及真实 Explorer 重启恢复均通过。 |
 | M7 Phase D | 版本化 Named Pipe | **已完成**；ADR-006、Rust server/DTO、当前用户 ACL、C# client、golden fixtures 与真实 agent 跨语言 contract 已落地，143 项 Rust 测试通过。 |
 | M7 Phase E | 正式 WinUI 设置、联合/资源/输入验收 | **完成（含明确硬件/环境限制）**；Schema v3、正式页面、151 项 Rust/17 项 C#、物理 capture/规则流程、UIA/高对比度/缩放、五分钟资源和 M6 实机矩阵均有证据。 |
-| Phase F / M8 | 键盘激活鼠标四方向、配置与 WinUI 扩展 | **首版必需，待实施**；以 tag_6 F 任务和短时高频证据验收。 |
+| Phase F / M8 | 键盘激活鼠标四方向、配置与 WinUI 扩展 | **进行中**；F0～F3 代码与自动 contract 已完成，F4 真实四方向／短时高频及其后的现场回归待执行。 |
 | G-PRE | 自动回归、短时混合输入和关键异常恢复 | 首版发布前；无长测等待条件。 |
 | H | 分发、依赖、路径、自启动、升级／移除及干净环境 | 首版发布前；实际模式与支持范围需验证。 |
 | RC／首个 Release | 固定最终包、有限 smoke、发布草稿与 Pre-release | 待实施；实际远端发布需对应授权。 |
@@ -190,7 +190,7 @@ inputflow/
 自动测试至少覆盖：
 
 - 前缀不存在、匹配/失败/临界超时、多候选、repeat、暂停、配置替换、队列满和动作一次性。
-- Caps/Num/Scroll Lock、左右/扩展、OEM、numpad、媒体键和 Schema v1/v2→v3。
+- Caps/Num/Scroll Lock、左右/扩展、OEM、numpad、媒体键和 Schema v1/v2/v3→v4。
 - IPC 版本、畸形消息、超时、断线、重连、并发请求和旧客户端拒绝/兼容。
 - 鼠标方向抖动、阈值、超时、偏轴、一次触发、激活提前释放、多显示器负坐标。
 - 设置进程退出、agent 重启、坏配置、失败保存与旧规则保持。
@@ -218,12 +218,12 @@ M7/M8 设计 ADR 状态：
 1. ADR-005：完整按键身份与 Schema v2（已接受）。
 2. ADR-006：Named Pipe 协议、ACL、版本和配置事务。
 3. ADR-007：持久化规则启停与 Schema v3（已接受）。
-4. ADR-008：鼠标方向、激活键归属、直通策略、Schema 和性能上界（待写）。
+4. ADR-008：鼠标方向、激活键归属、直通策略、Schema 和性能上界（已接受）。
 5. ADR-009：首版分发与用户生命周期（待写；编号被占用则顺延）。
 
 ## 11. 交给 Codex 的执行约定
 
-1. 先阅读 `00_InputFlow-文档交接与执行入口.md`、`docs/RELEASE_ROADMAP.md`、实际 AGENTS.md／Git 状态、本文、Steps、BUILD_WINDOWS、ADR-000～007、M6／Phase E 记录与当前代码。
+1. 先阅读 `00_InputFlow-文档交接与执行入口.md`、`docs/RELEASE_ROADMAP.md`、实际 AGENTS.md／Git 状态、本文、Steps、BUILD_WINDOWS、ADR-000～008、M6／Phase E 记录与当前代码。
 2. 当前主任务是 `check-fix-debug-list/tag_6_InputFlow-Phase-F-鼠标方向实施任务.md`；F 完成后进入首个 Release 收尾任务，顺序为 G-PRE → H → RC → 首版。不要重做 tag_5 A–E 或让旧任务文本覆盖最新发布安排。
 3. 每阶段先基线与方案，再行为测试、实现、Windows 验证和记录；改动既有语义先说明与更新 ADR，不丢弃 M6 正确性修复。
 4. UI 只负责展示和提交草稿；配置权威、Hook、owner 串行化和安全降级仍在 Agent。SendInput 前释放 matcher 锁，保留重入回归。
@@ -233,4 +233,4 @@ M7/M8 设计 ADR 状态：
 
 ### 下一张任务卡
 
-立即进入 tag_6 Phase F 的 F0：核对当前基线，写 ADR-008，确定方向／距离／时间／偏轴、激活键 Down／repeat／Up、一次触发、冲突、Schema 和 move 热路径。之后依次完成算法、Hook／runtime、配置／IPC／WinUI 和短时实机验收。F 完成即转首版收尾，不等待长测。
+继续执行 tag_6 Phase F 的 F4：基于当前 Schema v4 与现有 WinUI 完成真实四方向、普通拖拽、F12／pause／replace、关闭边界和约五分钟高频物理 move 观察；补齐 F5 现场回归记录后再进入首版收尾，不等待发布后的长测。

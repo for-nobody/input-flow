@@ -145,6 +145,7 @@
                                     <ComboBoxItem Content="键 + 鼠标按钮" Tag="key_mouse_button" />
                                     <ComboBoxItem Content="长按键盘键" Tag="hold" />
                                     <ComboBoxItem Content="长按键盘键 + 鼠标按钮" Tag="hold_mouse_button" />
+                                    <ComboBoxItem Content="按住键盘键 + 鼠标方向" Tag="mouse_direction" />
                                 </ComboBox>
                                 <TextBlock FontWeight="SemiBold" Text="第一个键" />
                                 <controls:KeyPicker x:Name="PrimaryKeyPicker" CaptureRequested="KeyPicker_CaptureRequested" />
@@ -163,6 +164,20 @@
                                         <ComboBox x:Name="MouseButtonCombo" AutomationProperties.Name="鼠标按钮" HorizontalAlignment="Stretch" />
                                         <Button x:Name="RecordMouseButtonButton" Grid.Column="1" AutomationProperties.Name="录制鼠标按钮" Click="RecordMouseButton_Click" Content="录制" />
                                     </Grid>
+                                </StackPanel>
+                                <StackPanel x:Name="DirectionPanel" Spacing="8" Visibility="Collapsed">
+                                    <TextBlock FontWeight="SemiBold" Text="鼠标方向参数" />
+                                    <ComboBox x:Name="DirectionCombo" AutomationProperties.Name="鼠标移动方向" Header="方向" HorizontalAlignment="Stretch" />
+                                    <NumberBox x:Name="DirectionDistanceBox" AutomationProperties.Name="鼠标方向最小距离像素" Header="最小净位移（屏幕像素）" Maximum="2000" Minimum="10" SpinButtonPlacementMode="Inline" Value="80" />
+                                    <NumberBox x:Name="DirectionDurationBox" AutomationProperties.Name="鼠标方向最大时间毫秒" Header="最大时间窗（毫秒）" Maximum="5000" Minimum="100" SpinButtonPlacementMode="Inline" Value="500" />
+                                    <NumberBox x:Name="DirectionToleranceBox" AutomationProperties.Name="鼠标方向偏轴容差像素" Header="偏轴容差（屏幕像素）" Maximum="2000" Minimum="0" SpinButtonPlacementMode="Inline" Value="40" />
+                                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="按住上方激活键后移动；光标始终正常移动，每次按住最多触发一次，松开后重新武装。同一激活键的四方向规则必须使用相同参数。" TextWrapping="Wrap" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button x:Name="StartDirectionPreviewButton" AutomationProperties.Name="开始鼠标方向预览" Click="StartDirectionPreview_Click" Content="开始有限预览" />
+                                        <Button x:Name="CancelDirectionPreviewButton" AutomationProperties.Name="取消鼠标方向预览" Click="CancelDirectionPreview_Click" Content="取消预览" IsEnabled="False" />
+                                    </StackPanel>
+                                    <ProgressBar x:Name="DirectionPreviewProgress" AutomationProperties.Name="鼠标方向预览进度" Maximum="100" Minimum="0" Value="0" />
+                                    <TextBlock x:Name="DirectionPreviewText" AutomationProperties.LiveSetting="Polite" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="预览不保存轨迹，也不执行动作；点击开始相当于临时激活。" TextWrapping="Wrap" />
                                 </StackPanel>
                                 <TextBlock FontWeight="SemiBold" Text="动作：键盘组合" />
                                 <StackPanel x:Name="ActionKeysPanel" Spacing="8" />

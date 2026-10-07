@@ -19,6 +19,9 @@ pub mod stats;
 pub use event::{InputEvent, InputSource, Key, MouseButton, MouseKind};
 pub use matcher::{Clock, Command, Decision, ManualClock, Matcher, Resolution, SystemClock};
 pub use pending::{Overflow, PendingQueue};
-pub use rules::{Action, Rule, RuleError, RuleIndex, Trigger};
+pub use rules::{
+    Action, MouseDirection, MouseDirectionGroup, MouseDirectionParameters, Rule, RuleError,
+    RuleIndex, Trigger,
+};
 pub use state::{KeyState, MouseState};
 pub use stats::{PercentileSnapshot, PercentileSummary, PercentileTracker};

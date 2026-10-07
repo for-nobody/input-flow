@@ -184,13 +184,20 @@ impl MouseButton {
     }
 }
 
-/// A mouse event kind, after filtering out mouse-move noise.
+/// A normalized mouse event kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MouseKind {
+    /// Cursor movement. Movement is always passed through; rules may only
+    /// observe its screen coordinates.
+    Move,
     ButtonDown(MouseButton),
     ButtonUp(MouseButton),
-    Wheel { delta: i32 },
-    HorizontalWheel { delta: i32 },
+    Wheel {
+        delta: i32,
+    },
+    HorizontalWheel {
+        delta: i32,
+    },
 }
 
 /// The source-specific payload of an input event.

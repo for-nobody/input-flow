@@ -1,7 +1,7 @@
 # InputFlow Phase F／M8：首版鼠标方向规则实施任务
 
-> 日期：2026-10-02  
-> 状态：待实施。主入口：`00_InputFlow-文档交接与执行入口.md`、`docs/RELEASE_ROADMAP.md`。  
+> 日期：2026-10-08
+> 状态：进行中；F0～F3 代码／自动验证完成，F4 真实 Windows 输入与 F5 现场收口待执行。主入口：`00_InputFlow-文档交接与执行入口.md`、`docs/RELEASE_ROADMAP.md`。
 > 用户已确定：鼠标方向必须进入首个 release；24／72 小时长测在首版发布之后，不能阻塞本任务或发布前收尾。  
 > 本任务替代 tag_5 的 Phase F 执行细则，不重做已完成的 Phase A–E。
 
@@ -174,12 +174,12 @@ Rust 与 C# 同步 fixture、DTO、validate／apply、get_config 读回；handsh
 
 ## 8. Phase F 完成门槛
 
-- [ ] ADR-008 决策完整；激活键归属、repeat、冲突、坐标、时间及 Schema 均确定。
-- [ ] 四方向与一次触发算法和状态机测试通过。
-- [ ] 版本化配置、迁移、Rust／C# fixtures／handshake／保存读回通过。
-- [ ] WinUI 可创建／编辑／启停／保存／预览；关闭即退出不变。
+- [x] ADR-008 决策完整；激活键归属、repeat、冲突、坐标、时间及 Schema 均确定。
+- [x] 四方向与一次触发算法和状态机测试通过。
+- [x] 版本化配置、迁移、Rust／C# fixtures／handshake／保存读回自动 contract 通过。
+- [x] WinUI 已实现创建／编辑／启停／保存／有限预览；自动构建与 Core contract 通过，真实 UI 保存／重开待 F-PHY-01。
 - [ ] 真实四方向手势及短时 move 负载有证据；硬件限制单列。
-- [ ] M6 与 Phase E 关键路径无回退，文档一致。
+- [ ] M6 与 Phase E 自动关键路径无回退、文档已同步；受影响现场路径待 F4 后收口。
 
 全部满足后将首版范围标记为 feature-complete，进入 `tag_6_InputFlow-首个Release收尾与发布任务.md` 的 G-PRE。**这里没有 24／72 小时、长期 daily-drive 或安装器完成条件。**
 

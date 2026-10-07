@@ -4,26 +4,25 @@
   "type": "success",
   "result": {
     "config": {
-      "schema_version": 3,
+      "schema_version": 4,
       "emergency_bypass_key": {
         "match": "logical",
         "key": "F12"
       },
       "rules": [
         {
-          "id": "physical-a-then-copy",
+          "id": "f8-mouse-left-copy",
           "enabled": true,
           "trigger": {
-            "type": "key_chord",
-            "first": {
-              "match": "physical",
-              "scan_code": 30,
-              "extended": false
-            },
-            "second": {
+            "type": "mouse_direction",
+            "key": {
               "match": "logical",
-              "key": "C"
-            }
+              "key": "F8"
+            },
+            "direction": "left",
+            "min_distance_px": 80,
+            "max_duration_ms": 500,
+            "off_axis_tolerance_px": 40
           },
           "action": {
             "type": "key_chord",
@@ -35,6 +34,34 @@
               {
                 "match": "logical",
                 "key": "C"
+              }
+            ]
+          }
+        },
+        {
+          "id": "f8-mouse-right-paste",
+          "enabled": true,
+          "trigger": {
+            "type": "mouse_direction",
+            "key": {
+              "match": "logical",
+              "key": "F8"
+            },
+            "direction": "right",
+            "min_distance_px": 80,
+            "max_duration_ms": 500,
+            "off_axis_tolerance_px": 40
+          },
+          "action": {
+            "type": "key_chord",
+            "keys": [
+              {
+                "match": "logical",
+                "key": "LeftCtrl"
+              },
+              {
+                "match": "logical",
+                "key": "V"
               }
             ]
           }

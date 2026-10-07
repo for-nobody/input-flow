@@ -4,16 +4,19 @@ using InputFlow.Settings.Core;
 string root = FindRepositoryRoot(AppContext.BaseDirectory);
 int passed = 0;
 
-Run("v1/v2/v3 configuration contract", () =>
+Run("v1/v2/v3/v4 configuration contract", () =>
 {
     ConfigDocument v1 = ParseFixture(root, "v1-valid.json");
     ConfigDocument v2 = ParseFixture(root, "v2-valid.json");
     ConfigDocument v3 = ParseFixture(root, "v3-valid.json");
-    Assert(v1.SchemaVersion == 3 && v1.Rules.All(rule => rule.Enabled), "v1 did not migrate enabled=true");
-    Assert(v2.SchemaVersion == 3 && v2.Rules.All(rule => rule.Enabled), "v2 did not migrate enabled=true");
+    ConfigDocument v4 = ParseFixture(root, "v4-valid.json");
+    Assert(v1.SchemaVersion == 4 && v1.Rules.All(rule => rule.Enabled), "v1 did not migrate enabled=true");
+    Assert(v2.SchemaVersion == 4 && v2.Rules.All(rule => rule.Enabled), "v2 did not migrate enabled=true");
+    Assert(v3.SchemaVersion == 4 && v3.Rules.All(rule => rule.Enabled), "v3 did not migrate to v4");
     Assert(ConfigCodec.DeepEquals(v2, v3), "v2 migration differs from the v3 golden document");
-    ConfigDocument roundTrip = Parse(ConfigCodec.ToJsonElement(v3));
-    Assert(ConfigCodec.DeepEquals(roundTrip, v3), "v3 typed round-trip changed the document");
+    ConfigDocument roundTrip = Parse(ConfigCodec.ToJsonElement(v4));
+    Assert(ConfigCodec.DeepEquals(roundTrip, v4), "v4 typed round-trip changed the document");
+    Assert(v4.Rules.All(rule => rule.Trigger is MouseDirectionTrigger), "v4 direction triggers were not typed");
 });
 
 Run("draft never mutates formal snapshot", () =>

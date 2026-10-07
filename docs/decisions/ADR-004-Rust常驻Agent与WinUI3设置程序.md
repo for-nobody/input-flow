@@ -4,6 +4,7 @@
 - 日期：2026-09-27
 - 涉及模块：`apps/inputflow-agent`、`apps/settings-winui`、`inputflow-runtime`、`inputflow-windows`、`inputflow-config`、`inputflow-protocol`
 - 取代：ADR-000 中“Tauri 2 + React + TypeScript”桌面 GUI 决策；ADR-000 的其余决定继续有效
+- 后续：ADR-008 已将当前 handshake 门槛升级为 Schema v4／`config_v4`，不改变本文的 agent／UI 所有权和双连接协调结论
 
 ## 背景（Context）
 

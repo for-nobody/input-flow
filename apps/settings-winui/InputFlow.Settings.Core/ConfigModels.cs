@@ -9,6 +9,14 @@ public enum KeyMatchMode
     Physical,
 }
 
+public enum MouseDirection
+{
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
 public sealed record KeyIdentity
 {
     private KeyIdentity(KeyMatchMode mode, string? logicalKey, ushort scanCode, bool extended)
@@ -96,6 +104,25 @@ public sealed record HoldMouseButtonTrigger(
     public override RuleTrigger DeepCopy() => new HoldMouseButtonTrigger(Key, TimeoutMilliseconds, Button);
 }
 
+public sealed record MouseDirectionTrigger(
+    KeyIdentity Key,
+    MouseDirection Direction,
+    uint MinimumDistancePixels,
+    ulong MaximumDurationMilliseconds,
+    uint OffAxisTolerancePixels) : RuleTrigger
+{
+    public override string Type => "mouse_direction";
+
+    public override KeyIdentity FirstKey => Key;
+
+    public override RuleTrigger DeepCopy() => new MouseDirectionTrigger(
+        Key,
+        Direction,
+        MinimumDistancePixels,
+        MaximumDurationMilliseconds,
+        OffAxisTolerancePixels);
+}
+
 public sealed record KeyChordAction
 {
     public KeyChordAction(IEnumerable<KeyIdentity> keys)
@@ -129,7 +156,7 @@ public sealed record RuleDocument
 
 public sealed record ConfigDocument
 {
-    public const uint CurrentSchemaVersion = 3;
+    public const uint CurrentSchemaVersion = 4;
 
     public uint SchemaVersion { get; init; } = CurrentSchemaVersion;
 
@@ -245,6 +272,12 @@ public static class ConfigCodec
                 Key("key"),
                 trigger.GetProperty("timeout_ms").GetUInt64(),
                 RequiredString(trigger, "button")),
+            "mouse_direction" when sourceVersion >= 4 => new MouseDirectionTrigger(
+                Key("key"),
+                ParseDirection(RequiredString(trigger, "direction")),
+                trigger.GetProperty("min_distance_px").GetUInt32(),
+                trigger.GetProperty("max_duration_ms").GetUInt64(),
+                trigger.GetProperty("off_axis_tolerance_px").GetUInt32()),
             _ => throw new FormatException($"Unsupported trigger type `{type}`"),
         };
     }
@@ -307,6 +340,15 @@ public static class ConfigCodec
                 ["timeout_ms"] = holdMouse.TimeoutMilliseconds,
                 ["button"] = holdMouse.Button,
             },
+            MouseDirectionTrigger direction => new JsonObject
+            {
+                ["type"] = direction.Type,
+                ["key"] = KeyNode(direction.Key),
+                ["direction"] = direction.Direction.ToString().ToLowerInvariant(),
+                ["min_distance_px"] = direction.MinimumDistancePixels,
+                ["max_duration_ms"] = direction.MaximumDurationMilliseconds,
+                ["off_axis_tolerance_px"] = direction.OffAxisTolerancePixels,
+            },
             _ => throw new InvalidOperationException($"Unknown trigger type {trigger.GetType().Name}"),
         };
     }
@@ -350,6 +392,15 @@ public static class ConfigCodec
         return element.GetProperty(property).GetString()
             ?? throw new FormatException($"{property} must be a string");
     }
+
+    private static MouseDirection ParseDirection(string value) => value switch
+    {
+        "left" => MouseDirection.Left,
+        "right" => MouseDirection.Right,
+        "up" => MouseDirection.Up,
+        "down" => MouseDirection.Down,
+        _ => throw new FormatException($"Unsupported mouse direction `{value}`"),
+    };
 }
 
 public static class InputCatalog
@@ -358,6 +409,9 @@ public static class InputCatalog
 
     public static IReadOnlyList<string> MouseButtons { get; } =
         ["Left", "Right", "Middle", "XButton1", "XButton2"];
+
+    public static IReadOnlyList<MouseDirection> MouseDirections { get; } =
+        [MouseDirection.Left, MouseDirection.Right, MouseDirection.Up, MouseDirection.Down];
 
     public static string GroupName(KeyIdentity key)
     {

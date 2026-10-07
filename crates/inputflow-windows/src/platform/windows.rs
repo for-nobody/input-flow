@@ -36,7 +36,7 @@ use inputflow_engine::{
 };
 
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_ACCESS_DENIED, GetLastError, HANDLE, LPARAM, LRESULT, WPARAM,
+    CloseHandle, ERROR_ACCESS_DENIED, GetLastError, HANDLE, LPARAM, LRESULT, POINT, WPARAM,
 };
 use windows_sys::Win32::Security::{
     GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, TOKEN_MANDATORY_LABEL,
@@ -54,10 +54,11 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     MOUSEEVENTF_XUP, MOUSEINPUT, SendInput,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DispatchMessageW, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId,
-    HC_ACTION, KBDLLHOOKSTRUCT, KillTimer, LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT, PM_NOREMOVE,
-    PeekMessageW, PostThreadMessageW, SetTimer, SetWindowsHookExW, TranslateMessage,
-    UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_APP, WM_QUIT, WM_TIMER,
+    CallNextHookEx, DispatchMessageW, GetCursorPos, GetForegroundWindow, GetMessageW,
+    GetWindowThreadProcessId, HC_ACTION, KBDLLHOOKSTRUCT, KillTimer, LLMHF_INJECTED, MSG,
+    MSLLHOOKSTRUCT, PM_NOREMOVE, PeekMessageW, PostThreadMessageW, SetTimer, SetWindowsHookExW,
+    TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_APP, WM_MOUSEHWHEEL,
+    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT, WM_TIMER,
 };
 
 use crate::keymap;
@@ -117,6 +118,12 @@ static OUTPUT_DROPPED: AtomicU64 = AtomicU64::new(0);
 static EMERGENCY_KEY_INDEX: AtomicU32 = AtomicU32::new(0);
 /// Whether per-event debug logging is enabled (off by default; NFR-05).
 static DEBUG_LOG: AtomicBool = AtomicBool::new(false);
+/// Fast-path gate for mouse move/wheel normalization. It changes only when a
+/// compiled rule index is installed or replaced.
+static DIRECTION_RULES_ENABLED: AtomicBool = AtomicBool::new(false);
+/// Whether the owner currently has an active keyboard-initiated direction
+/// candidate. Ordinary move/wheel events can bypass the matcher lock when false.
+static DIRECTION_CANDIDATE_ACTIVE: AtomicBool = AtomicBool::new(false);
 /// Reservoir of matcher-decision latency samples, in microseconds.
 static CALLBACK_LATENCY: OnceLock<Mutex<PercentileTracker>> = OnceLock::new();
 /// Reservoir of hold-delay samples (first suppress to resolution), in microseconds.
@@ -294,6 +301,7 @@ pub fn install_matcher(matcher: Matcher) -> Result<(), String> {
     if HOOK_THREAD_ID.load(Ordering::Acquire) != 0 {
         return Err("cannot install a matcher while the hook thread is running".to_string());
     }
+    let direction_rules_enabled = matcher.has_mouse_direction_rules();
     if let Some(cell) = MATCHER.get() {
         *cell
             .lock()
@@ -303,6 +311,8 @@ pub fn install_matcher(matcher: Matcher) -> Result<(), String> {
             .set(Mutex::new(matcher))
             .map_err(|_| "failed to initialize matcher bridge".to_string())?;
     }
+    DIRECTION_RULES_ENABLED.store(direction_rules_enabled, Ordering::Release);
+    DIRECTION_CANDIDATE_ACTIVE.store(false, Ordering::Release);
     Ok(())
 }
 
@@ -346,6 +356,7 @@ pub fn reset_runtime_state() -> Result<(), String> {
     OUTPUT_SENT.store(0, Ordering::Relaxed);
     OUTPUT_FAILED.store(0, Ordering::Relaxed);
     OUTPUT_DROPPED.store(0, Ordering::Relaxed);
+    DIRECTION_CANDIDATE_ACTIVE.store(false, Ordering::Relaxed);
     CAPTURE_ACTIVE.store(false, Ordering::Relaxed);
     if let Ok(mut requests) = control_requests().lock() {
         requests.clear();
@@ -500,8 +511,15 @@ fn flush_held_events_on_hook_thread_with(
 ) -> PauseReport {
     let held = match matcher {
         Some(matcher) => match matcher.lock() {
-            Ok(mut guard) => guard.set_paused(true),
-            Err(_) => Vec::new(),
+            Ok(mut guard) => {
+                let held = guard.set_paused(true);
+                DIRECTION_CANDIDATE_ACTIVE.store(false, Ordering::Release);
+                held
+            }
+            Err(_) => {
+                DIRECTION_CANDIDATE_ACTIVE.store(false, Ordering::Release);
+                Vec::new()
+            }
         },
         None => Vec::new(),
     };
@@ -557,6 +575,7 @@ fn resume_on_hook_thread() {
         guard.set_paused(false);
         guard.set_bypassed(false);
     }
+    DIRECTION_CANDIDATE_ACTIVE.store(false, Ordering::Release);
     set_bypassed(false);
     send_log("resumed: interception active".to_string());
 }
@@ -585,6 +604,8 @@ fn replace_rules_on_hook_thread(
     matcher
         .replace_rules(index)
         .map_err(|error| error.to_string())?;
+    DIRECTION_RULES_ENABLED.store(matcher.has_mouse_direction_rules(), Ordering::Release);
+    DIRECTION_CANDIDATE_ACTIVE.store(false, Ordering::Release);
     install_emergency_key(emergency_key)?;
     if !was_suspended {
         matcher.set_paused(false);
@@ -1334,6 +1355,12 @@ fn next_seq() -> u64 {
     SEQ.fetch_add(1, Ordering::Relaxed)
 }
 
+fn cursor_position() -> Option<(i32, i32)> {
+    let mut point = POINT::default();
+    // SAFETY: `point` is a valid writable POINT for the duration of the call.
+    (unsafe { GetCursorPos(&mut point) } != 0).then_some((point.x, point.y))
+}
+
 fn send_log(line: String) {
     if let Some(cell) = LOG_TX.get()
         && let Ok(sender) = cell.lock()
@@ -1347,15 +1374,29 @@ fn send_log(line: String) {
 /// resulting replay / action command is executed synchronously via `SendInput`.
 /// The enclosing hook callback records full wall time.
 fn process(event: InputEvent) -> Decision {
+    process_with_cursor(event, None)
+}
+
+fn process_with_cursor(event: InputEvent, cursor: Option<(i32, i32)>) -> Decision {
     let Some(matcher) = MATCHER.get() else {
         return Decision::PassThrough;
     };
-    process_with_dispatch(matcher, event, dispatch_command)
+    process_with_cursor_and_dispatch(matcher, event, cursor, dispatch_command)
 }
 
+#[cfg(test)]
 fn process_with_dispatch(
     matcher: &Mutex<Matcher>,
     event: InputEvent,
+    dispatch: impl FnMut(&Command) -> OutputReport,
+) -> Decision {
+    process_with_cursor_and_dispatch(matcher, event, None, dispatch)
+}
+
+fn process_with_cursor_and_dispatch(
+    matcher: &Mutex<Matcher>,
+    event: InputEvent,
+    cursor: Option<(i32, i32)>,
     mut dispatch: impl FnMut(&Command) -> OutputReport,
 ) -> Decision {
     let resolution_start = Instant::now();
@@ -1370,7 +1411,11 @@ fn process_with_dispatch(
     if was_bypassed {
         guard.set_paused(true);
     }
-    let (mut decision, resolution) = guard.on_event(event);
+    let (mut decision, resolution) = guard.on_event_with_cursor(event, cursor);
+    DIRECTION_CANDIDATE_ACTIVE.store(
+        guard.has_active_mouse_direction_candidate(),
+        Ordering::Release,
+    );
 
     // A suppressed down starts (or continues) a hold-delay window.
     if matches!(decision, Decision::Suppress { .. })
@@ -1411,6 +1456,7 @@ fn process_with_dispatch(
             if let Ok(mut guard) = matcher.lock() {
                 let stranded = guard.set_paused(true);
                 guard.set_bypassed(true);
+                DIRECTION_CANDIDATE_ACTIVE.store(false, Ordering::Release);
                 if !stranded.is_empty() {
                     send_log(format!(
                         "output_failure_stranded: {} additional held event(s) could not be replayed",
@@ -1499,7 +1545,14 @@ fn drive_timeouts_with_dispatch(
     mut dispatch: impl FnMut(&Command) -> OutputReport,
 ) -> usize {
     let commands = match matcher.lock() {
-        Ok(mut guard) => guard.poll_timeouts(),
+        Ok(mut guard) => {
+            let commands = guard.poll_timeouts();
+            DIRECTION_CANDIDATE_ACTIVE.store(
+                guard.has_active_mouse_direction_candidate(),
+                Ordering::Release,
+            );
+            commands
+        }
         Err(_) => return 0,
     };
     let mut resolved = 0usize;
@@ -1513,6 +1566,7 @@ fn drive_timeouts_with_dispatch(
             if let Ok(mut guard) = matcher.lock() {
                 guard.set_paused(true);
                 guard.set_bypassed(true);
+                DIRECTION_CANDIDATE_ACTIVE.store(false, Ordering::Release);
             }
             break;
         }
@@ -1953,7 +2007,22 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
             return finish_callback(callback_start, result);
         }
 
-        match process(event) {
+        let cursor = if !up
+            && !repeat
+            && !injected
+            && !is_bypassed()
+            && DIRECTION_RULES_ENABLED.load(Ordering::Acquire)
+        {
+            let position = cursor_position();
+            if position.is_none() {
+                send_log("mouse_direction_start_failed: GetCursorPos returned zero".to_string());
+            }
+            position
+        } else {
+            None
+        };
+
+        match process_with_cursor(event, cursor) {
             Decision::Suppress { .. } => finish_callback(callback_start, 1),
             Decision::PassThrough => {
                 // SAFETY: `hhk` is ignored for low-level hooks.
@@ -1975,51 +2044,80 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
         let info = unsafe { &*(lparam as *const MSLLHOOKSTRUCT) };
         let injected = (info.flags & LLMHF_INJECTED) != 0;
 
-        // Only button events participate in matching; wheel/move pass through.
-        if let Some((button, down)) = keymap::mouse_wparam(wparam as u32, info.mouseData) {
-            let event = InputEvent {
-                seq: next_seq(),
-                time_ms: info.time as u64,
-                injected,
-                source: InputSource::Mouse {
-                    kind: if down {
-                        MouseKind::ButtonDown(button)
-                    } else {
-                        MouseKind::ButtonUp(button)
-                    },
-                    x: info.pt.x,
-                    y: info.pt.y,
-                },
-            };
-            if debug_log_enabled() {
-                send_log(format!(
-                    "[seq={:06}] mouse {} {button:?} injected={injected}",
-                    event.seq,
-                    if down { "Down" } else { "Up" },
-                ));
-            }
-
-            if is_own_event(info.dwExtraInfo) {
-                // SAFETY: `hhk` is ignored for low-level hooks.
-                let result = unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
-                return finish_callback(callback_start, result);
-            }
-
-            observe_capture(event);
-
-            match process(event) {
-                Decision::Suppress { .. } => finish_callback(callback_start, 1),
-                Decision::PassThrough => {
-                    // SAFETY: `hhk` is ignored for low-level hooks.
-                    let result =
-                        unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
-                    finish_callback(callback_start, result)
-                }
-            }
-        } else {
+        if is_own_event(info.dwExtraInfo) {
             // SAFETY: `hhk` is ignored for low-level hooks.
             let result = unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
-            finish_callback(callback_start, result)
+            return finish_callback(callback_start, result);
+        }
+
+        let message = wparam as u32;
+        let kind = if let Some((button, down)) = keymap::mouse_wparam(message, info.mouseData) {
+            Some(if down {
+                MouseKind::ButtonDown(button)
+            } else {
+                MouseKind::ButtonUp(button)
+            })
+        } else {
+            match message {
+                WM_MOUSEMOVE => Some(MouseKind::Move),
+                WM_MOUSEWHEEL => Some(MouseKind::Wheel {
+                    delta: ((info.mouseData >> 16) as u16 as i16) as i32,
+                }),
+                WM_MOUSEHWHEEL => Some(MouseKind::HorizontalWheel {
+                    delta: ((info.mouseData >> 16) as u16 as i16) as i32,
+                }),
+                _ => None,
+            }
+        };
+
+        let Some(kind) = kind else {
+            // SAFETY: `hhk` is ignored for low-level hooks.
+            let result = unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
+            return finish_callback(callback_start, result);
+        };
+
+        // Mouse move/wheel observation is needed only while direction rules are
+        // installed. Preserve the old zero-matcher-work fast path otherwise;
+        // bypass also cannot have an active candidate.
+        if matches!(
+            kind,
+            MouseKind::Move | MouseKind::Wheel { .. } | MouseKind::HorizontalWheel { .. }
+        ) && (!DIRECTION_RULES_ENABLED.load(Ordering::Acquire)
+            || !DIRECTION_CANDIDATE_ACTIVE.load(Ordering::Acquire)
+            || is_bypassed())
+        {
+            // SAFETY: `hhk` is ignored for low-level hooks.
+            let result = unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
+            return finish_callback(callback_start, result);
+        }
+
+        let event = InputEvent {
+            seq: next_seq(),
+            time_ms: info.time as u64,
+            injected,
+            source: InputSource::Mouse {
+                kind,
+                x: info.pt.x,
+                y: info.pt.y,
+            },
+        };
+        // Never log every move: high-rate movement must remain bounded and
+        // anonymous even when per-input debug logging is enabled.
+        if debug_log_enabled() && !matches!(kind, MouseKind::Move) {
+            send_log(format!(
+                "[seq={:06}] mouse {kind:?} injected={injected}",
+                event.seq,
+            ));
+        }
+
+        observe_capture(event);
+        match process(event) {
+            Decision::Suppress { .. } => finish_callback(callback_start, 1),
+            Decision::PassThrough => {
+                // SAFETY: `hhk` is ignored for low-level hooks.
+                let result = unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
+                finish_callback(callback_start, result)
+            }
         }
     } else {
         // SAFETY: `hhk` is ignored for low-level hooks.
@@ -2032,7 +2130,7 @@ mod tests {
     use super::*;
     use std::sync::Barrier;
 
-    use inputflow_engine::{ManualClock, Rule, RuleIndex, Trigger};
+    use inputflow_engine::{ManualClock, MouseDirection, Rule, RuleIndex, Trigger};
     use windows_sys::Win32::UI::Input::KeyboardAndMouse as kb;
 
     fn key_event(seq: u64, key: Key, down: bool) -> InputEvent {
@@ -2477,6 +2575,57 @@ mod tests {
             Decision::Suppress { event_id: 1 }
         );
         assert!(dispatched);
+    }
+
+    #[test]
+    fn direction_move_stays_pass_through_and_dispatches_after_unlock() {
+        let index = RuleIndex::compile(vec![Rule {
+            id: "move-right".to_string(),
+            trigger: Trigger::MouseDirection {
+                key: Key::F8,
+                direction: MouseDirection::Right,
+                min_distance_px: 80,
+                max_duration_ms: 500,
+                off_axis_tolerance_px: 40,
+            },
+            action: Action::KeyChord(vec![Key::C]),
+        }])
+        .unwrap();
+        let matcher = Mutex::new(Matcher::new(Box::new(ManualClock::new(0)), index, 16));
+        let activation = key_event(1, Key::F8, true);
+        assert_eq!(
+            process_with_cursor_and_dispatch(&matcher, activation, Some((-100, -50)), |_| panic!(
+                "activation must not dispatch output"
+            ),),
+            Decision::Suppress { event_id: 1 }
+        );
+        let movement = InputEvent {
+            seq: 2,
+            time_ms: 2,
+            injected: false,
+            source: InputSource::Mouse {
+                kind: MouseKind::Move,
+                x: -20,
+                y: -50,
+            },
+        };
+        let mut dispatched = 0;
+        let decision = process_with_cursor_and_dispatch(&matcher, movement, None, |command| {
+            assert!(
+                matcher.try_lock().is_ok(),
+                "matcher remained locked during output"
+            );
+            assert!(matches!(command, Command::Emit { rule_id, .. } if rule_id == "move-right"));
+            dispatched += 1;
+            OutputReport {
+                requested: 2,
+                inserted: 2,
+                status: OutputStatus::Complete,
+                last_error: 0,
+            }
+        });
+        assert_eq!(decision, Decision::PassThrough);
+        assert_eq!(dispatched, 1);
     }
 
     #[test]

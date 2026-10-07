@@ -17,7 +17,7 @@ use std::time::Instant;
 
 use crate::event::{InputEvent, InputSource, Key, MouseButton, MouseKind};
 use crate::pending::PendingQueue;
-use crate::rules::{Action, RuleIndex};
+use crate::rules::{Action, MouseDirection, MouseDirectionGroup, RuleIndex};
 use crate::state::{KeyState, MouseState};
 
 /// How to handle the current event.
@@ -142,11 +142,25 @@ struct ActiveHoldButton {
     action: Action,
 }
 
+/// A keyboard-activated mouse direction group. The start position is sampled
+/// at the activation key's physical down, so the first movement after that
+/// event contributes to net displacement.
+#[derive(Clone)]
+struct ActiveDirection {
+    key: Key,
+    tracking_key: Key,
+    start_x: i32,
+    start_y: i32,
+    deadline_ms: u64,
+    group: MouseDirectionGroup,
+}
+
 /// The active prefix being matched, if any.
 enum Active {
     Holding(ActiveHold),
     Chording(ActiveChord),
     HoldToButton(ActiveHoldButton),
+    Direction(ActiveDirection),
 }
 
 /// The pure matching state machine.
@@ -178,10 +192,35 @@ impl Matcher {
 
     /// Feed one event and synchronously decide how to handle it.
     pub fn on_event(&mut self, event: InputEvent) -> (Decision, Resolution) {
+        self.on_event_with_cursor(event, None)
+    }
+
+    /// Feed one event with an optional cursor snapshot. A snapshot is required
+    /// only when a keyboard down starts a mouse-direction candidate. Platform
+    /// code samples it at that down; existing non-direction callers can keep
+    /// using [`Self::on_event`].
+    pub fn on_event_with_cursor(
+        &mut self,
+        event: InputEvent,
+        cursor: Option<(i32, i32)>,
+    ) -> (Decision, Resolution) {
         // Synthesized events never participate in matching (FR-06). In
         // particular, an injected up must not clear a physical release
         // tombstone left by a consumed down.
         if event.injected {
+            // A third-party injected cursor jump cannot be mixed with physical
+            // net displacement. Cancel only a direction candidate, replaying
+            // its activation key while the move itself remains pass-through.
+            if matches!(
+                event.source,
+                InputSource::Mouse {
+                    kind: MouseKind::Move,
+                    ..
+                }
+            ) && matches!(self.active.as_ref(), Some(Active::Direction(_)))
+            {
+                return self.cancel_active_and_pass(event);
+            }
             return self.pass_through(event);
         }
 
@@ -210,12 +249,25 @@ impl Matcher {
         }
 
         match event.source {
-            InputSource::Keyboard { .. } => self.on_key_event(event),
+            InputSource::Keyboard { .. } => self.on_key_event(event, cursor),
             InputSource::Mouse {
                 kind: MouseKind::ButtonDown(_) | MouseKind::ButtonUp(_),
                 ..
             } => self.on_button_event(event),
-            InputSource::Mouse { .. } => self.pass_through(event),
+            InputSource::Mouse {
+                kind: MouseKind::Move,
+                ..
+            } => self.on_move_event(event),
+            InputSource::Mouse {
+                kind: MouseKind::Wheel { .. } | MouseKind::HorizontalWheel { .. },
+                ..
+            } => {
+                if matches!(self.active.as_ref(), Some(Active::Direction(_))) {
+                    self.cancel_active_and_pass(event)
+                } else {
+                    self.pass_through(event)
+                }
+            }
         }
     }
 
@@ -277,6 +329,19 @@ impl Matcher {
                     }
                 }
             }
+            Some(Active::Direction(active)) => {
+                if self.clock.now_ms() < active.deadline_ms {
+                    self.active = Some(Active::Direction(active));
+                    return Vec::new();
+                }
+                let replay = self.pending.take_replay();
+                self.mark_replay_seen(&replay);
+                if replay.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![Command::Replay { events: replay }]
+                }
+            }
             _ => Vec::new(),
         }
     }
@@ -286,6 +351,7 @@ impl Matcher {
         match &self.active {
             Some(Active::Holding(hold)) => Some(hold.deadline_ms),
             Some(Active::HoldToButton(hb)) if !hb.armed => Some(hb.deadline_ms),
+            Some(Active::Direction(direction)) => Some(direction.deadline_ms),
             _ => None,
         }
     }
@@ -348,6 +414,18 @@ impl Matcher {
         self.keys.has_consumed() || self.buttons.has_consumed()
     }
 
+    /// Whether the installed rule index contains any mouse-direction group.
+    pub fn has_mouse_direction_rules(&self) -> bool {
+        self.index.has_mouse_directions()
+    }
+
+    /// Whether a keyboard-activated direction candidate is currently waiting
+    /// for movement. Platform hooks use this to keep ordinary mouse movement
+    /// on a lock-free pass-through path when no activation key is pending.
+    pub fn has_active_mouse_direction_candidate(&self) -> bool {
+        matches!(self.active.as_ref(), Some(Active::Direction(_)))
+    }
+
     /// Set or clear the internal overflow-bypass flag. Setting it true also
     /// clears any active prefix and state; clearing it recovers after an
     /// overflow once the caller re-arms the matcher (e.g. on resume).
@@ -359,10 +437,17 @@ impl Matcher {
         }
     }
 
-    fn on_key_event(&mut self, event: InputEvent) -> (Decision, Resolution) {
+    fn on_key_event(
+        &mut self,
+        event: InputEvent,
+        cursor: Option<(i32, i32)>,
+    ) -> (Decision, Resolution) {
         let (active_first, active_tracking_key, is_hold_like) = match &self.active {
             Some(Active::Holding(hold)) => (Some(hold.key), Some(hold.tracking_key), true),
             Some(Active::HoldToButton(hb)) => (Some(hb.key), Some(hb.tracking_key), true),
+            Some(Active::Direction(direction)) => {
+                (Some(direction.key), Some(direction.tracking_key), true)
+            }
             Some(Active::Chording(chord)) => {
                 (Some(chord.first), Some(chord.first_tracking_key), false)
             }
@@ -394,7 +479,7 @@ impl Matcher {
                 active_tracking_key.expect("active chord has a tracking key"),
                 event,
             ),
-            None => self.on_idle_key(event),
+            None => self.on_idle_key(event, cursor),
         }
     }
 
@@ -403,6 +488,9 @@ impl Matcher {
         let (chord_first, hold_button) = match &self.active {
             Some(Active::Chording(chord)) => (Some((chord.first, chord.first_tracking_key)), None),
             Some(Active::HoldToButton(hb)) => (None, Some(hb.clone())),
+            Some(Active::Direction(_)) if event.is_button_down() => {
+                return self.fail_active(event);
+            }
             _ => (None, None),
         };
         if let Some((first, tracking_key)) = chord_first {
@@ -414,7 +502,11 @@ impl Matcher {
         }
     }
 
-    fn on_idle_key(&mut self, event: InputEvent) -> (Decision, Resolution) {
+    fn on_idle_key(
+        &mut self,
+        event: InputEvent,
+        cursor: Option<(i32, i32)>,
+    ) -> (Decision, Resolution) {
         // Only a non-repeat key-down can start a prefix.
         if event.is_key_down() && !event.is_repeat() {
             let tracking_key = event
@@ -428,6 +520,15 @@ impl Matcher {
                 }
                 if let Some(rule) = self.index.hold_button(key).cloned() {
                     return self.start_hold_button(key, tracking_key, event, rule);
+                }
+                if let Some(group) = self.index.mouse_directions(key).cloned() {
+                    if let Some((x, y)) = cursor {
+                        return self.start_direction(key, tracking_key, event, x, y, group);
+                    }
+                    // Without a cursor snapshot the platform cannot establish
+                    // the complete net displacement, so fail open for this
+                    // activation rather than inventing a first-move origin.
+                    return self.pass_through(event);
                 }
                 if self.index.is_first_candidate(key) {
                     return self.start_chord(key, tracking_key, event);
@@ -509,6 +610,39 @@ impl Matcher {
         self.active = Some(Active::Chording(ActiveChord {
             first: key,
             first_tracking_key: tracking_key,
+        }));
+        (
+            Decision::Suppress {
+                event_id: event.seq,
+            },
+            Resolution::Pending,
+        )
+    }
+
+    fn start_direction(
+        &mut self,
+        key: Key,
+        tracking_key: Key,
+        event: InputEvent,
+        start_x: i32,
+        start_y: i32,
+        group: MouseDirectionGroup,
+    ) -> (Decision, Resolution) {
+        if self.pending.push(event).is_err() {
+            return self.overflow_flush();
+        }
+        self.keys.mark_physical_down(tracking_key);
+        let deadline_ms = self
+            .clock
+            .now_ms()
+            .saturating_add(group.parameters.max_duration_ms);
+        self.active = Some(Active::Direction(ActiveDirection {
+            key,
+            tracking_key,
+            start_x,
+            start_y,
+            deadline_ms,
+            group,
         }));
         (
             Decision::Suppress {
@@ -639,6 +773,75 @@ impl Matcher {
         self.pass_through(event)
     }
 
+    /// Observe screen-coordinate net displacement while always passing the
+    /// move to Windows. A match consumes only the activation-key stream.
+    fn on_move_event(&mut self, event: InputEvent) -> (Decision, Resolution) {
+        let InputSource::Mouse { x, y, .. } = event.source else {
+            unreachable!("mouse move carries mouse coordinates");
+        };
+        let active = match &self.active {
+            Some(Active::Direction(active)) => active.clone(),
+            _ => return self.pass_through(event),
+        };
+
+        // A delayed timer message must not extend the configured window.
+        if self.clock.now_ms() > active.deadline_ms {
+            return self.cancel_active_and_pass(event);
+        }
+
+        let dx = i64::from(x) - i64::from(active.start_x);
+        let dy = i64::from(y) - i64::from(active.start_y);
+        let abs_x = dx.unsigned_abs();
+        let abs_y = dy.unsigned_abs();
+        // Equal axes are deliberately indeterminate. Otherwise the dominant
+        // axis selects exactly one direction, independent of rule order.
+        let (direction, primary, off_axis) = if abs_x > abs_y {
+            (
+                if dx < 0 {
+                    MouseDirection::Left
+                } else {
+                    MouseDirection::Right
+                },
+                abs_x,
+                abs_y,
+            )
+        } else if abs_y > abs_x {
+            (
+                if dy < 0 {
+                    MouseDirection::Up
+                } else {
+                    MouseDirection::Down
+                },
+                abs_y,
+                abs_x,
+            )
+        } else {
+            return self.pass_through(event);
+        };
+
+        let parameters = active.group.parameters;
+        if primary < u64::from(parameters.min_distance_px)
+            || off_axis > u64::from(parameters.off_axis_tolerance_px)
+        {
+            return self.pass_through(event);
+        }
+
+        let Some((rule_id, action)) = active.group.action(direction).cloned() else {
+            // A partial group may omit this direction. Keep observing net
+            // displacement until release/timeout instead of selecting another
+            // axis or depending on JSON order.
+            return self.pass_through(event);
+        };
+
+        self.pending.clear();
+        self.keys.mark_consumed(active.tracking_key);
+        self.active = None;
+        (
+            Decision::PassThrough,
+            Resolution::Matched { rule_id, action },
+        )
+    }
+
     /// Consume the held key and the completing button, and emit the action once.
     fn match_hold_button(
         &mut self,
@@ -677,6 +880,17 @@ impl Matcher {
             },
             Resolution::Failed { replay },
         )
+    }
+
+    /// Cancel the active direction candidate while allowing the current
+    /// non-suppressible mouse event through. The activation-key stream is
+    /// replayed before the hook forwards that current event.
+    fn cancel_active_and_pass(&mut self, event: InputEvent) -> (Decision, Resolution) {
+        let replay = self.pending.take_replay();
+        self.active = None;
+        self.mark_replay_seen(&replay);
+        self.pass_through(event);
+        (Decision::PassThrough, Resolution::Failed { replay })
     }
 
     /// Consume the trigger inputs and emit the action once.
@@ -873,6 +1087,33 @@ mod tests {
                 x: 0,
                 y: 0,
             },
+        }
+    }
+
+    fn mouse_move(seq: u64, time_ms: u64, x: i32, y: i32) -> InputEvent {
+        InputEvent {
+            seq,
+            time_ms,
+            injected: false,
+            source: InputSource::Mouse {
+                kind: MouseKind::Move,
+                x,
+                y,
+            },
+        }
+    }
+
+    fn direction_rule(id: &str, key: Key, direction: MouseDirection) -> Rule {
+        Rule {
+            id: id.to_string(),
+            trigger: Trigger::MouseDirection {
+                key,
+                direction,
+                min_distance_px: 80,
+                max_duration_ms: 1_000,
+                off_axis_tolerance_px: 40,
+            },
+            action: Action::KeyChord(vec![Key::C]),
         }
     }
 
@@ -1571,6 +1812,356 @@ mod tests {
         assert_eq!(decision, Decision::PassThrough);
         assert_eq!(resolution, Resolution::Pending);
         assert_eq!(m.next_deadline(), None);
+    }
+
+    #[test]
+    fn mouse_direction_matches_all_four_directions_at_inclusive_threshold() {
+        let cases = [
+            (MouseDirection::Left, -80, 0),
+            (MouseDirection::Right, 80, 0),
+            (MouseDirection::Up, 0, -80),
+            (MouseDirection::Down, 0, 80),
+        ];
+        for (direction, dx, dy) in cases {
+            let clock = ManualClock::new(0);
+            let mut matcher =
+                matcher_with(clock, vec![direction_rule("move", Key::F8, direction)], 16);
+            assert_eq!(
+                matcher
+                    .on_event_with_cursor(down(0, 0, Key::F8), Some((-100, -200)))
+                    .0,
+                Decision::Suppress { event_id: 0 }
+            );
+            let (decision, resolution) = matcher.on_event(mouse_move(1, 1, -100 + dx, -200 + dy));
+            assert_eq!(decision, Decision::PassThrough);
+            assert!(matches!(
+                resolution,
+                Resolution::Matched { ref rule_id, .. } if rule_id == "move"
+            ));
+        }
+    }
+
+    #[test]
+    fn mouse_direction_uses_net_displacement_and_rejects_equal_or_excess_off_axis() {
+        let clock = ManualClock::new(0);
+        let mut matcher = matcher_with(
+            clock,
+            vec![direction_rule("right", Key::F8, MouseDirection::Right)],
+            16,
+        );
+        matcher.on_event_with_cursor(down(0, 0, Key::F8), Some((0, 0)));
+
+        // A long path that returns near the origin is not enough.
+        assert_eq!(
+            matcher.on_event(mouse_move(1, 1, 200, 100)).1,
+            Resolution::Pending
+        );
+        assert_eq!(
+            matcher.on_event(mouse_move(2, 2, 10, 0)).1,
+            Resolution::Pending
+        );
+        // Equal axes have no main axis; 41 px exceeds the inclusive tolerance.
+        assert_eq!(
+            matcher.on_event(mouse_move(3, 3, 80, 80)).1,
+            Resolution::Pending
+        );
+        assert_eq!(
+            matcher.on_event(mouse_move(4, 4, 80, 41)).1,
+            Resolution::Pending
+        );
+        assert!(matches!(
+            matcher.on_event(mouse_move(5, 5, 80, 40)).1,
+            Resolution::Matched { .. }
+        ));
+    }
+
+    #[test]
+    fn direction_matches_once_per_hold_and_rearms_after_physical_up() {
+        let clock = ManualClock::new(0);
+        let mut matcher = matcher_with(
+            clock,
+            vec![direction_rule("right", Key::F8, MouseDirection::Right)],
+            16,
+        );
+        matcher.on_event_with_cursor(down(0, 0, Key::F8), Some((0, 0)));
+        assert!(matcher.has_active_mouse_direction_candidate());
+        assert!(matches!(
+            matcher.on_event(mouse_move(1, 1, 80, 0)).1,
+            Resolution::Matched { .. }
+        ));
+        assert!(!matcher.has_active_mouse_direction_candidate());
+        assert_eq!(
+            matcher.on_event(mouse_move(2, 2, 200, 0)).1,
+            Resolution::Pending
+        );
+        assert_eq!(
+            matcher.on_event(repeat(3, 3, Key::F8)).0,
+            Decision::Suppress { event_id: 3 }
+        );
+        assert_eq!(
+            matcher.on_event(up(4, 4, Key::F8)).0,
+            Decision::Suppress { event_id: 4 }
+        );
+
+        matcher.on_event_with_cursor(down(5, 5, Key::F8), Some((200, 0)));
+        assert!(matches!(
+            matcher.on_event(mouse_move(6, 6, 280, 0)).1,
+            Resolution::Matched { .. }
+        ));
+    }
+
+    #[test]
+    fn direction_timeout_replays_activation_and_does_not_rearm_until_release() {
+        let clock = ManualClock::new(0);
+        let mut matcher = matcher_with(
+            clock.clone(),
+            vec![direction_rule("right", Key::F8, MouseDirection::Right)],
+            16,
+        );
+        let activation = down(0, 0, Key::F8);
+        matcher.on_event_with_cursor(activation, Some((0, 0)));
+        clock.advance(1_000);
+        assert_eq!(
+            matcher.poll_timeouts(),
+            vec![Command::Replay {
+                events: vec![activation]
+            }]
+        );
+        assert_eq!(
+            matcher.on_event(repeat(1, 1_001, Key::F8)).0,
+            Decision::PassThrough
+        );
+        assert_eq!(
+            matcher.on_event(mouse_move(2, 1_002, 200, 0)).1,
+            Resolution::Pending
+        );
+        assert_eq!(
+            matcher.on_event(up(3, 1_003, Key::F8)).0,
+            Decision::PassThrough
+        );
+    }
+
+    #[test]
+    fn injected_move_cancels_direction_without_suppressing_the_move() {
+        let clock = ManualClock::new(0);
+        let mut matcher = matcher_with(
+            clock,
+            vec![direction_rule("right", Key::F8, MouseDirection::Right)],
+            16,
+        );
+        let activation = down(0, 0, Key::F8);
+        matcher.on_event_with_cursor(activation, Some((0, 0)));
+        let mut jump = mouse_move(1, 1, 500, 0);
+        jump.injected = true;
+        assert_eq!(
+            matcher.on_event(jump),
+            (
+                Decision::PassThrough,
+                Resolution::Failed {
+                    replay: vec![activation]
+                }
+            )
+        );
+        assert_eq!(
+            matcher.on_event(mouse_move(2, 2, 600, 0)).1,
+            Resolution::Pending
+        );
+    }
+
+    #[test]
+    fn high_rate_direction_sequences_are_fixed_space_and_emit_once() {
+        for rate in [125u64, 500, 1_000] {
+            let clock = ManualClock::new(0);
+            let mut matcher = matcher_with(
+                clock.clone(),
+                vec![direction_rule("right", Key::F8, MouseDirection::Right)],
+                16,
+            );
+            matcher.on_event_with_cursor(down(0, 0, Key::F8), Some((-500, 0)));
+            let mut matches = 0;
+            let interval_ms = 1_000 / rate;
+            for i in 1..=rate {
+                clock.advance(interval_ms);
+                let (_, resolution) =
+                    matcher.on_event(mouse_move(i, clock.now_ms(), -500 + i as i32, 0));
+                if matches!(resolution, Resolution::Matched { .. }) {
+                    matches += 1;
+                }
+            }
+            assert_eq!(matches, 1, "rate={rate}");
+            assert!(!matcher.is_bypassed(), "rate={rate}");
+        }
+    }
+
+    #[test]
+    fn direction_cancellation_replays_in_order_and_waits_for_a_new_physical_down() {
+        let clock = ManualClock::new(0);
+        let mut matcher = matcher_with(
+            clock,
+            vec![direction_rule("right", Key::F8, MouseDirection::Right)],
+            16,
+        );
+        let activation = down(0, 0, Key::F8);
+        let activation_repeat = repeat(1, 1, Key::F8);
+        let other_key = down(2, 2, Key::A);
+        matcher.on_event_with_cursor(activation, Some((0, 0)));
+        matcher.on_event(activation_repeat);
+        assert_eq!(
+            matcher.on_event(other_key),
+            (
+                Decision::Suppress { event_id: 2 },
+                Resolution::Failed {
+                    replay: vec![activation, activation_repeat, other_key]
+                }
+            )
+        );
+        assert_eq!(
+            matcher.on_event(mouse_move(3, 3, 200, 0)).1,
+            Resolution::Pending
+        );
+        assert_eq!(
+            matcher.on_event(repeat(4, 4, Key::F8)).0,
+            Decision::PassThrough
+        );
+        assert_eq!(matcher.on_event(up(5, 5, Key::A)).0, Decision::PassThrough);
+        assert_eq!(matcher.on_event(up(6, 6, Key::F8)).0, Decision::PassThrough);
+
+        let second_activation = down(7, 7, Key::F8);
+        matcher.on_event_with_cursor(second_activation, Some((0, 0)));
+        let wheel = InputEvent {
+            seq: 8,
+            time_ms: 8,
+            injected: false,
+            source: InputSource::Mouse {
+                kind: MouseKind::Wheel { delta: 120 },
+                x: 0,
+                y: 0,
+            },
+        };
+        assert_eq!(
+            matcher.on_event(wheel),
+            (
+                Decision::PassThrough,
+                Resolution::Failed {
+                    replay: vec![second_activation]
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn direction_repeat_overflow_replays_bounded_fifo_and_enters_bypass() {
+        let clock = ManualClock::new(0);
+        let mut matcher = matcher_with(
+            clock,
+            vec![direction_rule("right", Key::F8, MouseDirection::Right)],
+            2,
+        );
+        let activation = down(0, 0, Key::F8);
+        let first_repeat = repeat(1, 1, Key::F8);
+        matcher.on_event_with_cursor(activation, Some((0, 0)));
+        matcher.on_event(first_repeat);
+        assert_eq!(
+            matcher.on_event(repeat(2, 2, Key::F8)),
+            (
+                Decision::PassThrough,
+                Resolution::Failed {
+                    replay: vec![activation, first_repeat]
+                }
+            )
+        );
+        assert!(matcher.is_bypassed());
+        assert_eq!(matcher.on_event(up(3, 3, Key::F8)).0, Decision::PassThrough);
+    }
+
+    #[test]
+    fn direction_pause_replace_flushes_pending_but_preserves_a_matched_tombstone() {
+        let clock = ManualClock::new(0);
+        let rules = vec![direction_rule("right", Key::F8, MouseDirection::Right)];
+        let mut pending = matcher_with(clock.clone(), rules.clone(), 16);
+        let activation = down(0, 0, Key::F8);
+        let activation_repeat = repeat(1, 1, Key::F8);
+        pending.on_event_with_cursor(activation, Some((0, 0)));
+        pending.on_event(activation_repeat);
+        assert_eq!(
+            pending.set_paused(true),
+            vec![activation, activation_repeat]
+        );
+        pending.replace_rules(RuleIndex::default()).unwrap();
+        pending.set_paused(false);
+        assert_eq!(pending.on_event(up(2, 2, Key::F8)).0, Decision::PassThrough);
+
+        let mut matched = matcher_with(clock, rules, 16);
+        matched.on_event_with_cursor(down(3, 3, Key::F8), Some((0, 0)));
+        assert!(matches!(
+            matched.on_event(mouse_move(4, 4, 80, 0)).1,
+            Resolution::Matched { .. }
+        ));
+        assert!(matched.has_release_tombstones());
+        assert!(matched.set_paused(true).is_empty());
+        matched.replace_rules(RuleIndex::default()).unwrap();
+        matched.set_paused(false);
+        assert_eq!(
+            matched.on_event(up(5, 5, Key::F8)).0,
+            Decision::Suppress { event_id: 5 }
+        );
+        assert!(!matched.has_release_tombstones());
+    }
+
+    #[test]
+    fn direction_uses_physical_first_and_handles_extreme_screen_coordinates() {
+        let clock = ManualClock::new(0);
+        let physical_f8 = Key::Physical {
+            scan_code: 0x42,
+            extended: false,
+        };
+        let rules = vec![
+            direction_rule("logical", Key::F8, MouseDirection::Right),
+            direction_rule("physical", physical_f8, MouseDirection::Right),
+        ];
+        let mut matcher = matcher_with(clock, rules, 16);
+        let activation = key_event_at(0, 0, Key::F8, 0x42, false, true, false);
+        matcher.on_event_with_cursor(activation, Some((i32::MIN, -100)));
+        assert!(matches!(
+            matcher.on_event(mouse_move(1, 1, i32::MAX, -100)).1,
+            Resolution::Matched { ref rule_id, .. } if rule_id == "physical"
+        ));
+    }
+
+    #[test]
+    fn direction_deadline_is_owner_ordered_and_missing_cursor_fails_open() {
+        let clock = ManualClock::new(0);
+        let rules = vec![direction_rule("right", Key::F8, MouseDirection::Right)];
+        let mut matcher = matcher_with(clock.clone(), rules.clone(), 16);
+        let activation = down(0, 0, Key::F8);
+        assert_eq!(matcher.on_event(activation).0, Decision::PassThrough);
+        assert_eq!(
+            matcher.on_event(mouse_move(1, 1, 80, 0)).1,
+            Resolution::Pending
+        );
+        matcher.on_event(up(2, 2, Key::F8));
+
+        matcher.on_event_with_cursor(down(3, 3, Key::F8), Some((0, 0)));
+        clock.advance(1_000);
+        assert!(matches!(
+            matcher.on_event(mouse_move(4, 1_000, 80, 0)).1,
+            Resolution::Matched { .. }
+        ));
+
+        let late_clock = ManualClock::new(0);
+        let mut late = matcher_with(late_clock.clone(), rules, 16);
+        let late_activation = down(5, 0, Key::F8);
+        late.on_event_with_cursor(late_activation, Some((0, 0)));
+        late_clock.advance(1_001);
+        assert_eq!(
+            late.on_event(mouse_move(6, 1_001, 80, 0)),
+            (
+                Decision::PassThrough,
+                Resolution::Failed {
+                    replay: vec![late_activation]
+                }
+            )
+        );
     }
 
     #[test]

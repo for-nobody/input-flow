@@ -4,6 +4,7 @@
 - 日期：2026-09-30
 - 涉及模块：`inputflow-config`、`inputflow-runtime`、`inputflow-protocol`、`InputFlow.Settings.Core`
 - 后续编号：原规划中的鼠标方向 ADR 顺延为 ADR-008
+- 后续：ADR-008 已将当前正式配置升级为 Schema v4／`config_v4`；本 ADR 的持久化 `enabled`、禁用规则索引语义和迁移原则继续有效
 
 ## 背景
 

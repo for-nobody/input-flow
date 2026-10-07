@@ -5,9 +5,9 @@
 >
 > 2026-09-27 架构修订：M7 使用纯 Rust + Win32 常驻 agent、Windows Named Pipe 和按需启动的 C# + WinUI 3 设置程序。Tauri 2/React/Node.js 不再是项目技术栈。
 
-## 本轮剩余工作入口（2026-10-02）
+## 本轮剩余工作入口（2026-10-08）
 
-M6 与 Phase E 已完成，保留下方历史清单供查阅。当前执行 F／M8 → G-PRE → H → RC → 首个 Pre-release → G-POST；鼠标方向必须在首版，24／72 小时长测及长期 daily-drive 在首版发布后。以 `docs/RELEASE_ROADMAP.md`、tag_6 任务和本文件 Step 8 以后为准，不重新从旧里程碑开工。
+M6 与 Phase E 已完成，保留下方历史清单供查阅。Phase F 的 F0～F3 代码和自动验证已完成，当前从 F4 真实 Windows 输入验收继续，再按 F5 → G-PRE → H → RC → 首个 Pre-release → G-POST 执行；鼠标方向必须在首版，24／72 小时长测及长期 daily-drive 在首版发布后。以 `docs/RELEASE_ROADMAP.md`、tag_6 任务和本文件 Step 8 以后为准，不重新从旧里程碑开工。
 
 ## 使用约定
 
@@ -325,12 +325,14 @@ M6 与 Phase E 已完成，保留下方历史清单供查阅。当前执行 F／
 
 **目标**：键盘激活的四方向规则、同键四方向组、一次按住最多一次；鼠标移动始终直通；动作沿用 KeyChord。
 
-- [ ] F0：核对真实基线，创建 ADR-008；固定激活键 Down／repeat／Up、坐标／单位／时间、偏轴、冲突和 Schema。
-- [ ] F1：确定性算法／状态机测试与实现；覆盖抖动、边界、折返、超时、提前释放、负坐标、注入和重复触发。
-- [ ] F2：无逐点分配的固定大小 move 路径；不进 PendingQueue；SendInput 锁外输出和 owner 串行化不变。
-- [ ] F3：版本化配置、v1／v2／v3 迁移、Rust／C# fixture／handshake 及 WinUI 编辑／保存／有限预览。
+- [x] F0：核对真实基线，创建 ADR-008；固定激活键 Down／repeat／Up、坐标／单位／时间、偏轴、冲突和 Schema。
+- [x] F1：确定性算法／状态机测试与实现；覆盖抖动、边界、折返、超时、提前释放、负坐标、注入和重复触发。
+- [x] F2：无逐点分配的固定大小 move 路径；不进 PendingQueue；SendInput 锁外输出和 owner 串行化不变。
+- [x] F3：版本化配置、v1／v2／v3 迁移、Rust／C# fixture／handshake 及 WinUI 编辑／保存／有限预览。
 - [ ] F4：真实四方向、取消、暂停／替换和至少五分钟物理 move 短负载；硬件限制如实记录。
-- [ ] F5：完整构建／必要回归通过，更新文档和 tag_6 记录；受影响 M6 路径无回退。
+- [ ] F5：完整构建／必要自动回归和文档已更新；待 F4 后补齐受影响 M6 现场路径，才能最终勾选。
+
+2026-10-08 自动结果：ADR-008、Schema v4、协议 capability、WinUI 编辑／有限预览和方向 matcher／Hook 已落地；Rust 169／169、C# protocol 6／6、Settings Core 11／11 通过，WinUI Debug／Release 与联合构建通过。合成 125／500／1000 Hz 序列只证明确定性有界行为，不代表真实设备 polling rate；F-PHY-01～07 仍未执行。
 
 **完成门槛**：tag_6 F 清单满足后，首版范围 feature-complete，进入 Step 9；不包含长测或安装器等待条件。
 
