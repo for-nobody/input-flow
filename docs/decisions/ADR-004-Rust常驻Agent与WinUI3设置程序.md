@@ -103,7 +103,7 @@ InputFlow 是输入基础设施，不是需要长期显示内容的普通桌面�
 - unpackaged + self-contained 也完成构建、启动和退出，作为需要捆绑运行库时的已验证 fallback；代价是更大的输出与由应用承担运行库更新。
 - packaged + framework-dependent 能构建，但开发启动要求 Developer Mode/包注册；当前非管理员会话无法启用 Developer Mode，因此 packaged 启动仍是未验证项。
 
-该决定只覆盖 Phase A 开发基线。最终安装器、干净机首次运行、升级和卸载仍需单独验收；不得由本次 smoke 推断已经具备产品部署能力。详细版本、命令和输出位置见 `docs/BUILD_WINDOWS.md`。
+该决定只覆盖 Phase A 开发基线。最终安装器、干净机首次运行、升级和卸载仍需单独验收；不得由本次 smoke 推断已经具备产品部署能力。详细版本、命令和输出位置见 [`../guides/BUILD_WINDOWS.md`](../guides/BUILD_WINDOWS.md)。
 
 ### 5. Phase C runtime 落地（2026-09-30）
 
