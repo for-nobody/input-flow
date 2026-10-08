@@ -1,10 +1,18 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidateSet('pause', 'resume', 'get_status', 'get_stats')]
+    [ValidateSet('pause', 'resume', 'get_status', 'get_stats', 'apply_config')]
     [string]$Method,
     [ValidateRange(0, 600000)]
     [int]$DelayMilliseconds = 0,
+    [ValidateRange(0, 255)]
+    [int]$WaitForVirtualKey = 0,
+    [switch]$WaitForObservedEvent,
+    [ValidateRange(1, 1000)]
+    [int]$WaitPollMilliseconds = 5,
+    [ValidateRange(1000, 300000)]
+    [int]$WaitTimeoutMilliseconds = 60000,
+    [string]$ConfigPath = '',
     [string]$OutputPath = ''
 )
 
@@ -58,6 +66,86 @@ try {
         throw "Handshake failed: $($handshake | ConvertTo-Json -Compress -Depth 10)"
     }
 
+    $requestParams = [ordered]@{}
+    if ($Method -eq 'apply_config') {
+        if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
+            throw 'ConfigPath is required for apply_config.'
+        }
+        $resolvedConfig = [System.IO.Path]::GetFullPath($ConfigPath)
+        $requestParams.config = [System.IO.File]::ReadAllText($resolvedConfig) | ConvertFrom-Json
+    }
+
+    if ($WaitForObservedEvent -and $WaitForVirtualKey -ne 0) {
+        throw 'WaitForObservedEvent and WaitForVirtualKey cannot be used together.'
+    }
+
+    $observedBaseline = $null
+    $observedDetected = $null
+    $keyDetectedAt = $null
+    if ($WaitForObservedEvent) {
+        $baselineResponse = Invoke-Frame $pipe ([ordered]@{
+            protocol_version = 1
+            request_id = 'acceptance-observed-baseline'
+            method = 'get_stats'
+            params = [ordered]@{}
+        })
+        if ($baselineResponse.type -ne 'success') {
+            throw "Stats baseline failed: $($baselineResponse | ConvertTo-Json -Compress -Depth 10)"
+        }
+        $observedBaseline = [uint64]$baselineResponse.result.observed_events
+        Write-Output "OBSERVED_EVENT_ARMED baseline=$observedBaseline"
+        $deadline = [DateTimeOffset]::Now.AddMilliseconds($WaitTimeoutMilliseconds)
+        $poll = 0
+        while ($null -eq $observedDetected) {
+            if ([DateTimeOffset]::Now -ge $deadline) {
+                throw "No hook-observed event arrived within $WaitTimeoutMilliseconds ms."
+            }
+            $poll += 1
+            $statsResponse = Invoke-Frame $pipe ([ordered]@{
+                protocol_version = 1
+                request_id = "acceptance-observed-$poll"
+                method = 'get_stats'
+                params = [ordered]@{}
+            })
+            if ($statsResponse.type -ne 'success') {
+                throw "Stats poll failed: $($statsResponse | ConvertTo-Json -Compress -Depth 10)"
+            }
+            $currentObserved = [uint64]$statsResponse.result.observed_events
+            if ($currentObserved -gt $observedBaseline) {
+                $observedDetected = $currentObserved
+                $keyDetectedAt = [DateTimeOffset]::Now.ToString('o')
+            }
+            else {
+                Start-Sleep -Milliseconds $WaitPollMilliseconds
+            }
+        }
+    }
+    if ($WaitForVirtualKey -ne 0) {
+        Add-Type -TypeDefinition @'
+using System.Runtime.InteropServices;
+
+public static class InputFlowAcceptanceKeyState
+{
+    [DllImport("user32.dll")]
+    public static extern short GetAsyncKeyState(int virtualKey);
+}
+'@
+        $deadline = [DateTimeOffset]::Now.AddMilliseconds($WaitTimeoutMilliseconds)
+        while (([InputFlowAcceptanceKeyState]::GetAsyncKeyState($WaitForVirtualKey) -band 0x8000) -ne 0) {
+            if ([DateTimeOffset]::Now -ge $deadline) {
+                throw "Virtual key 0x$($WaitForVirtualKey.ToString('X2')) did not return to the up state."
+            }
+            Start-Sleep -Milliseconds 2
+        }
+        while (([InputFlowAcceptanceKeyState]::GetAsyncKeyState($WaitForVirtualKey) -band 0x8000) -eq 0) {
+            if ([DateTimeOffset]::Now -ge $deadline) {
+                throw "Virtual key 0x$($WaitForVirtualKey.ToString('X2')) was not pressed within $WaitTimeoutMilliseconds ms."
+            }
+            Start-Sleep -Milliseconds 2
+        }
+        $keyDetectedAt = [DateTimeOffset]::Now.ToString('o')
+    }
+
     if ($DelayMilliseconds -gt 0) {
         Start-Sleep -Milliseconds $DelayMilliseconds
     }
@@ -67,12 +155,17 @@ try {
         protocol_version = 1
         request_id = "acceptance-$Method"
         method = $Method
-        params = [ordered]@{}
+        params = $requestParams
     })
     $result = [ordered]@{
         connected_at = $handshake.result.server_name
         method = $Method
         delay_ms = $DelayMilliseconds
+        waited_for_virtual_key = $WaitForVirtualKey
+        waited_for_observed_event = [bool]$WaitForObservedEvent
+        observed_baseline = $observedBaseline
+        observed_detected = $observedDetected
+        key_detected_at = $keyDetectedAt
         invoked_at = $invokedAt
         response = $response
     }

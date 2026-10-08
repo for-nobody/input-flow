@@ -1,10 +1,13 @@
 # InputFlow 首个 Release：短时验收、交付与发布任务
 
-> 文档类型：后续活动任务
+> 文档类型：当前活动任务
 >
 > 状态来源：[`../status/CURRENT_STATUS.md`](../status/CURRENT_STATUS.md)
 >
 > 进入条件：Phase F 完成
+>
+> 进入状态：已满足；Phase F 完成证据见
+> [`../archive/phase-f/PHASE_F.md`](../archive/phase-f/PHASE_F.md)
 >
 > 产品约定：首版必须包含鼠标方向；24／72 小时长测和长期 daily-drive 均在首版发布后。
 
@@ -158,7 +161,7 @@ Schema 升级要有迁移与降级说明。旧 Agent／UI 不支持新 Schema �
 
 ## 7. 首版发布门槛
 
-- [ ] Phase F 完成：四方向、UI、配置与短时实机证据齐全。
+- [x] Phase F 完成：四方向、UI、配置与短时实机证据齐全。
 - [ ] G-PRE 自动与有限异常／混合输入验收通过。
 - [ ] 首版支持范围准确，无未解决的可复现核心输入／配置阻断缺陷。
 - [ ] H 的可分发包、依赖、路径、自启动、升级与移除已按声明范围验证。

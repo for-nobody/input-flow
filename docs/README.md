@@ -9,8 +9,8 @@
 ## 当前阅读顺序
 
 1. [`status/CURRENT_STATUS.md`](status/CURRENT_STATUS.md)：当前阶段、已验证证据、未完成项和下一步。
-2. [`tasks/PHASE_F_ACCEPTANCE.md`](tasks/PHASE_F_ACCEPTANCE.md)：当前唯一正在执行的任务卡。
-3. [`records/PHASE_F.md`](records/PHASE_F.md)：Phase F 已执行证据和待回填现场结果。
+2. [`tasks/FIRST_RELEASE.md`](tasks/FIRST_RELEASE.md)：当前唯一正在执行的任务卡，从 G-PRE 开始。
+3. [`archive/phase-f/PHASE_F.md`](archive/phase-f/PHASE_F.md)：Phase F 的完整完成记录与限制。
 4. [`planning/PROJECT_PLAN.md`](planning/PROJECT_PLAN.md)：产品范围、架构和不变量。
 5. [`planning/RELEASE_ROADMAP.md`](planning/RELEASE_ROADMAP.md)：首版发布阶段顺序和门槛。
 6. [`guides/BUILD_WINDOWS.md`](guides/BUILD_WINDOWS.md)：Windows 构建与验证命令。
@@ -35,6 +35,6 @@
 
 ## 后续任务
 
-- Phase F 现场验收完成后，进入 [`tasks/FIRST_RELEASE.md`](tasks/FIRST_RELEASE.md)。
+- 当前按 [`tasks/FIRST_RELEASE.md`](tasks/FIRST_RELEASE.md) 执行 G-PRE，再进入 H 和 RC。
 - 首版实际发布后，进入 [`tasks/POST_RELEASE_SOAK.md`](tasks/POST_RELEASE_SOAK.md)。
 - 完成的任务卡和记录必须移动到 `archive/`，不得继续留在 `tasks/` 或 `records/`。

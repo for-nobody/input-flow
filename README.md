@@ -5,9 +5,9 @@ InputFlow 是 Windows 全局键盘与鼠标输入组合引擎。它只暂扣可�
 
 ## 当前状态
 
-M1～M7 已完成。Phase F 的鼠标方向设计、代码、Schema v4、IPC、WinUI 编辑／预览和自动验证
-已经完成；真实四方向、普通拖拽和约五分钟物理 move 验收尚未执行。因此 Phase F 仍在进行中，
-G-PRE、分发阶段 H、RC 和首个 release 均未开始或未发布。24／72 小时长测安排在首版发布后。
+M1～M7 和 Phase F／M8 已完成。鼠标四方向、Schema v4、IPC、WinUI、真实方向与边界、普通
+输入／拖拽、五分钟资源观察及 pause／replace／正常退出回归均已收口。项目当前进入 G-PRE；
+分发阶段 H、RC 和首个 release 尚未开始或未发布。24／72 小时长测安排在首版发布后。
 
 详细状态和下一步以
 [`docs/status/CURRENT_STATUS.md`](docs/status/CURRENT_STATUS.md) 为唯一权威。
@@ -18,7 +18,8 @@ G-PRE、分发阶段 H、RC 和首个 release 均未开始或未发布。24／72
 - [当前执行顺序](docs/planning/IMPLEMENTATION_STEPS.md)
 - [项目规划](docs/planning/PROJECT_PLAN.md)
 - [首版发布路线](docs/planning/RELEASE_ROADMAP.md)
-- [当前 Phase F 现场验收](docs/tasks/PHASE_F_ACCEPTANCE.md)
+- [当前首版发布任务（从 G-PRE 开始）](docs/tasks/FIRST_RELEASE.md)
+- [Phase F 完成记录](docs/archive/phase-f/PHASE_F.md)
 - [Windows 构建指南](docs/guides/BUILD_WINDOWS.md)
 - [文档存储与生命周期规则](docs/governance/DOCUMENTATION_POLICY.md)
 
@@ -95,8 +96,10 @@ input-flow/
 
 ## 已知边界
 
-- 鼠标方向的确定性算法和自动 contract 已通过，但真实四方向、拖拽、多屏／跨 DPI 和约五分钟
-  物理 move 尚未验收，不能宣称 Phase F 已完成。
+- 鼠标方向已完成真实四方向、普通拖拽和约五分钟物理 move 验收；本机只有一个显示器，真实
+  跨屏／跨 DPI／热插拔以及实际 polling rate 仍未验证。
+- 五分钟样本保留 stats RTT 与 callback max 的调度尖峰；没有输出失败／丢弃或 Hook 中断，
+  但后续短测与发布后长测仍需继续观察。
 - `SendInput` 受 UIPI、焦点和当前修饰状态影响，不能承诺所有目标中 100% 原样回放。
 - 进程被强杀时，已暂扣的历史输入无法保证恢复。
 - keypad Enter、独立播放键、中文 Narrator 语音和 partial `SendInput` 仍受当前硬件／环境限制。

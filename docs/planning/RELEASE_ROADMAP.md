@@ -44,7 +44,7 @@ Phase G 的拆分只改变长测时间，不取消可靠性要求。发布前发
 - 真实四方向、取消、普通输入／菜单／拖拽和约五分钟物理移动。
 - 现场资源、Hook 工作证据及受影响 M6/Phase E 路径。
 
-执行入口：[`../tasks/PHASE_F_ACCEPTANCE.md`](../tasks/PHASE_F_ACCEPTANCE.md)。
+完成证据：[`../archive/phase-f/PHASE_F.md`](../archive/phase-f/PHASE_F.md)。
 
 ### G-PRE、H 和 RC
 

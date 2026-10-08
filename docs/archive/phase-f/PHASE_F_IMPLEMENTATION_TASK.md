@@ -1,8 +1,8 @@
 # InputFlow Phase F／M8：首版鼠标方向规则实施任务
 
 > [!CAUTION]
-> F0～F3 的实施职责已完成，本文已归档。剩余现场验收已拆分为
-> [`../../tasks/PHASE_F_ACCEPTANCE.md`](../../tasks/PHASE_F_ACCEPTANCE.md)；当前状态见
+> F0～F3 的实施职责已完成，本文已归档。当时拆分出的现场验收也已完成并归档为
+> [`PHASE_F_ACCEPTANCE.md`](PHASE_F_ACCEPTANCE.md)；当前状态见
 > [`../../status/CURRENT_STATUS.md`](../../status/CURRENT_STATUS.md)。
 
 > 日期：2026-10-08

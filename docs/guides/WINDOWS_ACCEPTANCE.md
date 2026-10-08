@@ -10,7 +10,7 @@
 
 - `scripts/acceptance/message-target.ps1`：显示一个真实 Win32/WinForms 目标窗口，顺序记录键盘 down/up/char、鼠标按钮、`WM_CONTEXTMENU`、光标位置、HKL 和 DPI。
 - `scripts/acceptance/sample-agent-resources.ps1`：经过真实 Named Pipe 每隔一段时间调用 `get_stats`，同时记录 agent/设置进程的内存、线程、句柄和 CPU。
-- `scripts/acceptance/invoke-agent-request.ps1`：在可选延时后通过真实 Named Pipe 发送 `pause` / `resume` / `get_status` / `get_stats`，用于可重复的暂停交错验收。
+- `scripts/acceptance/invoke-agent-request.ps1`：在可选延时后通过真实 Named Pipe 发送 `pause`／`resume`／`get_status`／`get_stats`／`apply_config`；可用 `-WaitForObservedEvent` 以 Agent 的 Hook-owned observed 计数为边界，并把完整响应写入 `-OutputPath`。`-WaitForVirtualKey` 只适合未被 Hook 抑制的按键；候选键可能直到回放后才对 `GetAsyncKeyState` 可见，不能用它证明候选期控制时序。
 - `scripts/acceptance/pause-on-foreground-transition.ps1`：先观察指定普通目标成为前台，再在提升权限目标成为前台的瞬间通过正式 Named Pipe 发送 `pause`；用于避免人工倒计时掩盖 UIPI 回放边界。
 - `scripts/acceptance/configs/*.json`：M6 四类触发器的单规则隔离配置，以及 Phase F 的
   `mouse-direction-f8-four.json` 四方向组；命中后只输出既有键盘组合。

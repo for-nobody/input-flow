@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Text.Json;
 
@@ -5,12 +6,28 @@ namespace InputFlow.Protocol;
 
 public static class ProtocolFrame
 {
-    public static async ValueTask WriteAsync<T>(
+    public static ValueTask WriteAsync(
         Stream stream,
-        T value,
+        JsonElement value,
+        CancellationToken cancellationToken = default) =>
+        WriteAsync(stream, writer => value.WriteTo(writer), cancellationToken);
+
+    public static async ValueTask WriteAsync(
+        Stream stream,
+        Action<Utf8JsonWriter> writePayload,
         CancellationToken cancellationToken = default)
     {
-        byte[] payload = JsonSerializer.SerializeToUtf8Bytes(value, ProtocolJson.Options);
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(writePayload);
+
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writePayload(writer);
+            writer.Flush();
+        }
+
+        byte[] payload = buffer.WrittenSpan.ToArray();
         if (payload.Length == 0 || payload.Length > ProtocolConstants.MaximumFrameBytes)
         {
             throw new ProtocolException(
@@ -83,14 +100,6 @@ public static class ProtocolFrame
 
 internal static class ProtocolJson
 {
-    public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        DictionaryKeyPolicy = JsonNamingPolicy.SnakeCaseLower,
-        PropertyNameCaseInsensitive = false,
-        UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
-    };
-
     public static readonly JsonDocumentOptions DocumentOptions = new()
     {
         AllowTrailingCommas = false,

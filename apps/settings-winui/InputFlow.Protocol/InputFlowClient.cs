@@ -43,7 +43,13 @@ public sealed class InputFlowClient : IAsyncDisposable
                 responseTimeout ?? TimeSpan.FromMilliseconds(ProtocolConstants.DefaultResponseTimeoutMilliseconds));
             JsonElement handshake = await client.SendAsync(
                 "handshake",
-                new { client_name = "InputFlow.Settings", client_version = "0.1.0" },
+                writer =>
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("client_name", "InputFlow.Settings");
+                    writer.WriteString("client_version", "0.1.0");
+                    writer.WriteEndObject();
+                },
                 cancellationToken).ConfigureAwait(false);
             client.Handshake = HandshakeInfo.Parse(handshake);
             return client;
@@ -61,44 +67,60 @@ public sealed class InputFlowClient : IAsyncDisposable
     }
 
     public Task<JsonElement> GetStatusAsync(CancellationToken cancellationToken = default) =>
-        SendAsync("get_status", new { }, cancellationToken);
+        SendAsync("get_status", WriteEmptyObject, cancellationToken);
 
     public Task<JsonElement> GetConfigAsync(CancellationToken cancellationToken = default) =>
-        SendAsync("get_config", new { }, cancellationToken);
+        SendAsync("get_config", WriteEmptyObject, cancellationToken);
 
     public Task<JsonElement> ValidateConfigAsync(
         JsonElement config,
         CancellationToken cancellationToken = default) =>
-        SendAsync("validate_config", new { config }, cancellationToken);
+        SendAsync("validate_config", writer => WriteConfigParameter(writer, config), cancellationToken);
 
     public Task<JsonElement> ApplyConfigAsync(
         JsonElement config,
         CancellationToken cancellationToken = default) =>
-        SendAsync("apply_config", new { config }, cancellationToken);
+        SendAsync("apply_config", writer => WriteConfigParameter(writer, config), cancellationToken);
 
     public Task<JsonElement> PauseAsync(CancellationToken cancellationToken = default) =>
-        SendAsync("pause", new { }, cancellationToken);
+        SendAsync("pause", WriteEmptyObject, cancellationToken);
 
     public Task<JsonElement> ResumeAsync(CancellationToken cancellationToken = default) =>
-        SendAsync("resume", new { }, cancellationToken);
+        SendAsync("resume", WriteEmptyObject, cancellationToken);
 
     public Task<JsonElement> GetStatsAsync(CancellationToken cancellationToken = default) =>
-        SendAsync("get_stats", new { }, cancellationToken);
+        SendAsync("get_stats", WriteEmptyObject, cancellationToken);
 
     public Task<JsonElement> BeginCaptureAsync(
         int timeoutMilliseconds,
         CancellationToken cancellationToken = default) =>
-        SendAsync("begin_capture", new { timeout_ms = timeoutMilliseconds }, cancellationToken);
+        SendAsync(
+            "begin_capture",
+            writer =>
+            {
+                writer.WriteStartObject();
+                writer.WriteNumber("timeout_ms", timeoutMilliseconds);
+                writer.WriteEndObject();
+            },
+            cancellationToken);
 
     public Task<JsonElement> CancelCaptureAsync(
         ulong sessionId,
         CancellationToken cancellationToken = default) =>
-        SendAsync("cancel_capture", new { session_id = sessionId }, cancellationToken);
+        SendAsync(
+            "cancel_capture",
+            writer =>
+            {
+                writer.WriteStartObject();
+                writer.WriteNumber("session_id", sessionId);
+                writer.WriteEndObject();
+            },
+            cancellationToken);
 
     public async Task<InputFlowEventSubscription> SubscribeEventsAsync(
         CancellationToken cancellationToken = default)
     {
-        await SendAsync("subscribe_events", new { }, cancellationToken).ConfigureAwait(false);
+        await SendAsync("subscribe_events", WriteEmptyObject, cancellationToken).ConfigureAwait(false);
         _streaming = true;
         return new InputFlowEventSubscription(this);
     }
@@ -136,7 +158,7 @@ public sealed class InputFlowClient : IAsyncDisposable
 
     private async Task<JsonElement> SendAsync(
         string method,
-        object parameters,
+        Action<Utf8JsonWriter> writeParameters,
         CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
@@ -149,12 +171,23 @@ public sealed class InputFlowClient : IAsyncDisposable
         try
         {
             string requestId = $"settings-{Interlocked.Increment(ref _requestSequence)}";
-            var request = new WireRequest(ProtocolConstants.Version, requestId, method, parameters);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             linked.CancelAfter(_responseTimeout);
             try
             {
-                await ProtocolFrame.WriteAsync(_pipe, request, linked.Token).ConfigureAwait(false);
+                await ProtocolFrame.WriteAsync(
+                    _pipe,
+                    writer =>
+                    {
+                        writer.WriteStartObject();
+                        writer.WriteNumber("protocol_version", ProtocolConstants.Version);
+                        writer.WriteString("request_id", requestId);
+                        writer.WriteString("method", method);
+                        writer.WritePropertyName("params");
+                        writeParameters(writer);
+                        writer.WriteEndObject();
+                    },
+                    linked.Token).ConfigureAwait(false);
                 using JsonDocument? document = await ProtocolFrame.ReadAsync(_pipe, linked.Token).ConfigureAwait(false);
                 if (document is null)
                 {
@@ -216,6 +249,20 @@ public sealed class InputFlowClient : IAsyncDisposable
         throw new ProtocolException("invalid_response", "Agent response has an unknown type");
     }
 
+    private static void WriteEmptyObject(Utf8JsonWriter writer)
+    {
+        writer.WriteStartObject();
+        writer.WriteEndObject();
+    }
+
+    private static void WriteConfigParameter(Utf8JsonWriter writer, JsonElement config)
+    {
+        writer.WriteStartObject();
+        writer.WritePropertyName("config");
+        config.WriteTo(writer);
+        writer.WriteEndObject();
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_resourcesDisposed)
@@ -234,11 +281,6 @@ public sealed class InputFlowClient : IAsyncDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
     }
 
-    private sealed record WireRequest(
-        uint ProtocolVersion,
-        string RequestId,
-        string Method,
-        object Params);
 }
 
 public sealed record HandshakeInfo(

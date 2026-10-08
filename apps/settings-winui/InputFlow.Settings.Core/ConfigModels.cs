@@ -1,5 +1,6 @@
+using System.Buffers;
+using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 
 namespace InputFlow.Settings.Core;
 
@@ -214,13 +215,13 @@ public static class ConfigCodec
 
     public static JsonElement ToJsonElement(ConfigDocument config)
     {
-        JsonObject root = ToJsonNode(config);
-        return JsonSerializer.SerializeToElement(root);
+        using JsonDocument document = JsonDocument.Parse(ToUtf8(config, indented: false));
+        return document.RootElement.Clone();
     }
 
     public static string ToJson(ConfigDocument config, bool indented = false)
     {
-        return ToJsonNode(config).ToJsonString(new JsonSerializerOptions { WriteIndented = indented });
+        return Encoding.UTF8.GetString(ToUtf8(config, indented));
     }
 
     public static bool DeepEquals(ConfigDocument left, ConfigDocument right)
@@ -230,26 +231,33 @@ public static class ConfigCodec
         return JsonElement.DeepEquals(leftJson, rightJson);
     }
 
-    private static JsonObject ToJsonNode(ConfigDocument config)
+    private static byte[] ToUtf8(ConfigDocument config, bool indented)
     {
-        var rules = new JsonArray();
+        ArgumentNullException.ThrowIfNull(config);
+
+        var buffer = new ArrayBufferWriter<byte>();
+        using var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = indented });
+        writer.WriteStartObject();
+        writer.WriteNumber("schema_version", ConfigDocument.CurrentSchemaVersion);
+        writer.WritePropertyName("emergency_bypass_key");
+        WriteKey(writer, config.EmergencyBypassKey);
+        writer.WriteStartArray("rules");
         foreach (RuleDocument rule in config.Rules)
         {
-            rules.Add(new JsonObject
-            {
-                ["id"] = rule.Id,
-                ["enabled"] = rule.Enabled,
-                ["trigger"] = TriggerNode(rule.Trigger),
-                ["action"] = ActionNode(rule.Action),
-            });
+            writer.WriteStartObject();
+            writer.WriteString("id", rule.Id);
+            writer.WriteBoolean("enabled", rule.Enabled);
+            writer.WritePropertyName("trigger");
+            WriteTrigger(writer, rule.Trigger);
+            writer.WritePropertyName("action");
+            WriteAction(writer, rule.Action);
+            writer.WriteEndObject();
         }
 
-        return new JsonObject
-        {
-            ["schema_version"] = ConfigDocument.CurrentSchemaVersion,
-            ["emergency_bypass_key"] = KeyNode(config.EmergencyBypassKey),
-            ["rules"] = rules,
-        };
+        writer.WriteEndArray();
+        writer.WriteEndObject();
+        writer.Flush();
+        return buffer.WrittenSpan.ToArray();
     }
 
     private static RuleTrigger ParseTrigger(JsonElement trigger, uint sourceVersion)
@@ -311,80 +319,82 @@ public static class ConfigCodec
         };
     }
 
-    private static JsonObject TriggerNode(RuleTrigger trigger)
+    private static void WriteTrigger(Utf8JsonWriter writer, RuleTrigger trigger)
     {
-        return trigger switch
+        writer.WriteStartObject();
+        writer.WriteString("type", trigger.Type);
+        switch (trigger)
         {
-            KeyChordTrigger chord => new JsonObject
-            {
-                ["type"] = chord.Type,
-                ["first"] = KeyNode(chord.First),
-                ["second"] = KeyNode(chord.Second),
-            },
-            KeyMouseButtonTrigger mouse => new JsonObject
-            {
-                ["type"] = mouse.Type,
-                ["key"] = KeyNode(mouse.Key),
-                ["button"] = mouse.Button,
-            },
-            HoldTrigger hold => new JsonObject
-            {
-                ["type"] = hold.Type,
-                ["key"] = KeyNode(hold.Key),
-                ["timeout_ms"] = hold.TimeoutMilliseconds,
-            },
-            HoldMouseButtonTrigger holdMouse => new JsonObject
-            {
-                ["type"] = holdMouse.Type,
-                ["key"] = KeyNode(holdMouse.Key),
-                ["timeout_ms"] = holdMouse.TimeoutMilliseconds,
-                ["button"] = holdMouse.Button,
-            },
-            MouseDirectionTrigger direction => new JsonObject
-            {
-                ["type"] = direction.Type,
-                ["key"] = KeyNode(direction.Key),
-                ["direction"] = direction.Direction.ToString().ToLowerInvariant(),
-                ["min_distance_px"] = direction.MinimumDistancePixels,
-                ["max_duration_ms"] = direction.MaximumDurationMilliseconds,
-                ["off_axis_tolerance_px"] = direction.OffAxisTolerancePixels,
-            },
-            _ => throw new InvalidOperationException($"Unknown trigger type {trigger.GetType().Name}"),
-        };
-    }
-
-    private static JsonObject ActionNode(KeyChordAction action)
-    {
-        var keys = new JsonArray();
-        foreach (KeyIdentity key in action.Keys)
-        {
-            keys.Add(KeyNode(key));
+            case KeyChordTrigger chord:
+                writer.WritePropertyName("first");
+                WriteKey(writer, chord.First);
+                writer.WritePropertyName("second");
+                WriteKey(writer, chord.Second);
+                break;
+            case KeyMouseButtonTrigger mouse:
+                writer.WritePropertyName("key");
+                WriteKey(writer, mouse.Key);
+                writer.WriteString("button", mouse.Button);
+                break;
+            case HoldTrigger hold:
+                writer.WritePropertyName("key");
+                WriteKey(writer, hold.Key);
+                writer.WriteNumber("timeout_ms", hold.TimeoutMilliseconds);
+                break;
+            case HoldMouseButtonTrigger holdMouse:
+                writer.WritePropertyName("key");
+                WriteKey(writer, holdMouse.Key);
+                writer.WriteNumber("timeout_ms", holdMouse.TimeoutMilliseconds);
+                writer.WriteString("button", holdMouse.Button);
+                break;
+            case MouseDirectionTrigger direction:
+                writer.WritePropertyName("key");
+                WriteKey(writer, direction.Key);
+                writer.WriteString("direction", direction.Direction.ToString().ToLowerInvariant());
+                writer.WriteNumber("min_distance_px", direction.MinimumDistancePixels);
+                writer.WriteNumber("max_duration_ms", direction.MaximumDurationMilliseconds);
+                writer.WriteNumber("off_axis_tolerance_px", direction.OffAxisTolerancePixels);
+                break;
+            default:
+                throw new InvalidOperationException($"Unknown trigger type {trigger.GetType().Name}");
         }
 
-        return new JsonObject
-        {
-            ["type"] = "key_chord",
-            ["keys"] = keys,
-        };
+        writer.WriteEndObject();
     }
 
-    private static JsonObject KeyNode(KeyIdentity key)
+    private static void WriteAction(Utf8JsonWriter writer, KeyChordAction action)
     {
-        return key.Mode switch
+        writer.WriteStartObject();
+        writer.WriteString("type", "key_chord");
+        writer.WriteStartArray("keys");
+        foreach (KeyIdentity key in action.Keys)
         {
-            KeyMatchMode.Logical => new JsonObject
-            {
-                ["match"] = "logical",
-                ["key"] = key.LogicalKey,
-            },
-            KeyMatchMode.Physical => new JsonObject
-            {
-                ["match"] = "physical",
-                ["scan_code"] = key.ScanCode,
-                ["extended"] = key.Extended,
-            },
-            _ => throw new InvalidOperationException($"Unknown key mode {key.Mode}"),
-        };
+            WriteKey(writer, key);
+        }
+
+        writer.WriteEndArray();
+        writer.WriteEndObject();
+    }
+
+    private static void WriteKey(Utf8JsonWriter writer, KeyIdentity key)
+    {
+        writer.WriteStartObject();
+        switch (key.Mode)
+        {
+            case KeyMatchMode.Logical:
+                writer.WriteString("match", "logical");
+                writer.WriteString("key", key.LogicalKey);
+                break;
+            case KeyMatchMode.Physical:
+                writer.WriteString("match", "physical");
+                writer.WriteNumber("scan_code", key.ScanCode);
+                writer.WriteBoolean("extended", key.Extended);
+                break;
+            default:
+                throw new InvalidOperationException($"Unknown key mode {key.Mode}");
+        }
+
+        writer.WriteEndObject();
     }
 
     private static string RequiredString(JsonElement element, string property)

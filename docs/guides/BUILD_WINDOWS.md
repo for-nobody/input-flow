@@ -52,7 +52,7 @@ cargo build -p probe-cli
 
 2026-10-02 Phase E 最终结果：全部通过；测试总数 151（agent 4、config 28、engine 74、protocol 12、runtime 6、windows 27、probe 0）。自动测试、无输入 lifecycle 和真实物理输入/性能证据仍按不同层级记录。
 
-2026-10-08 Phase F 当前结果：`cargo fmt --check`、workspace test、Clippy `-D warnings` 和构建通过；测试总数 169（agent 4、config 32、engine 87、protocol 12、runtime 6、windows 28、probe 0）。新增自动覆盖四方向／阈值／偏轴／净位移、时间边界、一次命中、取消／repeat／overflow、pause／replace tombstone、physical-first、极端负坐标、注入 move、锁外输出、pre-v4 结构隔离、四方向验收配置和 125／500／1000 Hz 确定性序列。该结果不是物理鼠标证据。
+2026-10-08 Phase F 最终结果：`cargo fmt --check`、workspace test、Clippy `-D warnings` 和构建通过；测试总数 171（agent 4、config 32、engine 87、protocol 12、runtime 6、windows 30、probe 0）。新增自动覆盖四方向／阈值／偏轴／净位移、时间边界、一次命中、取消／repeat／overflow、pause／replace tombstone、physical-first、极端负坐标、同源 Hook 坐标、repeat 遥测、注入 move、锁外输出、pre-v4 结构隔离、四方向验收配置和 125／500／1000 Hz 确定性序列。真实物理证据另见 [`../archive/phase-f/PHASE_F.md`](../archive/phase-f/PHASE_F.md)。
 
 运行原型：
 

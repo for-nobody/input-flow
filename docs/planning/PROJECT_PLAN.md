@@ -137,7 +137,7 @@ Named Pipe 至少定义：handshake、协议版本、请求 ID、超时、status
 - 第一版 move 始终直通，不抑制／重放轨迹，不复位光标。
 - 激活键 down／repeat／up 的暂扣、失败回放和命中释放归属已由 ADR-008 固定；移动不进入 PendingQueue。
 - 同一键四方向组合法，跨类型前缀冲突与 physical 优先继承既有策略；每次按住最多一次，释放后重新武装。
-- 方向配置使用严格 Schema v4，保留 v1／v2／v3 读取、enabled 和备份语义；Rust／C# fixture、protocol v1 handshake 和 WinUI 编辑／有限预览已同步。真实四方向与高频物理 move 仍待 F4。
+- 方向配置使用严格 Schema v4，保留 v1／v2／v3 读取、enabled 和备份语义；Rust／C# fixture、protocol v1 handshake 和 WinUI 编辑／有限预览已同步。真实四方向、普通输入／拖拽和五分钟物理 move 已在 Phase F 收口；单屏环境限制见归档记录。
 
 ## 7. 技术选型与构建
 

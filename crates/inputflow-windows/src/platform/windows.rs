@@ -47,6 +47,9 @@ use windows_sys::Win32::System::Threading::{
     GetCurrentProcess, GetCurrentProcessId, GetCurrentThreadId, OpenProcess, OpenProcessToken,
     PROCESS_QUERY_LIMITED_INFORMATION,
 };
+use windows_sys::Win32::UI::HiDpi::{
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetThreadDpiAwarenessContext,
+};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP,
     KEYEVENTF_SCANCODE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN,
@@ -54,7 +57,7 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     MOUSEEVENTF_XUP, MOUSEINPUT, SendInput,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DispatchMessageW, GetCursorPos, GetForegroundWindow, GetMessageW,
+    CallNextHookEx, DispatchMessageW, GetForegroundWindow, GetMessageW, GetPhysicalCursorPos,
     GetWindowThreadProcessId, HC_ACTION, KBDLLHOOKSTRUCT, KillTimer, LLMHF_INJECTED, MSG,
     MSLLHOOKSTRUCT, PM_NOREMOVE, PeekMessageW, PostThreadMessageW, SetTimer, SetWindowsHookExW,
     TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_APP, WM_MOUSEHWHEEL,
@@ -124,6 +127,10 @@ static DIRECTION_RULES_ENABLED: AtomicBool = AtomicBool::new(false);
 /// Whether the owner currently has an active keyboard-initiated direction
 /// candidate. Ordinary move/wheel events can bypass the matcher lock when false.
 static DIRECTION_CANDIDATE_ACTIVE: AtomicBool = AtomicBool::new(false);
+/// Latest cursor point reported by `MSLLHOOKSTRUCT`. The packed pair preserves
+/// one coherent x/y observation across the keyboard and mouse hook callbacks.
+static LAST_HOOK_MOUSE_POINT: AtomicU64 = AtomicU64::new(0);
+static LAST_HOOK_MOUSE_POINT_VALID: AtomicBool = AtomicBool::new(false);
 /// Reservoir of matcher-decision latency samples, in microseconds.
 static CALLBACK_LATENCY: OnceLock<Mutex<PercentileTracker>> = OnceLock::new();
 /// Reservoir of hold-delay samples (first suppress to resolution), in microseconds.
@@ -357,6 +364,7 @@ pub fn reset_runtime_state() -> Result<(), String> {
     OUTPUT_FAILED.store(0, Ordering::Relaxed);
     OUTPUT_DROPPED.store(0, Ordering::Relaxed);
     DIRECTION_CANDIDATE_ACTIVE.store(false, Ordering::Relaxed);
+    LAST_HOOK_MOUSE_POINT_VALID.store(false, Ordering::Relaxed);
     CAPTURE_ACTIVE.store(false, Ordering::Relaxed);
     if let Ok(mut requests) = control_requests().lock() {
         requests.clear();
@@ -1020,6 +1028,10 @@ fn finish_callback(start: Instant, result: LRESULT) -> LRESULT {
     result
 }
 
+fn starts_hold_delay(event: InputEvent) -> bool {
+    (event.is_key_down() && !event.is_repeat()) || event.is_button_down()
+}
+
 fn record_hold_delay() {
     let start = match hold_start_cell().lock() {
         Ok(mut cell) => cell.take(),
@@ -1355,10 +1367,37 @@ fn next_seq() -> u64 {
     SEQ.fetch_add(1, Ordering::Relaxed)
 }
 
-fn cursor_position() -> Option<(i32, i32)> {
+fn pack_point(x: i32, y: i32) -> u64 {
+    u64::from(x as u32) | (u64::from(y as u32) << 32)
+}
+
+fn unpack_point(point: u64) -> (i32, i32) {
+    (point as u32 as i32, (point >> 32) as u32 as i32)
+}
+
+fn remember_hook_mouse_position(x: i32, y: i32) {
+    LAST_HOOK_MOUSE_POINT.store(pack_point(x, y), Ordering::Relaxed);
+    LAST_HOOK_MOUSE_POINT_VALID.store(true, Ordering::Release);
+}
+
+fn last_hook_mouse_position() -> Option<(i32, i32)> {
+    LAST_HOOK_MOUSE_POINT_VALID
+        .load(Ordering::Acquire)
+        .then(|| unpack_point(LAST_HOOK_MOUSE_POINT.load(Ordering::Relaxed)))
+}
+
+fn physical_cursor_position() -> Option<(i32, i32)> {
+    if let Some(point) = last_hook_mouse_position() {
+        return Some(point);
+    }
+
     let mut point = POINT::default();
+    // `MSLLHOOKSTRUCT.pt` uses per-monitor-aware screen coordinates. The agent
+    // is PerMonitorV2-aware, so this fallback is in the same coordinate space.
+    // Normal direction gestures use the latest point from the mouse hook itself,
+    // avoiding cross-API coordinate virtualization entirely.
     // SAFETY: `point` is a valid writable POINT for the duration of the call.
-    (unsafe { GetCursorPos(&mut point) } != 0).then_some((point.x, point.y))
+    (unsafe { GetPhysicalCursorPos(&mut point) } != 0).then_some((point.x, point.y))
 }
 
 fn send_log(line: String) {
@@ -1412,15 +1451,21 @@ fn process_with_cursor_and_dispatch(
         guard.set_paused(true);
     }
     let (mut decision, resolution) = guard.on_event_with_cursor(event, cursor);
-    DIRECTION_CANDIDATE_ACTIVE.store(
-        guard.has_active_mouse_direction_candidate(),
-        Ordering::Release,
-    );
+    let direction_candidate_active = guard.has_active_mouse_direction_candidate();
+    DIRECTION_CANDIDATE_ACTIVE.store(direction_candidate_active, Ordering::Release);
+    if debug_log_enabled()
+        && direction_candidate_active
+        && event.is_key_down()
+        && !event.is_repeat()
+        && let Some((x, y)) = cursor
+    {
+        send_log(format!("mouse_direction_candidate: start=({x},{y})"));
+    }
 
     // A suppressed down starts (or continues) a hold-delay window.
     if matches!(decision, Decision::Suppress { .. })
         && matches!(resolution, Resolution::Pending)
-        && (event.is_key_down() || event.is_button_down())
+        && starts_hold_delay(event)
         && let Ok(mut cell) = hold_start_cell().lock()
         && cell.is_none()
     {
@@ -1437,7 +1482,20 @@ fn process_with_cursor_and_dispatch(
     }
 
     let command = match resolution {
-        Resolution::Matched { rule_id, action } => Some(Command::Emit { rule_id, action }),
+        Resolution::Matched { rule_id, action } => {
+            if debug_log_enabled()
+                && let InputSource::Mouse {
+                    kind: MouseKind::Move,
+                    x,
+                    y,
+                } = event.source
+            {
+                send_log(format!(
+                    "mouse_direction_match: rule_id={rule_id} end=({x},{y})"
+                ));
+            }
+            Some(Command::Emit { rule_id, action })
+        }
         Resolution::Failed { replay } => Some(Command::Replay { events: replay }),
         Resolution::Pending => None,
     };
@@ -1730,6 +1788,23 @@ pub fn post_quit(hook_thread_id: u32) -> bool {
 
 /// Entry point for the dedicated hook thread.
 pub fn run_hook_thread(ready: std::sync::mpsc::Sender<Result<u32, String>>) {
+    // The hook point is explicitly per-monitor-aware. Set the owning thread to
+    // the same DPI context even when this crate is hosted by a test/probe binary
+    // without the product manifest.
+    // SAFETY: the predefined context value is valid on every supported OS.
+    let previous_dpi_context =
+        unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+    if previous_dpi_context.is_null() {
+        let error = format!(
+            "failed to set hook thread PerMonitorV2 DPI awareness: error {}",
+            unsafe { GetLastError() }
+        );
+        send_log(error.clone());
+        let _ = ready.send(Err(error));
+        return;
+    }
+    send_log("hook thread DPI awareness: PerMonitorV2".to_string());
+
     // SAFETY: install_hooks documents its own preconditions; handles are
     // returned to be cleaned up below.
     let hooks = match unsafe { install_hooks() } {
@@ -2013,9 +2088,11 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
             && !is_bypassed()
             && DIRECTION_RULES_ENABLED.load(Ordering::Acquire)
         {
-            let position = cursor_position();
+            let position = physical_cursor_position();
             if position.is_none() {
-                send_log("mouse_direction_start_failed: GetCursorPos returned zero".to_string());
+                send_log(
+                    "mouse_direction_start_failed: GetPhysicalCursorPos returned zero".to_string(),
+                );
             }
             position
         } else {
@@ -2043,6 +2120,10 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
         // SAFETY: `code >= HC_ACTION` guarantees a valid MSLLHOOKSTRUCT.
         let info = unsafe { &*(lparam as *const MSLLHOOKSTRUCT) };
         let injected = (info.flags & LLMHF_INJECTED) != 0;
+
+        // Cache before every fast path, including injected/own events. This is a
+        // position observation only; matching still rejects injected input.
+        remember_hook_mouse_position(info.pt.x, info.pt.y);
 
         if is_own_event(info.dwExtraInfo) {
             // SAFETY: `hhk` is ignored for low-level hooks.
@@ -2157,6 +2238,27 @@ mod tests {
             keybd_flags(true, true, true),
             KEYEVENTF_KEYUP | KEYEVENTF_EXTENDEDKEY | KEYEVENTF_SCANCODE
         );
+    }
+
+    #[test]
+    fn packed_hook_point_round_trips_signed_virtual_desktop_coordinates() {
+        for point in [(0, 0), (1440, 900), (-1920, 240), (i32::MIN, i32::MAX)] {
+            assert_eq!(unpack_point(pack_point(point.0, point.1)), point);
+        }
+    }
+
+    #[test]
+    fn key_repeat_does_not_start_a_new_hold_delay_window() {
+        let mut repeat = key_event(1, Key::F8, true);
+        if let InputSource::Keyboard {
+            repeat: is_repeat, ..
+        } = &mut repeat.source
+        {
+            *is_repeat = true;
+        }
+
+        assert!(!starts_hold_delay(repeat));
+        assert!(starts_hold_delay(key_event(2, Key::F8, true)));
     }
 
     #[test]

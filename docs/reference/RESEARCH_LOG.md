@@ -224,7 +224,17 @@
 - Schema 升到严格 v4，新增 `mouse_direction` trigger；v1／v2／v3 继续严格读取并在内存中迁移，保留 enabled、身份、顺序和动作。Named Pipe wire 仍为 v1，handshake 改报 schema 4／`config_v4`。Rust、C# 和 protocol fixture 使用 `v4-valid.json` 交叉验证。
 - WinUI 复用现有草稿／保存链，加入方向、距离、时间窗、偏轴控件和显式、可取消、约 33 ms 更新的有限预览。预览只保留起点／当前点和摘要，不安装 Hook、不执行动作；Agent 仍是配置校验和运行时权威。
 - 自动门槛为 Rust 169／169（agent 4、config 32、engine 87、protocol 12、runtime 6、windows 28）、C# protocol 6／6、Settings Core 11／11；fmt、Clippy `-D warnings`、probe、Release agent 及 WinUI Debug／Release／联合构建通过。Release 首次在仅做默认配置 restore 的环境缺少 runtime／ILLink pack，联合脚本现分别 restore Debug 和 Release，避免依赖开发机缓存。
-- 当前不宣称 Phase F 完成：F-PHY-01～07 的真实四方向、普通点击／拖拽、F12／pause／replace／preview／quit 和约五分钟物理 move 资源样本未执行。125／500／1000 Hz 只是确定性事件序列，不代表实际鼠标 polling rate；多屏／跨 DPI 也仍待实际硬件。
+- 该代码／自动验证节点尚不宣称 Phase F 完成：当时 F-PHY-01～07 的真实四方向、普通点击／拖拽、F12／pause／replace／preview／quit 和约五分钟物理 move 资源样本未执行。125／500／1000 Hz 只是确定性事件序列，不代表实际鼠标 polling rate；多屏／跨 DPI 也仍待实际硬件。后续收口见下一节。
+
+## 20. Phase F Windows 现场收口（2026-10-08）
+
+- Release Settings 首次启动暴露裁剪环境禁用反射 JSON 序列化；协议 frame、request 和配置写出改为显式 `Utf8JsonWriter` 后，Release UI 与 live contract 恢复正常。
+- 真实左移被误判为 Down，定位为 DPI-unaware API origin 与 per-monitor-aware `MSLLHOOKSTRUCT.pt` endpoint 混用。最终 Agent 嵌入 PerMonitorV2 manifest，Hook 线程显式进入 PerMonitorV2，并让方向 origin／endpoint 优先来自同一 Hook 坐标源；最终 PE manifest 已回读验证。
+- 修复后四方向分别取得 Left 44、Up 12、Right 11、Down 14 个隔离命中，动作完整、每次按住一次、release 后重武装，失败／丢弃均为 0。边界运行以 17 个 F8 回放和 5 个合法主轴动作覆盖抖动、距离不足、提前释放、超时和斜线。
+- F12、IPC pause、config replace、预览取消和 release tombstone 通过；正常退出在两秒 drain 内收到 F8 Up 后自行停止，无 orphan Up、limit 或线程 panic。记事本、浏览器和资源管理器的普通输入、菜单和拖拽无误触发。
+- 五分钟共 297 个有效 stats 样本、299.438 秒，output failed/dropped 增量为 0，Agent／Settings 资源有界。stats RTT p99 91.338 ms 和 callback max 316.384 ms 超过本机参考线，已保留并调查；尖峰后 Hook 与真实动作继续工作，不据此提高参考线。
+- repeat 导致跨测试 hold-delay 假性长尾也在现场发现并修正；最终自动门槛增为 Rust 171／171（windows 30），C# 6／6 与 11／11，fmt、严格 Clippy、Release Agent、WinUI Debug／Release 和联合入口全部通过。
+- Phase F 以单屏／未知 polling rate、性能尖峰和既有特殊硬件限制完成。完整证据见 [`../archive/phase-f/PHASE_F.md`](../archive/phase-f/PHASE_F.md)；下一阶段为 G-PRE。
 
 ## 变更记录
 
@@ -245,3 +255,4 @@
 - 2026-10-01（Phase E capture 竞态修复）：审查确认 `begin_capture` 返回 session ID 前页面缺少即时互斥，第二字段可覆盖目标且启动中无法表达取消。新增 UI intent 状态机，在请求前锁定目标；启动中 Esc/取消先使目标失效，取得 ID 后立即取消，竞态 terminal event 不再写入字段。settings core 回归增至 10 项。
 - 2026-10-02（Phase E/M6 联合验收收口）：完成物理 capture/三类规则/状态同步、M6-01～07、高负载、Explorer、UIA/高对比度/缩放；修复启用状态刷新、输出重入死锁、UIPI Complete 误报及设置页宽度。最终 Rust 151 项、C# 17 项通过，Phase E 以明确限制完成。
 - 2026-10-08（Phase F 代码／自动验证）：接受 ADR-008，加入固定四槽鼠标方向组、净位移 matcher、Windows move 直通接入、Schema v4／`config_v4`、WinUI 编辑与有限预览；自动验证与联合构建通过。真实 F-PHY-01～07 未执行，Phase F 保持进行中。
+- 2026-10-08（Phase F 现场收口）：修复 Release JSON、DPI 坐标混用和 repeat 遥测；F-PHY-01～07、五分钟资源、受影响 M6 路径和最终 171 项 Rust／17 项 C# 联合门槛通过。Phase F 以明确限制完成，入口切换到 G-PRE。
