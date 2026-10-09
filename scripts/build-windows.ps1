@@ -70,6 +70,36 @@ function Invoke-Checked {
     }
 }
 
+function Invoke-ReleaseAgentBuild {
+    $separator = [string][char]0x1f
+    $originalEncodedFlags = $env:CARGO_ENCODED_RUSTFLAGS
+    $encodedFlags = @()
+    if (-not [string]::IsNullOrWhiteSpace($originalEncodedFlags)) {
+        $encodedFlags += $originalEncodedFlags -split [regex]::Escape($separator)
+    }
+
+    # Rust keeps source locations used by panic diagnostics in optimized binaries.
+    # Keep those diagnostics useful without publishing the builder's workspace or
+    # user-profile path in the portable package.
+    $encodedFlags += "--remap-path-prefix=$repositoryRoot=<workspace>"
+    if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+        $encodedFlags += "--remap-path-prefix=$($env:USERPROFILE)=<user-profile>"
+    }
+
+    try {
+        $env:CARGO_ENCODED_RUSTFLAGS = $encodedFlags -join $separator
+        cargo build -p inputflow-agent --release
+    }
+    finally {
+        if ($null -eq $originalEncodedFlags) {
+            Remove-Item Env:CARGO_ENCODED_RUSTFLAGS -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:CARGO_ENCODED_RUSTFLAGS = $originalEncodedFlags
+        }
+    }
+}
+
 Initialize-MsvcEnvironment
 
 Push-Location $repositoryRoot
@@ -78,7 +108,7 @@ try {
     Invoke-Checked { cargo test --workspace } 'Rust workspace tests'
     Invoke-Checked { cargo clippy --workspace --all-targets -- -D warnings } 'Rust Clippy'
     Invoke-Checked { cargo build -p probe-cli } 'probe-cli build'
-    Invoke-Checked { cargo build -p inputflow-agent --release } 'Release agent build'
+    Invoke-Checked { Invoke-ReleaseAgentBuild } 'Release agent build with private-path remapping'
 
     if (-not $SkipRestore) {
         Invoke-Checked { dotnet restore $solution -p:Configuration=Debug } 'WinUI Debug solution restore'

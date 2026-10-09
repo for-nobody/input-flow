@@ -152,6 +152,31 @@ function Copy-LegalFiles([string]$SourceDirectory, [string]$DestinationDirectory
     return $true
 }
 
+function Find-EmbeddedPrivatePaths([string]$Root, [string[]]$PrivateRoots) {
+    $needles = @($PrivateRoots |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        ForEach-Object { $_.TrimEnd('\', '/') } |
+        Select-Object -Unique)
+    $matches = @()
+    foreach ($file in Get-ChildItem -LiteralPath $Root -File -Recurse) {
+        $bytes = [System.IO.File]::ReadAllBytes($file.FullName)
+        $utf8Text = [System.Text.Encoding]::UTF8.GetString($bytes)
+        $utf16Text = [System.Text.Encoding]::Unicode.GetString($bytes)
+        foreach ($needle in $needles) {
+            $variants = @($needle, ($needle -replace '\\', '/')) | Select-Object -Unique
+            foreach ($variant in $variants) {
+                if ($utf8Text.IndexOf($variant, [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+                    $utf16Text.IndexOf($variant, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                    $matches += $file.FullName
+                    break
+                }
+            }
+            if ($matches.Count -ne 0 -and $matches[-1] -eq $file.FullName) { break }
+        }
+    }
+    return @($matches | Select-Object -Unique)
+}
+
 New-Item -ItemType Directory -Path $resolvedOutputRoot -Force | Out-Null
 Remove-ExistingOutput $packageDirectory
 Remove-ExistingOutput $zipPath
@@ -171,6 +196,8 @@ try {
         '-c', 'Release',
         '-r', 'win-x64',
         '-p:PublishProfile=win-x64',
+        '-p:DebugSymbols=false',
+        '-p:DebugType=None',
         ('-p:PublishDir=' + ($stagingPackage.TrimEnd('\') + '\'))
     )
     if ($SkipRestore) { $publishArgs += '--no-restore' }
@@ -276,6 +303,10 @@ try {
     if ($forbidden.Count -ne 0) {
         throw "Forbidden private or debug files entered the package: $($forbidden.FullName -join ', ')"
     }
+    $embeddedPrivatePaths = @(Find-EmbeddedPrivatePaths $stagingPackage @($repoRoot, $env:USERPROFILE))
+    if ($embeddedPrivatePaths.Count -ne 0) {
+        throw "Builder-private absolute paths entered the package: $($embeddedPrivatePaths -join ', ')"
+    }
 
     $dirty = -not [string]::IsNullOrWhiteSpace((& git -C $repoRoot status --porcelain | Out-String))
     if ($RequireClean -and $dirty) {
@@ -302,6 +333,7 @@ try {
         target_platform_min_version = $targetPlatformMinVersion
         publish_trimmed = $false
         publish_single_file = $false
+        build_paths_redacted = $true
         file_count_before_manifest = $fileCountBeforeManifest
     }
     [System.IO.File]::WriteAllText(

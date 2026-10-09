@@ -228,9 +228,11 @@ single-file、AOT 和 ReadyToRun。Windows App SDK 2.5.1 当前会生成项目 P
 PE x64 imports 已核对：除 Windows 系统 API 外需要中央安装的 `VCRUNTIME140.dll`，因此目标机必须安装
 Microsoft Visual C++ Redistributable 2015–2022 x64；不得从开发机或 System32 复制该 DLL 入包。
 
-正式数据继续位于 `%LOCALAPPDATA%\InputFlow`，包内不含配置、日志或 PDB。Startup 脚本只管理当前
-用户的 Agent 快捷方式且默认关闭。项目 `LICENSE.txt`、第三方清单、版本发布说明，以及锁定 Cargo、
-NuGet、.NET 输入随带的实际法律文件会一同打包。H 的分发证据记录在
+正式数据继续位于 `%LOCALAPPDATA%\InputFlow`，包内不含配置、日志或 PDB。Release Agent 会重映射
+Rust 诊断源路径，Release WinUI 项目关闭 CodeView/PDB 路径；打包器还会扫描包内文件并拒绝仓库或
+构建用户目录的绝对路径。Startup 脚本只管理当前用户的 Agent 快捷方式且默认关闭。项目
+`LICENSE.txt`、第三方清单、版本发布说明，以及锁定 Cargo、NuGet、.NET 输入随带的实际法律文件会
+一同打包。H 的分发证据记录在
 [`../records/FIRST_RELEASE_H_EXECUTION.md`](../records/FIRST_RELEASE_H_EXECUTION.md)，RC 的固定提交、
 包大小、SHA-256 和 smoke 记录在
 [`../records/FIRST_RELEASE_RC_EXECUTION.md`](../records/FIRST_RELEASE_RC_EXECUTION.md)；本指南不固化某次运行结果。
