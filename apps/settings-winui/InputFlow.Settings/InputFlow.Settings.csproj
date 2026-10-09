@@ -70,4 +70,23 @@
     <PublishTrimmed Condition="'$(Configuration)' == 'Debug'">False</PublishTrimmed>
     <PublishTrimmed Condition="'$(Configuration)' != 'Debug'">True</PublishTrimmed>
   </PropertyGroup>
+
+  <!--
+    Microsoft.Windows.SDK.BuildTools currently generates the application PRI
+    for unpackaged WinUI builds but does not add it to dotnet publish output.
+    Missing this file causes a delayed 0xc000027b XAML resource crash. Keep the
+    workaround local, additive and existence-guarded until the SDK supplies
+    equivalent unpackaged publish wiring.
+  -->
+  <Target Name="AddInputFlowProjectPriToPublish"
+          BeforeTargets="ComputeResolvedFilesToPublishList"
+          DependsOnTargets="$(GenerateProjectPriFile)">
+    <ItemGroup Condition="Exists('$(ProjectPriFullPath)')">
+      <ResolvedFileToPublish Remove="$(ProjectPriFullPath)" />
+      <ResolvedFileToPublish Include="$(ProjectPriFullPath)">
+        <RelativePath>$(ProjectPriFileName)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
 </Project>

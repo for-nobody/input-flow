@@ -8,6 +8,53 @@ Set-StrictMode -Version Latest
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $solution = Join-Path $repositoryRoot 'apps\settings-winui\InputFlow.Settings.slnx'
 
+function Initialize-MsvcEnvironment {
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
+        throw "vswhere.exe was not found: $vswhere"
+    }
+
+    $installationJson = (& $vswhere -all -products '*' -format json) | Out-String
+    $installations = $installationJson | ConvertFrom-Json
+    $selected = $null
+    foreach ($installation in $installations) {
+        $toolsRoot = Join-Path $installation.installationPath 'VC\Tools\MSVC'
+        if (-not (Test-Path -LiteralPath $toolsRoot -PathType Container)) { continue }
+        $toolset = Get-ChildItem -LiteralPath $toolsRoot -Directory |
+            Sort-Object Name -Descending |
+            Where-Object {
+                Test-Path -LiteralPath (Join-Path $_.FullName 'lib\x64\msvcrt.lib') -PathType Leaf
+            } |
+            Select-Object -First 1
+        if ($null -ne $toolset) {
+            $selected = $installation
+            break
+        }
+    }
+    if ($null -eq $selected) {
+        throw 'No Visual Studio installation with the x64 MSVC runtime import libraries was found.'
+    }
+
+    $vsDevCmd = Join-Path $selected.installationPath 'Common7\Tools\VsDevCmd.bat'
+    if (-not (Test-Path -LiteralPath $vsDevCmd -PathType Leaf)) {
+        throw "VsDevCmd.bat was not found: $vsDevCmd"
+    }
+    $environmentCommand = "call `"$vsDevCmd`" -no_logo -arch=x64 -host_arch=x64 >nul && set"
+    $environmentLines = & $env:ComSpec /d /c $environmentCommand
+    if ($LASTEXITCODE -ne 0) {
+        throw "VsDevCmd.bat failed with exit code $LASTEXITCODE."
+    }
+    foreach ($line in $environmentLines) {
+        if ($line -match '^([^=]+)=(.*)$') {
+            [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2], 'Process')
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($env:LIB) -or $env:LIB -notmatch [regex]::Escape($selected.installationPath)) {
+        throw 'The selected MSVC environment did not publish its library search path.'
+    }
+    Write-Host "==> MSVC environment: $($selected.installationPath)"
+}
+
 function Invoke-Checked {
     param(
         [Parameter(Mandatory)]
@@ -22,6 +69,8 @@ function Invoke-Checked {
         throw "$Description failed with exit code $LASTEXITCODE"
     }
 }
+
+Initialize-MsvcEnvironment
 
 Push-Location $repositoryRoot
 try {

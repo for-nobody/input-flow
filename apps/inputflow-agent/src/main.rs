@@ -142,9 +142,10 @@ fn run_agent(args: Args, log: &Arc<AgentLog>) -> Result<(), String> {
     log.write(
         "INFO",
         &format!(
-            "ready: rules={} source_schema={} previous_abnormal={} config_warnings={}",
+            "ready: rules={} source_schema={} config_write_blocked={} previous_abnormal={} config_warnings={}",
             start.rule_count,
             start.source_schema_version,
+            start.config_write_blocked,
             start.previous_abnormal_termination,
             start.config_problems.len()
         ),

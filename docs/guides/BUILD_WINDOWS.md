@@ -9,7 +9,9 @@
 本文记录可重复的开发构建、运行依赖和 H 阶段发布构建约束，不维护阶段状态或测试计数。历史
 环境和命令用于复现当前工程；执行新验证时把实际结果写入对应 `docs/records/` 文件。
 
-Phase A–E 的开发构建成功不代表 `dotnet publish` 最终目录、依赖、自启动、升级／移除或干净环境已经验收。下方的 framework-dependent 是当前实现，首版 self-contained 只是待验证的 H 方案。
+Phase A–E 的普通开发构建继续采用 framework-dependent 基线；H 的正式发布 profile 已实现 .NET 与
+Windows App SDK 双 self-contained 目录发布。开发构建成功仍不代表自启动、升级／移除或干净环境已经
+验收，当前事实以 H 记录为准。
 
 ## 1. 目标产物与职责
 
@@ -80,7 +82,7 @@ apps/settings-winui/
 - `TargetPlatformMinVersion=10.0.17763.0`
 - Windows App SDK 2.5.1 与 Windows SDK BuildTools 10.0.28000.2705
 - `WindowsPackageType=None`：unpackaged
-- `WindowsAppSDKSelfContained=false`：framework-dependent
+- 普通开发构建 `WindowsAppSDKSelfContained=false`；发布 profile 单独覆盖为 `true`
 - Phase A 工程范围固定为 x64；x86/ARM64 尚未纳入支持范围
 
 实际可重复命令：
@@ -158,6 +160,10 @@ Phase C 自动 smoke 示例（不含物理输入）：
 
 `scripts/build-windows.ps1` 调用已经验证的 Cargo、WinUI、protocol contract 和 settings core 测试；任一步失败都会返回非零。可用 `-SkipRestore` 复用已还原依赖。脚本不得：
 
+脚本先通过 `vswhere` 选择实际具备 x64 MSVC import libraries 的 Visual Studio／Build Tools 安装并
+导入 `VsDevCmd.bat` 环境。不能依赖 PATH 中碰巧排在前面的不完整安装；找不到 `msvcrt.lib` 时必须
+在运行测试前失败。
+
 - 自动提升权限或修改 Developer Mode。
 - 静默下载未锁定工具链。
 - 在测试失败后继续产生“成功”包。
@@ -179,24 +185,46 @@ Phase C 自动 smoke 示例（不含物理输入）：
 - Windows App SDK 下载：https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/downloads
 - Unpackaged 部署：https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/deploy-unpackaged-apps
 - 部署概览：https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/deploy-overview
+- Unpackaged WinUI publish PRI 问题：https://github.com/microsoft/WindowsAppSDK/issues/6720
+- Visual C++ 文件再分发：https://learn.microsoft.com/cpp/windows/redistributing-visual-cpp-files
 - Rust Windows bindings：https://github.com/microsoft/windows-rs
 
-## 11. H 阶段发布构建（待实现与验证）
+## 11. H 阶段发布构建
 
-实施依据：[`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md)。默认优先验证 unpackaged x64 目录发布；独立 installer／MSIX／签名不默认阻塞首版，实际分发能力必须经过目标机验证。
+实施依据：[`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md) 和
+[`../decisions/ADR-009-首版分发与用户生命周期.md`](../decisions/ADR-009-首版分发与用户生命周期.md)。
+首版采用 unpackaged Windows x64 便携目录；独立 installer／MSIX／签名不属于默认首版范围。
 
-- .NET `SelfContained` 与 `WindowsAppSDKSelfContained` 分别决定各自依赖，必须分别验证。当前项目为 framework-dependent，不提前改写状态。
-- 发布针对 `InputFlow.Settings.csproj` 或明确 profile，不向 solution 加已知无效 `-r`／Platform 参数。
-- 当前 Release 属性含 `PublishTrimmed=true`；首版发布 profile 默认可关闭裁剪并验证，优先目录发布，不为了体积引入单文件或 AOT。
-- UI 的全部资源／DLL／运行组件随最终 publish 结果整理；Agent 的 MSVC／原生依赖也需核对，不只复制两个 exe。
-- Agent 当前按自身目录找 `InputFlow.Settings.exe`，或使用 `--settings PATH`；最终布局／快捷方式必须与之匹配，且独立于工作目录。
-- 正式数据继续使用 `%LOCALAPPDATA%\InputFlow`，默认不启用拦截示例；用户自启动只指向 Agent，默认关闭且可移除。
-- 新 `scripts/package-release.ps1`（待新增）在完整门槛成功后组装版本包和 SHA-256；失败非零退出。
+统一入口（默认先执行第 8 节完整门槛）：
 
-具体 publish 命令必须对当前锁定 SDK 验证后再填写，不把候选属性／模板命令标成可重复结果。
+```powershell
+.\scripts\package-release.ps1
+```
 
-最终分发证据不在本指南预建状态表。进入 H 时创建单阶段记录，填写 ADR、实际提交／版本、完整
-命令、依赖、包路径／体积／SHA-256、干净环境、路径、自启动、升级、移除和 RC smoke 结果。
+已完成 restore 时可用 `-SkipRestore`；替换已存在的同版本输出必须显式用 `-Force`。只有调用者刚刚
+完成同一工作树的完整门槛时才使用 `-SkipBuild`。输出位于 `target\distribution`，包含版本目录、zip
+和 `SHA256SUMS.txt`；输出根必须位于仓库内，已有输出默认拒绝覆盖。
+
+Settings 的实际 publish 命令由脚本针对具体项目和 profile 执行：
+
+```powershell
+dotnet publish .\apps\settings-winui\InputFlow.Settings\InputFlow.Settings.csproj `
+  -c Release -r win-x64 -p:PublishProfile=win-x64
+```
+
+`win-x64.pubxml` 固定 `PublishSelfContained=true`、`WindowsAppSDKSelfContained=true`，并关闭 trim、
+single-file、AOT 和 ReadyToRun。Windows App SDK 2.5.1 当前会生成项目 PRI 但遗漏出 publish 目录；
+缺少 `InputFlow.Settings.pri` 会导致 Settings 延迟以 `0xc000027b` 崩溃。项目中的
+`AddInputFlowProjectPriToPublish` target 仅把已生成 PRI 加入发布清单，且在 SDK 自行修复后可移除。
+
+发布目录必须保留全部 UI DLL、XBF、PRI 和运行组件，Agent 与 `InputFlow.Settings.exe` 同目录。Agent
+PE x64 imports 已核对：除 Windows 系统 API 外需要中央安装的 `VCRUNTIME140.dll`，因此目标机必须安装
+Microsoft Visual C++ Redistributable 2015–2022 x64；不得从开发机或 System32 复制该 DLL 入包。
+
+正式数据继续位于 `%LOCALAPPDATA%\InputFlow`，包内不含配置、日志或 PDB。Startup 脚本只管理当前
+用户的 Agent 快捷方式且默认关闭。包大小、SHA-256、路径、自启动、升级／移除和未完成的干净环境
+证据只记录在 [`../records/FIRST_RELEASE_H_EXECUTION.md`](../records/FIRST_RELEASE_H_EXECUTION.md)，
+不在本指南固化某次运行结果。
 
 ## 12. 验证时长与发布后长测
 

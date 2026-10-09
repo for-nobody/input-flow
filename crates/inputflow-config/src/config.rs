@@ -281,6 +281,10 @@ pub struct LoadedConfig {
     /// Current-schema document, migrated in memory when the source was v1.
     pub config: Config,
     pub source_schema_version: u32,
+    /// A future on-disk schema must remain byte-for-byte authoritative. The
+    /// runtime may start in bypass mode, but it must not let this older build
+    /// replace the file with its empty fallback document.
+    pub write_blocked_reason: Option<String>,
     pub emergency_key: Key,
     pub rules: Vec<Rule>,
     pub problems: Vec<String>,
@@ -307,6 +311,7 @@ impl Default for LoadedConfig {
         Self {
             config: default_config(),
             source_schema_version: SCHEMA_VERSION,
+            write_blocked_reason: None,
             emergency_key: DEFAULT_EMERGENCY_KEY,
             rules: Vec::new(),
             problems: Vec::new(),
@@ -317,6 +322,9 @@ impl Default for LoadedConfig {
 /// Load and validate the config at `path`. Never fails: on any error it returns
 /// a default (empty rules) config and records the problems.
 pub fn load(path: &Path) -> LoadedConfig {
+    if let Some((source_schema_version, reason)) = future_schema_write_block(path) {
+        return future_schema_fallback(source_schema_version, reason, Vec::new());
+    }
     let primary_errors = match load_resolved(path) {
         Ok(resolved) => {
             let problems = migration_notice(resolved.source_schema_version)
@@ -325,6 +333,7 @@ pub fn load(path: &Path) -> LoadedConfig {
             return LoadedConfig {
                 config: resolved.config,
                 source_schema_version: resolved.source_schema_version,
+                write_blocked_reason: None,
                 emergency_key: resolved.emergency_key,
                 rules: resolved.rules,
                 problems,
@@ -333,6 +342,18 @@ pub fn load(path: &Path) -> LoadedConfig {
         Err(errors) => errors,
     };
     for candidate in recovery_candidates(path) {
+        if let Some((source_schema_version, reason)) = future_schema_write_block(&candidate) {
+            return future_schema_fallback(
+                source_schema_version,
+                reason,
+                vec![format!(
+                    "config `{}` could not be used, and the higher-priority recovery artifact `{}` uses a future schema. Primary error: {}",
+                    path.display(),
+                    candidate.display(),
+                    primary_errors.join("; ")
+                )],
+            );
+        }
         if let Ok(resolved) = load_resolved(&candidate) {
             let artifact_kind = if recovery_kind(path, &candidate) == Some(RecoveryKind::Backup) {
                 "committed backup"
@@ -351,6 +372,7 @@ pub fn load(path: &Path) -> LoadedConfig {
             return LoadedConfig {
                 config: resolved.config,
                 source_schema_version: resolved.source_schema_version,
+                write_blocked_reason: None,
                 emergency_key: resolved.emergency_key,
                 rules: resolved.rules,
                 problems,
@@ -365,6 +387,41 @@ pub fn load(path: &Path) -> LoadedConfig {
                 "no valid recovery artifact was found; starting with no rules (bypass)".to_string(),
             ))
             .collect(),
+        ..LoadedConfig::default()
+    }
+}
+
+fn future_schema_write_block(path: &Path) -> Option<(u32, String)> {
+    let text = fs::read_to_string(path).ok()?;
+    let value: Value = serde_json::from_str(&text).ok()?;
+    let version = value.get("schema_version")?.as_u64()?;
+    if version <= u64::from(SCHEMA_VERSION) {
+        return None;
+    }
+    let reported_version = u32::try_from(version).unwrap_or(u32::MAX);
+    Some((
+        reported_version,
+        format!(
+            "configuration `{}` uses unsupported future schema_version {version} (this build supports through {SCHEMA_VERSION}); configuration writes are blocked to prevent downgrade data loss",
+            path.display()
+        ),
+    ))
+}
+
+fn future_schema_fallback(
+    source_schema_version: u32,
+    reason: String,
+    mut problems: Vec<String>,
+) -> LoadedConfig {
+    problems.push(reason.clone());
+    problems.push(
+        "starting with no rules (bypass); use a build that supports the on-disk schema before editing configuration"
+            .to_string(),
+    );
+    LoadedConfig {
+        source_schema_version,
+        write_blocked_reason: Some(reason),
+        problems,
         ..LoadedConfig::default()
     }
 }
@@ -1294,6 +1351,44 @@ mod tests {
             parse_and_migrate_json(&missing_enabled).is_err(),
             "schema v3 must require an explicit enabled field"
         );
+    }
+
+    #[test]
+    fn future_schema_blocks_downgrade_and_ignores_older_recovery_artifacts() {
+        let dir = std::env::temp_dir().join(format!(
+            "inputflow-config-future-schema-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        let backup = path.with_file_name("config.json.bak.test.0");
+        let mut future: Value = serde_json::from_str(V4_GOLDEN).unwrap();
+        future["schema_version"] = serde_json::json!(SCHEMA_VERSION + 1);
+        let future_text = serde_json::to_string_pretty(&future).unwrap();
+        fs::write(&path, &future_text).unwrap();
+        fs::write(&backup, V4_GOLDEN).unwrap();
+
+        let loaded = load(&path);
+
+        assert_eq!(loaded.source_schema_version, SCHEMA_VERSION + 1);
+        assert!(loaded.rules.is_empty());
+        assert!(loaded.config.rules.is_empty());
+        assert!(
+            loaded
+                .write_blocked_reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("downgrade data loss"))
+        );
+        assert!(
+            loaded
+                .problems
+                .iter()
+                .any(|problem| problem.contains("future"))
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), future_text);
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

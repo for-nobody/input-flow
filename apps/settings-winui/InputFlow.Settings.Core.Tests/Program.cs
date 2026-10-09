@@ -19,6 +19,30 @@ Run("v1/v2/v3/v4 configuration contract", () =>
     Assert(v4.Rules.All(rule => rule.Trigger is MouseDirectionTrigger), "v4 direction triggers were not typed");
 });
 
+Run("future configuration schema is rejected", () =>
+{
+    using JsonDocument source = JsonDocument.Parse(File.ReadAllBytes(
+        Path.Combine(root, "fixtures", "config", "v4-valid.json")));
+    var future = new Dictionary<string, JsonElement>();
+    foreach (JsonProperty property in source.RootElement.EnumerateObject())
+    {
+        future[property.Name] = property.Value.Clone();
+    }
+    future["schema_version"] = JsonSerializer.SerializeToElement(ConfigDocument.CurrentSchemaVersion + 1);
+    using JsonDocument document = JsonDocument.Parse(JsonSerializer.Serialize(future));
+
+    bool rejected = false;
+    try
+    {
+        _ = Parse(document.RootElement);
+    }
+    catch (FormatException error) when (error.Message.Contains("Unsupported schema_version", StringComparison.Ordinal))
+    {
+        rejected = true;
+    }
+    Assert(rejected, "a future schema was accepted by the Settings codec");
+});
+
 Run("draft never mutates formal snapshot", () =>
 {
     ConfigDocument formal = ParseFixture(root, "v3-valid.json");

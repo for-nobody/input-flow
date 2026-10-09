@@ -84,6 +84,7 @@ pub struct StartReport {
     pub rule_count: usize,
     pub emergency_key: Key,
     pub source_schema_version: u32,
+    pub config_write_blocked: bool,
     pub config_problems: Vec<String>,
     pub previous_abnormal_termination: bool,
 }
@@ -146,6 +147,7 @@ struct RuntimeThreads {
 
 pub struct Runtime {
     config_path: PathBuf,
+    config_write_block_reason: Option<String>,
     current_config: Arc<Mutex<Config>>,
     apply_lock: Mutex<()>,
     metadata: Arc<Mutex<RuntimeMetadata>>,
@@ -232,16 +234,19 @@ impl Runtime {
         let rule_count = loaded.rules.len();
         let emergency_key = loaded.emergency_key;
         let source_schema_version = loaded.source_schema_version;
+        let config_write_block_reason = loaded.write_blocked_reason.clone();
+        let config_write_blocked = config_write_block_reason.is_some();
         let config_problems = loaded.problems.clone();
         let runtime = Self {
             config_path: options.config_path.clone(),
+            config_write_block_reason: config_write_block_reason.clone(),
             current_config: Arc::new(Mutex::new(loaded.config)),
             apply_lock: Mutex::new(()),
             metadata: Arc::new(Mutex::new(RuntimeMetadata {
                 phase: RuntimePhase::Ready,
                 emergency_key,
                 apply_reconciliation: ApplyReconciliation::Settled,
-                last_error: None,
+                last_error: config_write_block_reason,
             })),
             hook_thread_id: AtomicU32::new(hook_thread_id),
             rule_count: Arc::new(AtomicUsize::new(rule_count)),
@@ -257,6 +262,7 @@ impl Runtime {
                 rule_count,
                 emergency_key,
                 source_schema_version,
+                config_write_blocked,
                 config_problems,
                 previous_abnormal_termination,
             },
@@ -321,6 +327,11 @@ impl Runtime {
         self.reap_reconciliation_thread();
         if let Err(error) = self.require_ready() {
             return ApplyReport::failure(ApplyOutcome::RuntimeFailed, error, true);
+        }
+        if let Some(reason) = self.config_write_block_reason.as_deref() {
+            let error = format!("configuration apply refused: {reason}");
+            self.record_error(&error);
+            return ApplyReport::failure(ApplyOutcome::PersistenceFailed, error, false);
         }
         let reconciliation = self
             .metadata
