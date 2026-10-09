@@ -12,11 +12,10 @@ InputFlow 已完成 M1～M7、Phase F／M8 和首版发布前 G-PRE。键盘激�
 IPC、WinUI、真实边界、普通输入／拖拽、约 16 分钟混合输入，以及 UI／Pipe／配置／恢复、暂停和
 退出回归均已收口；没有发现新的核心输入或配置阻断缺陷。
 
-项目当前仍在首版发布任务的 **H**。便携工程包、依赖、路径、自启动脚本、一次真实重启登录、升级／
-移除模拟和未来 Schema 降级保护的本机工作已经完成；用户提供的全新 Windows 环境也已完成基础启动、
-前后端运行和规则添加／识别，未见报错。H5 仍需补齐该环境的准确 Windows build、四方向真实命中与
-重开读回、自启动登录及缺依赖／错误架构等未报告项。RC 与实际远端 release 尚未开始。24／72 小时
-长测继续安排在首个 release 之后。
+首版发布任务的 **H 已完成**。便携工程包、依赖、路径、自启动、升级／移除模拟和未来 Schema 降级
+保护已完成；全新 Windows x64 环境也已通过前后端启动、四方向规则命中与重开读回，以及一次真实
+重启登录自启动／禁用验收。项目下一阶段是 RC；固定最终版本包、许可事项和实际远端 release 尚未
+开始。24／72 小时长测继续安排在首个 release 之后。
 
 当前唯一执行入口是 [`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md)。Phase F 的完整历史
 证据见 [`../archive/phase-f/PHASE_F.md`](../archive/phase-f/PHASE_F.md)；G-PRE 完整结果见
@@ -31,8 +30,8 @@ IPC、WinUI、真实边界、普通输入／拖拽、约 16 分钟混合输入�
 | M7 Phase A～E | 完成 | Rust/Win32 Agent、Named Pipe、完整键盘、WinUI 设置和联合验收已收口 |
 | Phase F／M8 | **完成** | F0～F5、F-PHY-01～07、受影响 M6 路径和最终联合构建通过 |
 | G-PRE | **完成** | 自动门槛、15 分 53 秒资源采样、混合输入和 PRE-01～09 可用环境矩阵通过 |
-| H | **当前阶段；干净环境基础运行通过** | 补齐 H5 剩余 DIST 现场证据后才能完成 |
-| RC／首个 release | 未开始／未发布 | 固定最终包、完成 smoke、说明、许可和校验和后按授权发布 |
+| H | **完成** | H0～H5 与 DIST-01～07 按声明支持范围通过 |
+| RC／首个 release | **下一阶段；未开始／未发布** | 固定最终包、完成 smoke、说明、许可和校验和后按授权发布 |
 | G-POST | 计划于首版发布后 | 24／72 小时长测和 daily-drive，不阻塞首版 |
 
 ## 最近已验证证据
@@ -77,7 +76,13 @@ H 本机分发结果：
   强制结束。
 - 2026-10-10 用户在一套全新 Windows 环境确认当前工程包可以正常启动和运行，规则能够添加并识别，
   Agent 与 Settings 均未见报错；系统没有要求另装 .NET 或 Windows App Runtime，符合双
-  self-contained 发布预期。该结果尚未记录准确 Windows build，也不能证明机器缺少 VC++ runtime。
+  self-contained 发布预期。
+- 该干净环境报告 `ProductName=Windows 10 Pro`、`DisplayVersion=26H2`、build `26300.9457`、64-bit；
+  产品名可能与数值 build 不一致，因此发布支持证据以 build 为准。系统已有
+  `VCRUNTIME140.dll 14.40.33816.0`，证明声明支持路径可用，不声称验证了缺失运行库路径。
+- 用户按现场清单确认 Left／Right／Up／Down 分别真实命中，关闭并从托盘重开 Settings 后规则与参数
+  正确、Agent 在线；启用自启动时状态为 `enabled_current_path`。重启登录后只有 Agent 常驻、Settings
+  未启动且规则仍可识别；禁用后状态为 `disabled`、快捷方式目标和工作目录均清空。
 
 ## 已知限制与后续观察
 
@@ -88,14 +93,15 @@ H 本机分发结果：
   不隐藏样本也不调高参考线。
 - keypad Enter、独立播放键、中文 Narrator 实际语音和 partial `SendInput` 保持既有硬件／环境限制。
 - G-PRE 本轮未新增睡眠／唤醒和提升完整性目标的物理证据；现有确定性边界继续有效。
-- H 工程包、本机自启动／真实登录／升级／移除已完成；全新 Windows 的基础运行和规则识别已通过，
-  但 H5 的完整四方向读回、自启动登录、缺依赖／错误架构等现场证据尚未齐全。许可／签名和远端
-  release 仍未完成。
+- H 工程包、本机与全新 Windows 的分发／自启动证据、升级／移除模拟均已完成。缺少 VC++ runtime
+  的真实启动失败没有通过删除系统 DLL 强制制造；首版支持范围明确要求 Windows x64 和 VC++
+  Redistributable，并在包名、manifest 与用户指南中给出可理解说明。
+- 许可选择、签名和远端 release 仍未完成；H 工程包的 manifest 仍如实标记旧提交和 dirty 状态，
+  必须由 RC 从固定干净提交重新构建，不能直接改名冒充最终发行包。
 - 24／72 小时长测尚未执行；首版仍定位公开测试版本，不宣称长期稳定。
 
 ## 下一步
 
-按 [`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md) 收尾 H：在当前全新 Windows 环境记录准确
-系统 build，并补齐剩余 DIST-01／02／04／07 现场证据。详细步骤与已完成结果见
-[`../records/FIRST_RELEASE_H_EXECUTION.md`](../records/FIRST_RELEASE_H_EXECUTION.md)。该项完成前 H 保持
-未通过，不进入 RC，也不提前执行发布后 G-POST。
+按 [`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md) 进入 RC：先决定实际版本号与许可证，固定
+干净提交后通过统一入口重建最终包，再对该精确包执行有限 smoke、校验 SHA-256、说明和许可附件。
+没有对应远端发布授权前，只准备可审阅产物与 release 草稿；不提前执行发布后 G-POST。

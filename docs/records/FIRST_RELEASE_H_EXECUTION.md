@@ -2,7 +2,7 @@
 
 > 文档类型：当前阶段事实记录
 >
-> 状态：本机范围完成；全新 Windows 基础运行通过，H5 剩余现场矩阵待补齐
+> 状态：已完成
 >
 > 开始时间：2026-10-09（Australia/Brisbane）
 >
@@ -37,10 +37,9 @@
 
 ## 4. 当前状态
 
-H0～H4 的实现、本机可执行矩阵和真实重启登录验证已完成。当前存在一个可审阅的 H 工程包，但它
-来自未提交工作树，不是 RC／最终 release。用户随后在全新 Windows 环境确认 Agent／Settings 基础
-启动运行及规则添加／识别正常；H5 的完整现场矩阵和准确支持范围仍未齐全，因此还不能声明“分发已
-验收”，也不进入 RC。
+H0～H5 已按声明支持范围完成。当前 H 工程包通过本机矩阵和全新 Windows x64 现场验收，但它来自
+未提交工作树，manifest 也如实记录旧提交和 dirty 状态，因此只作为 H 工程证据，不是 RC／最终
+release。下一阶段必须从固定干净提交重新构建并验证精确 RC 包。
 
 ## 5. 环境与完整门槛
 
@@ -160,30 +159,38 @@ Schema 二进制升级**。旧／新 Agent SHA-256 不同是重新链接所致�
 
 2026-10-10，用户在一套全新 Windows 环境运行当前工程包，确认 Agent 和 Settings 均可正常启动、
 运行且没有报错，规则可以添加并被正常识别；首次运行没有要求安装 .NET 或 Windows App Runtime。
-这与发布包携带 .NET 10 和 Windows App SDK 的双 self-contained 配置一致。当前没有记录该环境的
-准确 Windows edition／build；没有安装提示也不能证明 `VCRUNTIME140.dll` 原先不存在，只能证明
-该机启动时依赖可被解析。
+这与发布包携带 .NET 10 和 Windows App SDK 的双 self-contained 配置一致。
+
+现场系统输出为 `ProductName=Windows 10 Pro`、`DisplayVersion=26H2`、build `26300.9457`、64-bit。
+产品名可能与数值 build 不一致，兼容证据以 build 为准。`C:\Windows\System32\vcruntime140.dll` 存在，
+版本 `14.40.33816.0`；该结果证明声明前置条件满足时可运行，不冒充缺少 VC++ runtime 的失败注入。
+
+用户按清单确认 Left／Right／Up／Down 分别真实命中，关闭并从托盘重开 Settings 后规则和参数正确、
+Agent 在线。自启动 status 的目标和工作目录均指向桌面解压目录，状态为 `enabled_current_path`；重启
+登录后程序正常，只有 Agent 常驻、Settings 未启动，规则仍可识别。运行 disable 后状态为 `disabled`，
+`target_path` 与 `working_directory` 均为 `null`。
 
 | 编号 | 当前结果 | 结论 |
 |---|---|---|
-| DIST-01 | 全新 Windows 上 Agent／Settings 可正常启动运行且无报错，未要求另装 .NET／Windows App Runtime；尚未单独记录准确 OS build、`ready` 和托盘观察 | **部分；干净机基础运行通过** |
-| DIST-02 | 全新 Windows 上规则添加／识别正常；尚未明确记录四个方向分别真实命中以及关闭／重开 UI 后读回 | **部分；基础规则路径通过** |
-| DIST-03 | 空格／中文路径、任意工作目录、单实例、真实桌面托盘 Open Settings 通过 | **本机通过** |
-| DIST-04 | 隔离矩阵、真实 Startup CMD 及一次用户手动重启通过；登录后仅一个 Agent、Settings 未常驻，随后恢复禁用 | **本机通过；待干净机复核** |
-| DIST-05 | 配置／禁用状态保留模拟和最终包未来 Schema 写保护通过；未冒充真实版本升级 | **本机范围通过** |
-| DIST-06 | 正常有界退出、禁用入口、删除完整程序目录、保留数据、无残留进程通过 | **本机通过** |
-| DIST-07 | 全新 Windows 可直接运行，说明启动时 VC++ 依赖可解析；x64、VC++ 依赖、未签名提示和系统保护说明已写明，但缺依赖／错误架构场景仍未执行 | **部分** |
+| DIST-01 | 无开发工具的全新 Windows 64-bit build 26300.9457 上 Agent／托盘／Settings 正常且无报错；未要求安装 .NET／Windows App Runtime | **通过** |
+| DIST-02 | 用户按清单确认四方向分别真实命中；关闭并从托盘重开 Settings 后规则与参数正确、Agent 在线 | **通过** |
+| DIST-03 | 空格／中文路径、任意工作目录、单实例、真实桌面托盘 Open Settings 通过 | **通过** |
+| DIST-04 | 干净机 enable 状态及目标／工作目录正确；重启登录后仅 Agent 常驻、Settings 未启动、规则可识别；disable 后状态与路径清空 | **通过** |
+| DIST-05 | 配置／禁用状态保留模拟和最终包未来 Schema 写保护通过；明确记录并未冒充真实版本升级 | **通过（声明范围）** |
+| DIST-06 | 正常有界退出、禁用入口、删除完整程序目录、保留数据、无残留进程通过 | **通过** |
+| DIST-07 | 包名／manifest／用户指南明确 x64 与 VC++ x64 前置条件、未签名提示及系统保护要求；干净机以 `VCRUNTIME140.dll 14.40.33816.0` 验证支持路径。未破坏系统 DLL 制造缺依赖 | **通过（声明支持范围）** |
 
 本机未发现 Windows Sandbox、Hyper-V `Get-VM`／服务、Docker、VirtualBox 或 VMware。查询 Windows
 optional feature 还需要提升，但对应 Sandbox 可执行文件不存在；因此没有可诚实充当“无 Rust、Visual
 Studio、.NET SDK 或开发仓库”的第二个 Windows 环境。
 
-## 11. 未完成项与进入 RC 条件
+## 11. 完成结论与进入 RC 条件
 
-H 当前已取得全新 Windows 的基础运行证据，但仍需在该环境补记准确 Windows edition／build，并完成
-DIST-01／02／04／07 的剩余缺口，尤其明确记录 Agent `ready`／托盘、四方向分别真实命中和重开读回、
-一次干净用户登录启动，以及缺少 VC++ 依赖或错误架构时的可理解失败。原开发机器已安装 Rust、
-Visual Studio、.NET SDK 并包含开发仓库，它的既有结果仍不能替代这些现场证据。
+H0～H5 和 DIST-01～07 已按声明支持范围通过，H 完成。支持证据限定为 Windows x64 build
+26300.9457，并要求 Microsoft Visual C++ Redistributable 2015–2022 x64；最低 TFM 不扩张为未经实测
+的系统承诺。缺少运行库的真实失败未通过删除／改名系统 DLL 制造，依赖和恢复入口由静态 PE 导入、
+包 manifest 与用户指南明确说明。
 
-取得并记录这些结果前，`FIRST_RELEASE.md` 的 H 门槛保持未勾选，不开始 RC，不把当前工程包称为
-最终发行包。
+可以进入 RC，但不得把当前 H 工程包直接改名为最终包。RC 必须从固定干净提交通过统一入口重新构建，
+记录新 manifest、SHA-256 和版本，并对该精确包执行任务卡规定的有限 smoke；许可证、版本号和远端
+发布仍按对应授权处理。
