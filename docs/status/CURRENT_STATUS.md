@@ -14,8 +14,9 @@ IPC、WinUI、真实边界、普通输入／拖拽、约 16 分钟混合输入�
 
 首版发布任务的 **H 已完成**。便携工程包、依赖、路径、自启动、升级／移除模拟和未来 Schema 降级
 保护已完成；全新 Windows x64 环境也已通过前后端启动、四方向规则命中与重开读回，以及一次真实
-重启登录自启动／禁用验收。项目已经进入 RC；用户确定版本 `v0.9.0` 和 MIT License，当前正在统一
-版本面、许可附件、发布说明和干净构建门槛。最终包、精确包 smoke 和实际远端 release 尚未完成。
+重启登录自启动／禁用验收。项目已经进入 RC；用户确定版本 `v0.9.0` 和 MIT License。版本面、许可
+附件、发布说明、干净构建门槛和固定最终 zip 已完成，精确 zip 的自动／IPC／Settings 壳层 smoke 也
+已通过。当前只待最终包的四方向真实命中、失败／取消与 F12 物理 smoke；实际远端 release 未获授权。
 24／72 小时长测继续安排在首个 release 之后。
 
 当前唯一执行入口是 [`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md)。Phase F 的完整历史
@@ -33,10 +34,23 @@ IPC、WinUI、真实边界、普通输入／拖拽、约 16 分钟混合输入�
 | Phase F／M8 | **完成** | F0～F5、F-PHY-01～07、受影响 M6 路径和最终联合构建通过 |
 | G-PRE | **完成** | 自动门槛、15 分 53 秒资源采样、混合输入和 PRE-01～09 可用环境矩阵通过 |
 | H | **完成** | H0～H5 与 DIST-01～07 按声明支持范围通过 |
-| RC／首个 release | **RC 执行中；未发布** | 版本与 MIT License 已确定；待固定最终包、完成 smoke、说明附件和校验和后按授权发布 |
+| RC／首个 release | **RC 执行中；固定包已完成，未发布** | `bc48c36d...` 最终包与自动 smoke 已通过；待物理输入 smoke 后按授权发布 |
 | G-POST | 计划于首版发布后 | 24／72 小时长测和 daily-drive，不阻塞首版 |
 
 ## 最近已验证证据
+
+RC 固定包结果：
+
+- 最终构建提交 `bc48c36d73b94106d53fe192175dc005f756fe25`；`-RequireClean` 完整入口退出码 0，
+  Rust **172／172**、C# protocol **7／7**、Settings Core **12／12**，WinUI Debug／Release 均 0 warning、
+  0 error。
+- `InputFlow-0.9.0-win-x64.zip` 为 94,128,454 bytes，SHA-256
+  `A287489C5224DE45685B2B89D799C44472384CF22B12C98E13B3C318BC004537`；解压 245,226,071 bytes、
+  579 个文件。manifest 提交匹配、`worktree_dirty=false`、MIT、Pre-release、私有构建路径已重映射。
+- 精确 zip 的全新解压副本通过 Agent 100 轮 smoke、C# live IPC contract、真实 Settings 窗口启动／正常
+  关闭与 Agent 干净停止。包内 PDB、用户配置／日志／marker、仓库／构建用户绝对路径命中均为 0。
+- 自动合成输入按设计不会穿透为物理 Hook 证据；最终 zip 的四方向真实命中、失败／取消和 F12 暂停
+  恢复仍待用户短验收，因此 RC 尚未完成。
 
 G-PRE 固定提交的自动与联合门槛：
 
@@ -104,6 +118,6 @@ H 本机分发结果：
 
 ## 下一步
 
-按 [`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md) 完成 `v0.9.0` RC：先完成版本、MIT 与发布
-材料改动并固定干净提交，通过统一入口重建最终包，再对该精确包执行有限 smoke、校验 SHA-256 与附件。
-没有对应远端发布授权前，只准备可审阅产物与 release 草稿；不提前执行发布后 G-POST。
+对 SHA-256 为 `A287489C...004537` 的精确最终 zip 完成任务卡第 4 项物理输入 smoke；通过后收口 RC
+记录与状态。没有对应远端发布授权前，只交付可审阅产物与 release 草稿，不创建／推送 tag 或 release；
+不提前执行发布后 G-POST。

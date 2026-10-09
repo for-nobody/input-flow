@@ -8,8 +8,9 @@ InputFlow 是 Windows 全局键盘与鼠标输入组合引擎。它只暂扣可�
 M1～M7、Phase F／M8 和发布前 G-PRE 已完成。鼠标四方向、Schema v4、IPC、WinUI、真实方向
 与边界、约 16 分钟混合输入、UI／Pipe／配置／恢复及 pause／replace／正常退出回归均已收口。
 分发阶段 H 已完成，包括本机工程包、生命周期、真实重启登录与全新 Windows x64 环境验收。项目已
-进入 `v0.9.0` RC：版本和 MIT License 已确定，正在固定最终包、许可附件、说明、校验和与精确包
-smoke；首个 release 尚未发布。24／72 小时长测安排在首版发布后。
+进入 `v0.9.0` RC：版本、MIT License、固定包、许可附件、说明和校验和已经完成，精确 ZIP 的自动
+smoke 与 Settings 启动／关闭也已通过；当前只待该 ZIP 的最终物理输入 smoke 和获授权后的远端发布。
+首个 release 尚未发布，24／72 小时长测安排在首版发布后。
 
 详细状态和下一步以
 [`docs/status/CURRENT_STATUS.md`](docs/status/CURRENT_STATUS.md) 为唯一权威。
