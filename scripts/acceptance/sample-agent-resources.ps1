@@ -63,7 +63,7 @@ $handshake = Invoke-Frame $pipe ([ordered]@{
     protocol_version = 1
     request_id = New-RequestId
     method = 'handshake'
-    params = [ordered]@{ client_name = 'InputFlow.AcceptanceSampler'; client_version = '0.1.0' }
+    params = [ordered]@{ client_name = 'InputFlow.AcceptanceSampler'; client_version = '0.9.0' }
 })
 if ($handshake.type -ne 'success') { throw "Handshake failed: $($handshake | ConvertTo-Json -Compress -Depth 10)" }
 

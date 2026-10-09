@@ -40,7 +40,22 @@ using (JsonDocument config = JsonDocument.Parse(
         "protocol get_config golden does not contain the shared schema-v4 golden config");
 }
 
-Console.WriteLine($"InputFlow.Protocol contract tests passed: {fixtures.Length + 1}");
+using (JsonDocument request = JsonDocument.Parse(
+    await File.ReadAllBytesAsync(Path.Combine(fixtureDirectory, "handshake-request.json"))))
+using (JsonDocument response = JsonDocument.Parse(
+    await File.ReadAllBytesAsync(Path.Combine(fixtureDirectory, "handshake-response.json"))))
+{
+    Assert(
+        request.RootElement.GetProperty("params").GetProperty("client_version").GetString() ==
+            ProtocolConstants.ProductVersion,
+        "handshake request fixture product version does not match the C# client");
+    Assert(
+        response.RootElement.GetProperty("result").GetProperty("server_version").GetString() ==
+            ProtocolConstants.ProductVersion,
+        "handshake response fixture product version does not match the release version");
+}
+
+Console.WriteLine($"InputFlow.Protocol contract tests passed: {fixtures.Length + 2}");
 
 if (args.Contains("--live", StringComparer.Ordinal))
 {

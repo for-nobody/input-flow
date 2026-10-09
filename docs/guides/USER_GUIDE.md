@@ -1,4 +1,4 @@
-# InputFlow 用户指南（Windows x64 公开测试版）
+# InputFlow v0.9.0 用户指南（Windows x64 公开测试版）
 
 InputFlow 是一个本地运行的键盘与鼠标组合工具。`inputflow-agent.exe` 常驻并拥有托盘、输入 Hook、
 配置和 IPC；`InputFlow.Settings.exe` 只在需要配置时运行。首版是公开测试版本，尚未完成 24／72
@@ -6,10 +6,12 @@ InputFlow 是一个本地运行的键盘与鼠标组合工具。`inputflow-agent
 
 ## 首次运行
 
-1. 将整个 zip 解压到一个普通用户可写目录。不要只复制两个 EXE；包内 DLL 和资源必须保持完整。
-2. 运行 `inputflow-agent.exe`。它会在通知区域显示 InputFlow 图标。
-3. 双击托盘图标或从托盘菜单选择 **Open Settings**。
-4. 首次启动没有启用的演示规则，不会主动拦截正常输入。
+1. 下载 `InputFlow-0.9.0-win-x64.zip` 与 `SHA256SUMS.txt`，用
+   `Get-FileHash .\InputFlow-0.9.0-win-x64.zip -Algorithm SHA256` 核对发布页校验和。
+2. 将整个 zip 解压到一个普通用户可写目录。不要只复制两个 EXE；包内 DLL、资源和许可文件必须保持完整。
+3. 运行 `inputflow-agent.exe`。它会在通知区域显示 InputFlow 图标。
+4. 双击托盘图标或从托盘菜单选择 **Open Settings**。
+5. 首次启动没有启用的演示规则，不会主动拦截正常输入。
 
 本包面向 Windows x64，声明的最低系统版本为 Windows 10 build 17763；首版实际分发验收范围以发布
 说明列出的系统为准。目录包同时携带 .NET 与 Windows App SDK 运行组件，无需单独安装这两项；
@@ -80,3 +82,8 @@ Schema v4 包含鼠标方向。早于 v4 的旧 Agent／Settings 不支持这些
 
 已知未完整验证项包括多屏／跨 DPI 热插拔、部分特殊键硬件、中文 Narrator 实际语音、partial
 `SendInput`、睡眠／唤醒和 24／72 小时长测。
+
+## 许可证
+
+InputFlow 采用 MIT License。项目许可证见包内 `LICENSE.txt`；第三方组件清单和完整许可材料见
+`THIRD-PARTY-NOTICES.txt` 与 `Licenses` 目录。

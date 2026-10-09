@@ -62,7 +62,7 @@ InputFlow 是 Windows 全局键盘与鼠标输入组合引擎。它像一把扳�
 
 ### 2.4 首版交付与发布后工作
 
-首版按 [`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md) 完成有限回归、x64 分发方案、运行依赖、路径、自启动、升级／移除、干净环境和最终包 smoke。默认建议 `v0.9.0-beta.1` Pre-release；最终版本与支持范围以真实产物和用户决定为准。MSIX、独立 installer、商业签名、商店和自动更新不是默认首版必需项；可运行、可移除的实际分发流程必须有证据。
+首版按 [`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md) 完成有限回归、x64 分发方案、运行依赖、路径、自启动、升级／移除、干净环境和最终包 smoke。用户已确定版本 `v0.9.0` 和 MIT License，发布平台标记 Pre-release；支持范围以真实产物为准。MSIX、独立 installer、商业签名、商店和自动更新不是默认首版必需项；可运行、可移除的实际分发流程必须有证据。
 
 发布后按 [`../tasks/POST_RELEASE_SOAK.md`](../tasks/POST_RELEASE_SOAK.md) 逐步完成 24／72 小时及 daily-drive。首版说明必须写明长测尚未完成，不提前承诺核心行为、Schema 或所有设备长期稳定。
 

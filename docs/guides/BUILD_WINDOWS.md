@@ -6,7 +6,7 @@
 
 ## 0. 适用范围
 
-本文记录可重复的开发构建、运行依赖和 H 阶段发布构建约束，不维护阶段状态或测试计数。历史
+本文记录可重复的开发构建、运行依赖和 H／RC 发布构建约束，不维护阶段状态或测试计数。历史
 环境和命令用于复现当前工程；执行新验证时把实际结果写入对应 `docs/records/` 文件。
 
 Phase A–E 的普通开发构建继续采用 framework-dependent 基线；H 的正式发布 profile 已实现 .NET 与
@@ -189,7 +189,7 @@ Phase C 自动 smoke 示例（不含物理输入）：
 - Visual C++ 文件再分发：https://learn.microsoft.com/cpp/windows/redistributing-visual-cpp-files
 - Rust Windows bindings：https://github.com/microsoft/windows-rs
 
-## 11. H 阶段发布构建
+## 11. H／RC 发布构建
 
 实施依据：[`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md) 和
 [`../decisions/ADR-009-首版分发与用户生命周期.md`](../decisions/ADR-009-首版分发与用户生命周期.md)。
@@ -204,6 +204,13 @@ Phase C 自动 smoke 示例（不含物理输入）：
 已完成 restore 时可用 `-SkipRestore`；替换已存在的同版本输出必须显式用 `-Force`。只有调用者刚刚
 完成同一工作树的完整门槛时才使用 `-SkipBuild`。输出位于 `target\distribution`，包含版本目录、zip
 和 `SHA256SUMS.txt`；输出根必须位于仓库内，已有输出默认拒绝覆盖。
+
+RC 必须从已经固定的干净提交运行，并增加 `-RequireClean`；脚本会在构建前后检查 Git 状态，同时核对
+Rust workspace、Agent handshake、Settings assembly、协议客户端和两个 Windows manifest 的版本面：
+
+```powershell
+.\scripts\package-release.ps1 -RequireClean -Force
+```
 
 Settings 的实际 publish 命令由脚本针对具体项目和 profile 执行：
 
@@ -222,9 +229,11 @@ PE x64 imports 已核对：除 Windows 系统 API 外需要中央安装的 `VCRU
 Microsoft Visual C++ Redistributable 2015–2022 x64；不得从开发机或 System32 复制该 DLL 入包。
 
 正式数据继续位于 `%LOCALAPPDATA%\InputFlow`，包内不含配置、日志或 PDB。Startup 脚本只管理当前
-用户的 Agent 快捷方式且默认关闭。包大小、SHA-256、路径、自启动、升级／移除和未完成的干净环境
-证据只记录在 [`../records/FIRST_RELEASE_H_EXECUTION.md`](../records/FIRST_RELEASE_H_EXECUTION.md)，
-不在本指南固化某次运行结果。
+用户的 Agent 快捷方式且默认关闭。项目 `LICENSE.txt`、第三方清单、版本发布说明，以及锁定 Cargo、
+NuGet、.NET 输入随带的实际法律文件会一同打包。H 的分发证据记录在
+[`../records/FIRST_RELEASE_H_EXECUTION.md`](../records/FIRST_RELEASE_H_EXECUTION.md)，RC 的固定提交、
+包大小、SHA-256 和 smoke 记录在
+[`../records/FIRST_RELEASE_RC_EXECUTION.md`](../records/FIRST_RELEASE_RC_EXECUTION.md)；本指南不固化某次运行结果。
 
 ## 12. 验证时长与发布后长测
 

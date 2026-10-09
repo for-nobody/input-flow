@@ -47,7 +47,7 @@ public sealed class InputFlowClient : IAsyncDisposable
                 {
                     writer.WriteStartObject();
                     writer.WriteString("client_name", "InputFlow.Settings");
-                    writer.WriteString("client_version", "0.1.0");
+                    writer.WriteString("client_version", ProtocolConstants.ProductVersion);
                     writer.WriteEndObject();
                 },
                 cancellationToken).ConfigureAwait(false);

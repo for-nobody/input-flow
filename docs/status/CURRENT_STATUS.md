@@ -4,7 +4,7 @@
 >
 > 最后更新：2026-10-10（Australia/Brisbane）
 >
-> 代码基线：`main`；H 实现与证据随本状态文档一同版本化，工程包的精确构建基线见 H 执行记录
+> 代码基线：`main`；H 已完成，当前 `v0.9.0` RC 的精确事实见 RC 执行记录
 
 ## 当前结论
 
@@ -14,13 +14,15 @@ IPC、WinUI、真实边界、普通输入／拖拽、约 16 分钟混合输入�
 
 首版发布任务的 **H 已完成**。便携工程包、依赖、路径、自启动、升级／移除模拟和未来 Schema 降级
 保护已完成；全新 Windows x64 环境也已通过前后端启动、四方向规则命中与重开读回，以及一次真实
-重启登录自启动／禁用验收。项目下一阶段是 RC；固定最终版本包、许可事项和实际远端 release 尚未
-开始。24／72 小时长测继续安排在首个 release 之后。
+重启登录自启动／禁用验收。项目已经进入 RC；用户确定版本 `v0.9.0` 和 MIT License，当前正在统一
+版本面、许可附件、发布说明和干净构建门槛。最终包、精确包 smoke 和实际远端 release 尚未完成。
+24／72 小时长测继续安排在首个 release 之后。
 
 当前唯一执行入口是 [`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md)。Phase F 的完整历史
 证据见 [`../archive/phase-f/PHASE_F.md`](../archive/phase-f/PHASE_F.md)；G-PRE 完整结果见
-[`../archive/first-release/G_PRE.md`](../archive/first-release/G_PRE.md)。当前 H 记录见
-[`../records/FIRST_RELEASE_H_EXECUTION.md`](../records/FIRST_RELEASE_H_EXECUTION.md)。
+[`../archive/first-release/G_PRE.md`](../archive/first-release/G_PRE.md)。H 记录见
+[`../records/FIRST_RELEASE_H_EXECUTION.md`](../records/FIRST_RELEASE_H_EXECUTION.md)；当前 RC 记录见
+[`../records/FIRST_RELEASE_RC_EXECUTION.md`](../records/FIRST_RELEASE_RC_EXECUTION.md)。
 
 ## 阶段状态
 
@@ -31,7 +33,7 @@ IPC、WinUI、真实边界、普通输入／拖拽、约 16 分钟混合输入�
 | Phase F／M8 | **完成** | F0～F5、F-PHY-01～07、受影响 M6 路径和最终联合构建通过 |
 | G-PRE | **完成** | 自动门槛、15 分 53 秒资源采样、混合输入和 PRE-01～09 可用环境矩阵通过 |
 | H | **完成** | H0～H5 与 DIST-01～07 按声明支持范围通过 |
-| RC／首个 release | **下一阶段；未开始／未发布** | 固定最终包、完成 smoke、说明、许可和校验和后按授权发布 |
+| RC／首个 release | **RC 执行中；未发布** | 版本与 MIT License 已确定；待固定最终包、完成 smoke、说明附件和校验和后按授权发布 |
 | G-POST | 计划于首版发布后 | 24／72 小时长测和 daily-drive，不阻塞首版 |
 
 ## 最近已验证证据
@@ -96,12 +98,12 @@ H 本机分发结果：
 - H 工程包、本机与全新 Windows 的分发／自启动证据、升级／移除模拟均已完成。缺少 VC++ runtime
   的真实启动失败没有通过删除系统 DLL 强制制造；首版支持范围明确要求 Windows x64 和 VC++
   Redistributable，并在包名、manifest 与用户指南中给出可理解说明。
-- 许可选择、签名和远端 release 仍未完成；H 工程包的 manifest 仍如实标记旧提交和 dirty 状态，
+- MIT License 已确定；签名和远端 release 仍未完成。H 工程包的 manifest 仍如实标记旧提交和 dirty 状态，
   必须由 RC 从固定干净提交重新构建，不能直接改名冒充最终发行包。
 - 24／72 小时长测尚未执行；首版仍定位公开测试版本，不宣称长期稳定。
 
 ## 下一步
 
-按 [`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md) 进入 RC：先决定实际版本号与许可证，固定
-干净提交后通过统一入口重建最终包，再对该精确包执行有限 smoke、校验 SHA-256、说明和许可附件。
+按 [`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md) 完成 `v0.9.0` RC：先完成版本、MIT 与发布
+材料改动并固定干净提交，通过统一入口重建最终包，再对该精确包执行有限 smoke、校验 SHA-256 与附件。
 没有对应远端发布授权前，只准备可审阅产物与 release 草稿；不提前执行发布后 G-POST。

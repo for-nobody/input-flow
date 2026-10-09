@@ -4,6 +4,7 @@ namespace InputFlow.Protocol;
 
 public static class ProtocolConstants
 {
+    public const string ProductVersion = "0.9.0";
     public const uint Version = 1;
     public const int MaximumFrameBytes = 1024 * 1024;
     public const int DefaultResponseTimeoutMilliseconds = 3_000;

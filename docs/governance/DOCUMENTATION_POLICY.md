@@ -24,6 +24,7 @@
 | `docs/tasks/` | 未完成任务的验收条件和操作清单 |
 | `docs/records/` | 当前阶段实际执行的证据，不放未来阶段模板 |
 | `docs/guides/` | 构建、运行、验收和故障排查步骤 |
+| `docs/releases/` | 版本对应的用户发布说明、下载和已知限制 |
 | `docs/reference/` | 术语、研究和协议／配置 fixture 说明 |
 | `docs/decisions/` | ADR 模板和仍有效的决策 |
 | `docs/archive/<milestone>/` | 已完成任务、旧计划、交接和历史执行快照 |

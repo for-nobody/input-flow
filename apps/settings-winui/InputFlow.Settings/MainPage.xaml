@@ -232,8 +232,9 @@
                     <TextBlock FontSize="24" FontWeight="SemiBold" Text="关于 InputFlow" />
                     <TextBlock x:Name="VersionText" TextWrapping="Wrap" />
                     <TextBlock Text="支持范围：key_chord、key_mouse_button、hold、hold_mouse_button、mouse_direction 触发器，以及 key_chord 动作。录制一次只观察一个键或鼠标按钮。" TextWrapping="Wrap" />
-                    <TextBlock Text="当前 x64 设置程序为 unpackaged + framework-dependent，需要 .NET Desktop Runtime 10 和 Windows App Runtime 2.5。关闭此窗口不会停止 Rust Agent、Hook 或托盘。" TextWrapping="Wrap" />
-                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="尚不支持：Fn、任意三键、按应用生效、打开程序/文件夹/网页、登录启动和系统辅助功能开关。" TextWrapping="Wrap" />
+                    <TextBlock Text="v0.9.0 x64 便携包采用 unpackaged + 双 self-contained，随包携带 .NET 与 Windows App SDK；系统仍需 Microsoft Visual C++ Redistributable 2015–2022 x64。关闭此窗口不会停止 Rust Agent、Hook 或托盘。" TextWrapping="Wrap" />
+                    <TextBlock Text="项目采用 MIT 许可证；项目许可证和第三方许可文件随发布包提供。登录自启动默认关闭，可由包内 enable / status / disable 脚本管理。" TextWrapping="Wrap" />
+                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="尚不支持：Fn、任意三键、按应用生效、打开程序/文件夹/网页，以及设置页内的登录启动和系统辅助功能开关。" TextWrapping="Wrap" />
                 </StackPanel>
             </ScrollViewer>
         </Grid>

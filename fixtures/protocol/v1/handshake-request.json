@@ -4,6 +4,6 @@
   "method": "handshake",
   "params": {
     "client_name": "InputFlow.Settings",
-    "client_version": "0.1.0"
+    "client_version": "0.9.0"
   }
 }

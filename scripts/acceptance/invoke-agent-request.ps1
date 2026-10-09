@@ -59,7 +59,7 @@ try {
         method = 'handshake'
         params = [ordered]@{
             client_name = 'InputFlow.AcceptanceInvoker'
-            client_version = '0.1.0'
+            client_version = '0.9.0'
         }
     })
     if ($handshake.type -ne 'success') {

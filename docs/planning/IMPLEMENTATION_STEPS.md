@@ -21,7 +21,7 @@
 1. **G-PRE**：按 [`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md) 完成有限自动回归、混合输入和恢复边界。
 2. **H**：固定 x64 分发模式，完成依赖、路径、自启动、升级、移除和干净环境验收。
 3. **RC**：固定提交和最终包，完成发布 smoke、版本、许可、说明和 SHA-256。
-4. **首个 release**：建议 `v0.9.0-beta.1` Pre-release；实际远端动作仍需要对应授权。
+4. **首个 release**：版本 `v0.9.0`，发布平台标记 Pre-release；实际远端动作仍需要对应授权。
 5. **G-POST**：首版实际发布后按
    [`../tasks/POST_RELEASE_SOAK.md`](../tasks/POST_RELEASE_SOAK.md) 执行 24／72 小时长测和加固。
 

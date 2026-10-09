@@ -13,6 +13,8 @@ namespace InputFlow_Settings;
 
 public sealed partial class MainPage : Page
 {
+    private static readonly Version SettingsVersion =
+        Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 9, 0);
     private readonly DraftSession _draft = new();
     private readonly List<KeyPicker> _actionPickers = [];
     private readonly CancellationTokenSource _pageLifetime = new();
@@ -48,8 +50,7 @@ public sealed partial class MainPage : Page
         DirectionCombo.ItemsSource = InputCatalog.MouseDirections;
         DirectionCombo.SelectedItem = MouseDirection.Right;
         TriggerTypeCombo.SelectedIndex = 0;
-        Version version = Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 1, 0);
-        VersionText.Text = $"版本 {version.ToString(3)}　进程架构 {RuntimeInformation.ProcessArchitecture}　配置 Schema v{ConfigDocument.CurrentSchemaVersion}";
+        UpdateVersionText();
         _draft.Changed += Draft_Changed;
         SizeChanged += MainPage_SizeChanged;
     }
@@ -172,6 +173,7 @@ public sealed partial class MainPage : Page
 
     private void ApplyAuthoritySnapshot()
     {
+        UpdateVersionText();
         if (_coordinator?.LatestConfig is ConfigDocument formal)
         {
             if (!_draft.IsLoaded)
@@ -213,6 +215,13 @@ public sealed partial class MainPage : Page
                     : InfoBarSeverity.Success;
             }
         }
+    }
+
+    private void UpdateVersionText()
+    {
+        string agentVersion = _coordinator?.Handshake?.ServerVersion ?? "未连接";
+        VersionText.Text =
+            $"Settings v{SettingsVersion.ToString(3)}　Agent v{agentVersion}　进程架构 {RuntimeInformation.ProcessArchitecture}　配置 Schema v{ConfigDocument.CurrentSchemaVersion}";
     }
 
     private void Draft_Changed(object? sender, EventArgs e)
