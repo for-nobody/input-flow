@@ -13,8 +13,10 @@ IPC、WinUI、真实边界、普通输入／拖拽、约 16 分钟混合输入�
 退出回归均已收口；没有发现新的核心输入或配置阻断缺陷。
 
 项目当前仍在首版发布任务的 **H**。便携工程包、依赖、路径、自启动脚本、一次真实重启登录、升级／
-移除模拟和未来 Schema 降级保护的本机工作已经完成；只剩 VM／第二台设备的独立干净环境 DIST
-验收。RC 与实际远端 release 尚未开始。24／72 小时长测继续安排在首个 release 之后。
+移除模拟和未来 Schema 降级保护的本机工作已经完成；用户提供的全新 Windows 环境也已完成基础启动、
+前后端运行和规则添加／识别，未见报错。H5 仍需补齐该环境的准确 Windows build、四方向真实命中与
+重开读回、自启动登录及缺依赖／错误架构等未报告项。RC 与实际远端 release 尚未开始。24／72 小时
+长测继续安排在首个 release 之后。
 
 当前唯一执行入口是 [`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md)。Phase F 的完整历史
 证据见 [`../archive/phase-f/PHASE_F.md`](../archive/phase-f/PHASE_F.md)；G-PRE 完整结果见
@@ -29,7 +31,7 @@ IPC、WinUI、真实边界、普通输入／拖拽、约 16 分钟混合输入�
 | M7 Phase A～E | 完成 | Rust/Win32 Agent、Named Pipe、完整键盘、WinUI 设置和联合验收已收口 |
 | Phase F／M8 | **完成** | F0～F5、F-PHY-01～07、受影响 M6 路径和最终联合构建通过 |
 | G-PRE | **完成** | 自动门槛、15 分 53 秒资源采样、混合输入和 PRE-01～09 可用环境矩阵通过 |
-| H | **当前阶段；本机范围完成** | 等待独立干净环境 DIST 验证 |
+| H | **当前阶段；干净环境基础运行通过** | 补齐 H5 剩余 DIST 现场证据后才能完成 |
 | RC／首个 release | 未开始／未发布 | 固定最终包、完成 smoke、说明、许可和校验和后按授权发布 |
 | G-POST | 计划于首版发布后 | 24／72 小时长测和 daily-drive，不阻塞首版 |
 
@@ -73,6 +75,9 @@ H 本机分发结果：
 - 2026-10-10 用户手动重启后，登录仅自动启动 1 个最终包 Agent，Settings 为 0；IPC `ready`、未暂停、
   无错误，日志无异常恢复或托盘创建失败。随后 Startup 已恢复禁用，快捷方式删除，当前 Agent 不被
   强制结束。
+- 2026-10-10 用户在一套全新 Windows 环境确认当前工程包可以正常启动和运行，规则能够添加并识别，
+  Agent 与 Settings 均未见报错；系统没有要求另装 .NET 或 Windows App Runtime，符合双
+  self-contained 发布预期。该结果尚未记录准确 Windows build，也不能证明机器缺少 VC++ runtime。
 
 ## 已知限制与后续观察
 
@@ -83,13 +88,14 @@ H 本机分发结果：
   不隐藏样本也不调高参考线。
 - keypad Enter、独立播放键、中文 Narrator 实际语音和 partial `SendInput` 保持既有硬件／环境限制。
 - G-PRE 本轮未新增睡眠／唤醒和提升完整性目标的物理证据；现有确定性边界继续有效。
-- H 工程包、本机自启动／真实登录／升级／移除已完成；独立干净机、许可／签名和远端 release 仍未
-  完成。本机无 Windows Sandbox、Hyper-V、Docker、VirtualBox 或 VMware，不能冒充干净环境。
+- H 工程包、本机自启动／真实登录／升级／移除已完成；全新 Windows 的基础运行和规则识别已通过，
+  但 H5 的完整四方向读回、自启动登录、缺依赖／错误架构等现场证据尚未齐全。许可／签名和远端
+  release 仍未完成。
 - 24／72 小时长测尚未执行；首版仍定位公开测试版本，不宣称长期稳定。
 
 ## 下一步
 
-按 [`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md) 收尾 H：等待用户准备新的 VM／第二台
-Windows x64 设备，完成剩余 DIST-01／02／04／07 干净环境证据。详细步骤与已完成结果见
+按 [`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md) 收尾 H：在当前全新 Windows 环境记录准确
+系统 build，并补齐剩余 DIST-01／02／04／07 现场证据。详细步骤与已完成结果见
 [`../records/FIRST_RELEASE_H_EXECUTION.md`](../records/FIRST_RELEASE_H_EXECUTION.md)。该项完成前 H 保持
 未通过，不进入 RC，也不提前执行发布后 G-POST。
