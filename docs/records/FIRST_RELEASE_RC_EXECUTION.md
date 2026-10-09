@@ -2,7 +2,7 @@
 
 > 文档类型：当前阶段事实记录
 >
-> 状态：执行中（固定包与自动检查完成；待最终物理输入 smoke）
+> 状态：完成（固定包已通过 RC；远端未发布）
 >
 > 开始时间：2026-10-10（Australia/Brisbane）
 >
@@ -95,20 +95,33 @@ Windows PowerShell `5.1.26100.9444`。
 - 最终包 Agent IPC 就绪后，真实 `InputFlow 设置`窗口成功建立；正常关闭请求返回 true，Settings 退出码
   为 0，Agent 随后干净停止，健康字段无失败。
 
-自动输入不能作为物理 Hook 证据：InputFlow 按设计让 injected event 直通。因此任务卡第 4 项中的最终
-四方向真实命中、失败／取消和 F12 暂停恢复仍需用户在这个精确 zip 上完成；既有 Phase F／H 物理证据
-继续有效，但不冒充本次最终包 smoke。完成该短检查前，RC 不标记完成。
+自动输入不能作为物理 Hook 证据：InputFlow 按设计让 injected event 直通。因此又从同一精确 zip 启动
+托盘 Agent 和真实 Settings，使用隔离四方向配置完成现场检查。用户确认以下结果均符合预期：
 
-### 3.5 当前剩余项
+- F8 + Left／Right／Up／Down 分别命中 Copy／Paste／Undo／Redo；
+- 距离不足、提前释放和另一鼠标按钮取消不误触发，鼠标正常移动且无粘键；
+- F12 暂停时方向规则不触发，再次 F12 后恢复；
+- 关闭 Settings 不退出 Agent，最后从托盘正常退出 Agent。
 
-1. 对上述 SHA-256 对应的最终 zip 完成一次物理输入 smoke，并记录观察与 Agent 最终健康日志。
-2. 用户若授权远端发布，再让 `v0.9.0` tag 指向构建提交 `bc48c36d...`，创建 GitHub Pre-release 并上传
-   zip、`SHA256SUMS.txt`、发布说明与用户指南。
+现场进程随后均不存在，`running` marker 已清除。Agent 日志确认 `rules=4`、一次完整
+`suspended`／`resumed`，最终为 `observed=299 output_sent=26 output_failed=0 output_dropped=0
+hook_panicked=false logger_panicked=false`，没有 `shutdown_limit`。任务卡要求的精确最终包 smoke 至此完成。
+
+### 3.5 RC 结论与后续变更边界
+
+SHA-256 为 `A287489C...004537` 的包已完整通过本轮 RC，RC 阶段判定完成。用户随后要求在实际 release
+前增加英语支持补丁，具体要求另行提供；因此当前包只作为已验证 RC 基线，不直接发布。英语补丁涉及
+源码、资源或包布局后，必须按任务卡第 4 节第 5 项重新固定提交、生成新包并重复受影响检查，新 manifest、
+SHA-256 和 tag 目标取代本记录当前值。
+
+远端发布仍未获具体授权；补丁与新包验收完成后，再按用户发布要求创建 GitHub release。当前没有创建或
+推送 tag、分支或 release。
 
 24／72 小时长测属于发布后的 G-POST，不阻塞 RC；代码签名不在本版默认范围。
 
 ## 4. 发布边界
 
-RC 完成不等于远端已发布。远端 tag 必须指向本记录最终列出的包构建提交；附件为 zip、
-`SHA256SUMS.txt`、版本发布说明和用户指南。没有明确授权时不创建或推送 tag／release，也不提前进入
-发布后的 G-POST。
+RC 完成不等于远端已发布。若没有发布前代码／资源变化，远端 tag 必须指向本记录列出的包构建提交；
+附件为 zip、`SHA256SUMS.txt`、版本发布说明和用户指南。当前已经明确计划英语支持补丁，所以必须先让
+补丁后的新固定提交和新包完成受影响 RC 检查，再确定实际 tag。没有明确发布要求和授权时不创建或推送
+tag／release，也不提前进入发布后的 G-POST。
