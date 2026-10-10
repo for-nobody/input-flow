@@ -1,5 +1,7 @@
 # InputFlow v0.9.0 用户指南（Windows x64 公开测试版）
 
+[English](USER_GUIDE.en-US.md) | [简体中文](USER_GUIDE.md)
+
 InputFlow 是一个本地运行的键盘与鼠标组合工具。`inputflow-agent.exe` 常驻并拥有托盘、输入 Hook、
 配置和 IPC；`InputFlow.Settings.exe` 只在需要配置时运行。首版是公开测试版本，尚未完成 24／72
 小时长时间运行验收。
@@ -18,6 +20,15 @@ InputFlow 是一个本地运行的键盘与鼠标组合工具。`inputflow-agent
 但必须安装 Microsoft Visual C++ Redistributable 2015–2022 x64：
 <https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist>。本版未签名；系统如显示来源或
 信誉提醒，请核对发布页 SHA-256，不要关闭系统保护。
+
+## 显示语言与 Narrator
+
+Settings 默认跟随 Windows 显示语言，无匹配时回退英语。可在 **设置与诊断 > 显示语言** 中选择
+**System default / 跟随系统**、**English** 或 **简体中文**。选择后关闭并重新打开 Settings 生效；
+Agent、Hook 与当前规则会继续运行。
+
+可见标签、动态状态和 UI Automation 名称会随界面语言本地化。Windows Narrator 会读取这些文本；
+实际音色取决于系统已安装的语言语音。InputFlow 不安装语音，也不修改用户的 Narrator 配置。
 
 ## 创建方向规则
 
@@ -55,7 +66,7 @@ InputFlow 是一个本地运行的键盘与鼠标组合工具。`inputflow-agent
 
 1. 关闭 Settings，并从托盘正常退出旧 Agent。
 2. 将新 zip 完整解压到一个新目录；不要在程序运行时逐个覆盖 DLL／EXE。
-3. 默认保留 `%LOCALAPPDATA%\InputFlow`，其中包含配置、有限备份和本地日志。
+3. 默认保留 `%LOCALAPPDATA%\InputFlow`，其中包含配置、界面语言偏好、有限备份和本地日志。
 4. 如果使用自启动，从新目录重新运行启用脚本。
 5. 启动新 Agent，打开 Settings，核对规则、禁用状态和方向参数；确认后再删除旧程序目录。
 

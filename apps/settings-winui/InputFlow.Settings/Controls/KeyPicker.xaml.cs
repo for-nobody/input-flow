@@ -54,7 +54,7 @@ public sealed partial class KeyPicker : UserControl
             if (double.IsNaN(ScanCodeBox.Value) || ScanCodeBox.Value is < 1 or > 65535)
             {
                 identity = null;
-                error = "Physical scan code 必须在 1–65535 之间。";
+                error = AppResources.Get("KeyPicker_PhysicalScanCodeInvalid");
                 return false;
             }
 
@@ -66,7 +66,7 @@ public sealed partial class KeyPicker : UserControl
         if (LogicalKeyCombo.SelectedItem is not KeyOption option)
         {
             identity = null;
-            error = "请选择逻辑键。";
+            error = AppResources.Get("KeyPicker_LogicalKeyRequired");
             return false;
         }
 
@@ -129,6 +129,9 @@ public sealed partial class KeyPicker : UserControl
             return;
         }
 
-        IdentityText.Text = $"显示：{KeyboardNameService.DisplayName(identity!)}　Identity：{identity!.StableName}";
+        IdentityText.Text = AppResources.Format(
+            "KeyPicker_IdentityFormat",
+            KeyboardNameService.DisplayName(identity!),
+            identity!.StableName);
     }
 }

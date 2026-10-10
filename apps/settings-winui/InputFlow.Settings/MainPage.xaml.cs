@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using InputFlow.Protocol;
 using InputFlow.Settings.Core;
 using InputFlow_Settings.Controls;
 using Microsoft.UI.Xaml;
@@ -30,6 +31,7 @@ public sealed partial class MainPage : Page
     private DispatcherTimer? _directionPreviewTimer;
     private Stopwatch? _directionPreviewClock;
     private CursorPoint _directionPreviewOrigin;
+    private bool _initializingLanguage = true;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct CursorPoint
@@ -45,17 +47,31 @@ public sealed partial class MainPage : Page
     public MainPage()
     {
         InitializeComponent();
-        MouseButtonCombo.ItemsSource = InputCatalog.MouseButtons;
-        MouseButtonCombo.SelectedIndex = 1;
-        DirectionCombo.ItemsSource = InputCatalog.MouseDirections;
-        DirectionCombo.SelectedItem = MouseDirection.Right;
+        Language = AppResources.CurrentLanguageTag;
+        MouseButtonCombo.ItemsSource = InputCatalog.MouseButtons
+            .Select(value => new LocalizedChoice<string>(value, MouseButtonLabel(value)))
+            .ToList();
+        SelectChoice(MouseButtonCombo, "Right");
+        DirectionCombo.ItemsSource = InputCatalog.MouseDirections
+            .Select(value => new LocalizedChoice<MouseDirection>(value, DirectionLabel(value)))
+            .ToList();
+        SelectChoice(DirectionCombo, MouseDirection.Right);
         TriggerTypeCombo.SelectedIndex = 0;
+        LanguageCombo.SelectedItem = LanguageCombo.Items
+            .OfType<ComboBoxItem>()
+            .First(item => string.Equals(item.Tag as string, App.LanguagePreference, StringComparison.Ordinal));
+        _initializingLanguage = false;
         UpdateVersionText();
         _draft.Changed += Draft_Changed;
         SizeChanged += MainPage_SizeChanged;
     }
 
     public bool HasUnsavedChanges => _draft.IsDirty || RuleEditor.Visibility == Visibility.Visible;
+
+    internal string LocalizationSmokeRulesText => RulesNavigation.Content?.ToString() ?? string.Empty;
+
+    internal string LocalizationSmokeNavigationName =>
+        Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(RootNavigation);
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
@@ -78,11 +94,11 @@ public sealed partial class MainPage : Page
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot,
-            Title = "有未保存的草稿",
-            Content = "当前规则编辑或草稿只存在于设置程序内存中，尚未由 Agent 保存。保存成功后退出，或明确放弃这些更改。",
-            PrimaryButtonText = "保存并退出",
-            SecondaryButtonText = "不保存退出",
-            CloseButtonText = "返回",
+            Title = AppResources.Get("CloseDialog_Title"),
+            Content = AppResources.Get("CloseDialog_Message"),
+            PrimaryButtonText = AppResources.Get("CloseDialog_SaveAndExit"),
+            SecondaryButtonText = AppResources.Get("CloseDialog_ExitWithoutSaving"),
+            CloseButtonText = AppResources.Get("Common_Back"),
             DefaultButton = ContentDialogButton.Primary,
         };
         ContentDialogResult choice = await dialog.ShowAsync();
@@ -100,7 +116,7 @@ public sealed partial class MainPage : Page
         {
             if (!TryBuildEditedRule(out RuleDocument? rule, out string? error))
             {
-                ShowEditorError(error ?? "当前规则编辑无法写入草稿。");
+                ShowEditorError(error ?? AppResources.Get("RuleEditor_CannotCommit"));
                 return false;
             }
 
@@ -126,13 +142,13 @@ public sealed partial class MainPage : Page
         }
         catch (Exception error)
         {
-            ShowMessage("Agent 未连接", error.Message, InfoBarSeverity.Error);
+            ShowMessage(AppResources.Get("Connection_NotConnectedTitle"), FriendlyError(error), InfoBarSeverity.Error);
         }
     }
 
     private void Page_Unloaded(object sender, RoutedEventArgs e)
     {
-        StopDirectionPreview("预览已停止。", resetProgress: false);
+        StopDirectionPreview(AppResources.Get("Preview_Stopped"), resetProgress: false);
         _pageLifetime.Cancel();
         _captureCountdown?.Cancel();
         if (_coordinator is not null)
@@ -156,11 +172,13 @@ public sealed partial class MainPage : Page
     {
         if (!snapshot.ControlConnected && _directionPreviewTimer is not null)
         {
-            StopDirectionPreview("Agent 连接已断开；方向预览已取消。", resetProgress: false);
+            StopDirectionPreview(AppResources.Get("Preview_ConnectionLost"), resetProgress: false);
         }
         ConnectionBar.IsOpen = true;
-        ConnectionBar.Title = snapshot.Kind == AgentConnectionKind.Online ? "Agent 已连接" : "Agent 连接状态";
-        ConnectionBar.Message = snapshot.Message;
+        ConnectionBar.Title = snapshot.Kind == AgentConnectionKind.Online
+            ? AppResources.Get("Connection_OnlineTitle")
+            : AppResources.Get("Connection_StatusTitle");
+        ConnectionBar.Message = ConnectionMessage(snapshot.Kind);
         ConnectionBar.Severity = snapshot.Kind switch
         {
             AgentConnectionKind.Online => InfoBarSeverity.Success,
@@ -189,27 +207,41 @@ public sealed partial class MainPage : Page
             else if (_draft.IsDirty && !ConfigCodec.DeepEquals(_draft.FormalSnapshot, formal))
             {
                 ShowMessage(
-                    "正式配置已变化",
-                    "另一客户端已经更改规则。保存时会再次比较，并要求重新加载或确认覆盖。",
+                    AppResources.Get("Authority_ChangedTitle"),
+                    AppResources.Get("Authority_ChangedMessage"),
                     InfoBarSeverity.Warning);
             }
         }
 
         if (_coordinator?.LatestStatus is AgentStatus status)
         {
-            string suspension = status.Suspended ? "已暂停" : "运行中";
-            string statusSummary = $"phase={status.Phase}　{suspension}　启用规则={status.RuleCount}　reconciliation={status.ApplyReconciliation}";
+            string suspension = status.Suspended
+                ? AppResources.Get("Status_Suspended")
+                : AppResources.Get("Status_Running");
+            string statusSummary = AppResources.Format(
+                "Status_SummaryFormat",
+                status.Phase,
+                suspension,
+                status.RuleCount,
+                status.ApplyReconciliation);
             AgentStatusText.Text = statusSummary;
             AgentErrorText.Text = status.LastError ?? string.Empty;
-            PauseButton.Label = status.Suspended ? "恢复" : "暂停";
+            PauseButton.Label = status.Suspended
+                ? AppResources.Get("Common_Resume")
+                : AppResources.Get("Common_Pause");
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(
+                PauseButton,
+                status.Suspended
+                    ? AppResources.Get("PauseButton_ResumeAutomationName")
+                    : AppResources.Get("PauseButton_PauseAutomationName"));
             PauseButton.Icon = new SymbolIcon(status.Suspended ? Symbol.Play : Symbol.Pause);
             if (_coordinator.Connection.Kind == AgentConnectionKind.Online)
             {
                 ConnectionBar.IsOpen = true;
-                ConnectionBar.Title = "Agent 已连接";
+                ConnectionBar.Title = AppResources.Get("Connection_OnlineTitle");
                 ConnectionBar.Message = status.LastError is null
                     ? statusSummary
-                    : $"{statusSummary}　最近错误：{status.LastError}";
+                    : AppResources.Format("Status_WithLastErrorFormat", statusSummary, status.LastError);
                 ConnectionBar.Severity = status.ApplyReconciliation == "recovery_required" || status.LastError is not null
                     ? InfoBarSeverity.Warning
                     : InfoBarSeverity.Success;
@@ -219,9 +251,13 @@ public sealed partial class MainPage : Page
 
     private void UpdateVersionText()
     {
-        string agentVersion = _coordinator?.Handshake?.ServerVersion ?? "未连接";
-        VersionText.Text =
-            $"Settings v{SettingsVersion.ToString(3)}　Agent v{agentVersion}　进程架构 {RuntimeInformation.ProcessArchitecture}　配置 Schema v{ConfigDocument.CurrentSchemaVersion}";
+        string agentVersion = _coordinator?.Handshake?.ServerVersion ?? AppResources.Get("Common_NotConnected");
+        VersionText.Text = AppResources.Format(
+            "About_VersionFormat",
+            SettingsVersion.ToString(3),
+            agentVersion,
+            RuntimeInformation.ProcessArchitecture,
+            ConfigDocument.CurrentSchemaVersion);
     }
 
     private void Draft_Changed(object? sender, EventArgs e)
@@ -247,7 +283,7 @@ public sealed partial class MainPage : Page
         }
         catch (Exception error)
         {
-            ShowMessage("重连失败", error.Message, InfoBarSeverity.Error);
+            ShowMessage(AppResources.Get("Reconnect_FailedTitle"), FriendlyError(error), InfoBarSeverity.Error);
         }
         finally
         {
@@ -263,10 +299,10 @@ public sealed partial class MainPage : Page
             var dialog = new ContentDialog
             {
                 XamlRoot = XamlRoot,
-                Title = "放弃未保存草稿？",
-                Content = "重新加载会丢弃当前设置程序中的未保存更改，不会修改 Agent。",
-                PrimaryButtonText = "放弃并重新加载",
-                CloseButtonText = "取消",
+                Title = AppResources.Get("ReloadDialog_Title"),
+                Content = AppResources.Get("ReloadDialog_Message"),
+                PrimaryButtonText = AppResources.Get("ReloadDialog_DiscardAndReload"),
+                CloseButtonText = AppResources.Get("Common_Cancel"),
                 DefaultButton = ContentDialogButton.Close,
             };
             if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
@@ -278,11 +314,14 @@ public sealed partial class MainPage : Page
             ConfigDocument formal = await _coordinator.GetConfigAsync(_pageLifetime.Token);
             await _coordinator.GetStatusAsync(_pageLifetime.Token);
             _draft.Load(formal);
-            ShowMessage("已重新加载", "草稿已重置为 Agent 的正式配置。", InfoBarSeverity.Success);
+            ShowMessage(
+                AppResources.Get("Reload_CompleteTitle"),
+                AppResources.Get("Reload_CompleteMessage"),
+                InfoBarSeverity.Success);
         }
         catch (Exception error)
         {
-            ShowMessage("重新加载失败", error.Message, InfoBarSeverity.Error);
+            ShowMessage(AppResources.Get("Reload_FailedTitle"), FriendlyError(error), InfoBarSeverity.Error);
         }
         finally
         {
@@ -298,7 +337,7 @@ public sealed partial class MainPage : Page
         if (_saveService is null || !_draft.IsLoaded || _busy) return null;
         if (RuleEditor.Visibility == Visibility.Visible)
         {
-            ShowEditorError("请先“写入草稿”或取消当前规则编辑，再保存整份配置。");
+            ShowEditorError(AppResources.Get("Save_FinishEditingFirst"));
             return null;
         }
 
@@ -315,11 +354,11 @@ public sealed partial class MainPage : Page
                 var dialog = new ContentDialog
                 {
                     XamlRoot = XamlRoot,
-                    Title = "正式规则已在其他地方改变",
-                    Content = result.Message,
-                    PrimaryButtonText = "确认覆盖",
-                    SecondaryButtonText = "重新加载",
-                    CloseButtonText = "保留草稿",
+                    Title = AppResources.Get("Save_ExternalChangeTitle"),
+                    Content = AppResources.Get("Save_ExternalChangeMessage"),
+                    PrimaryButtonText = AppResources.Get("Save_ConfirmOverwrite"),
+                    SecondaryButtonText = AppResources.Get("Common_Reload"),
+                    CloseButtonText = AppResources.Get("Save_KeepDraft"),
                     DefaultButton = ContentDialogButton.Close,
                 };
                 ContentDialogResult decision = await dialog.ShowAsync();
@@ -343,23 +382,30 @@ public sealed partial class MainPage : Page
                 _draft.AcceptSaved(result.ConfirmedFormal);
             }
 
-            string details = result.ValidationErrors.Count == 0
-                ? result.Message
-                : $"{result.Message}\n• {string.Join("\n• ", result.ValidationErrors)}";
+            string details = SaveMessage(result.Kind, result.CleanupWarnings.Count > 0);
+            if (result.ValidationErrors.Count > 0)
+            {
+                details += $"\n• {string.Join("\n• ", result.ValidationErrors)}";
+            }
             if (result.CleanupWarnings.Count > 0)
             {
-                details += $"\n清理警告：{string.Join("；", result.CleanupWarnings)}";
+                details += AppResources.Format(
+                    "Save_CleanupWarningsFormat",
+                    string.Join(AppResources.Get("Common_ListSeparator"), result.CleanupWarnings));
             }
 
             ShowMessage(
-                result.IsApplied ? "保存完成" : SaveTitle(result.Kind),
+                result.IsApplied ? AppResources.Get("Save_CompleteTitle") : SaveTitle(result.Kind),
                 details,
                 result.IsApplied ? InfoBarSeverity.Success : SaveSeverity(result.Kind));
             return result;
         }
         catch (Exception error)
         {
-            ShowMessage("保存未完成", $"{error.Message}。若请求已经发出，超时不等于保存失败，请重连核对。", InfoBarSeverity.Error);
+            ShowMessage(
+                AppResources.Get("Save_IncompleteTitle"),
+                AppResources.Format("Save_IncompleteMessageFormat", FriendlyError(error)),
+                InfoBarSeverity.Error);
             return null;
         }
         finally
@@ -378,13 +424,15 @@ public sealed partial class MainPage : Page
                 ? await _coordinator.ResumeAsync(_pageLifetime.Token)
                 : await _coordinator.PauseAsync(_pageLifetime.Token);
             ShowMessage(
-                confirmed.Suspended ? "Agent 已暂停" : "Agent 已恢复",
-                "状态已由 Agent 确认；托盘、F12 和其他客户端的后续变化会通过事件同步。",
+                confirmed.Suspended
+                    ? AppResources.Get("Runtime_PausedTitle")
+                    : AppResources.Get("Runtime_ResumedTitle"),
+                AppResources.Get("Runtime_ControlConfirmedMessage"),
                 InfoBarSeverity.Success);
         }
         catch (Exception error)
         {
-            ShowMessage("运行控制失败", error.Message, InfoBarSeverity.Error);
+            ShowMessage(AppResources.Get("Runtime_ControlFailedTitle"), FriendlyError(error), InfoBarSeverity.Error);
         }
         finally
         {
@@ -399,18 +447,47 @@ public sealed partial class MainPage : Page
         try
         {
             AgentStats stats = await _coordinator.GetStatsAsync(_pageLifetime.Token);
-            StatsText.Text = $"observed_events: {stats.ObservedEvents}\n" +
-                $"output batches: sent={stats.OutputBatchesSent}, failed={stats.OutputBatchesFailed}, dropped={stats.OutputBatchesDropped}\n" +
-                $"callback_latency_us: {FormatPercentiles(stats.CallbackLatencyMicroseconds)}\n" +
-                $"hold_delay_us: {FormatPercentiles(stats.HoldDelayMicroseconds)}";
+            StatsText.Text = AppResources.Format(
+                "Diagnostics_StatsFormat",
+                stats.ObservedEvents,
+                stats.OutputBatchesSent,
+                stats.OutputBatchesFailed,
+                stats.OutputBatchesDropped,
+                FormatPercentiles(stats.CallbackLatencyMicroseconds),
+                FormatPercentiles(stats.HoldDelayMicroseconds));
         }
         catch (Exception error)
         {
-            StatsText.Text = $"查询失败：{error.Message}";
+            StatsText.Text = AppResources.Format("Diagnostics_QueryFailedFormat", FriendlyError(error));
         }
         finally
         {
             SetBusy(false);
+        }
+    }
+
+    private void LanguageCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_initializingLanguage || LanguageCombo.SelectedItem is not ComboBoxItem item ||
+            item.Tag is not string language || !UiLanguagePreference.IsSupported(language))
+        {
+            return;
+        }
+
+        try
+        {
+            App.LanguagePreferenceStore.Save(language);
+            LanguageRestartBar.Title = AppResources.Get("Language_RestartTitle");
+            LanguageRestartBar.Message = AppResources.Get("Language_RestartMessage");
+            LanguageRestartBar.IsOpen = true;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            LanguageRestartBar.IsOpen = false;
+            ShowMessage(
+                AppResources.Get("Language_SaveFailedTitle"),
+                AppResources.Get("Language_SaveFailedMessage"),
+                InfoBarSeverity.Error);
         }
     }
 
@@ -426,15 +503,15 @@ public sealed partial class MainPage : Page
     {
         if (!_draft.IsLoaded) return;
         _editingOriginalId = null;
-        EditorTitle.Text = "新建规则";
+        EditorTitle.Text = AppResources.Get("RuleEditor_NewTitle");
         RuleIdBox.Text = $"rule-{Guid.NewGuid():N}"[..13];
         EditorEnabled.IsOn = true;
         TriggerTypeCombo.SelectedIndex = 0;
         PrimaryKeyPicker.SetIdentity(KeyIdentity.Logical("A"));
         SecondaryKeyPicker.SetIdentity(KeyIdentity.Logical("B"));
-        MouseButtonCombo.SelectedItem = "Right";
+        SelectChoice(MouseButtonCombo, "Right");
         TimeoutBox.Value = 250;
-        DirectionCombo.SelectedItem = MouseDirection.Right;
+        SelectChoice(DirectionCombo, MouseDirection.Right);
         DirectionDistanceBox.Value = 80;
         DirectionDurationBox.Value = 500;
         DirectionToleranceBox.Value = 40;
@@ -453,7 +530,7 @@ public sealed partial class MainPage : Page
         RuleDocument? rule = _draft.Draft.Rules.FirstOrDefault(candidate => candidate.Id == id);
         if (rule is null) return;
         _editingOriginalId = rule.Id;
-        EditorTitle.Text = "编辑规则";
+        EditorTitle.Text = AppResources.Get("RuleEditor_EditTitle");
         RuleIdBox.Text = rule.Id;
         EditorEnabled.IsOn = rule.Enabled;
         SelectTriggerType(rule.Trigger.Type);
@@ -464,17 +541,17 @@ public sealed partial class MainPage : Page
                 SecondaryKeyPicker.SetIdentity(chord.Second);
                 break;
             case KeyMouseButtonTrigger mouse:
-                MouseButtonCombo.SelectedItem = mouse.Button;
+                SelectChoice(MouseButtonCombo, mouse.Button);
                 break;
             case HoldTrigger hold:
                 TimeoutBox.Value = hold.TimeoutMilliseconds;
                 break;
             case HoldMouseButtonTrigger holdMouse:
                 TimeoutBox.Value = holdMouse.TimeoutMilliseconds;
-                MouseButtonCombo.SelectedItem = holdMouse.Button;
+                SelectChoice(MouseButtonCombo, holdMouse.Button);
                 break;
             case MouseDirectionTrigger direction:
-                DirectionCombo.SelectedItem = direction.Direction;
+                SelectChoice(DirectionCombo, direction.Direction);
                 DirectionDistanceBox.Value = direction.MinimumDistancePixels;
                 DirectionDurationBox.Value = direction.MaximumDurationMilliseconds;
                 DirectionToleranceBox.Value = direction.OffAxisTolerancePixels;
@@ -495,10 +572,10 @@ public sealed partial class MainPage : Page
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot,
-            Title = $"从草稿删除 {id}？",
-            Content = "删除只修改本地草稿；点击“验证并保存”后才会影响 Agent。",
-            PrimaryButtonText = "删除",
-            CloseButtonText = "取消",
+            Title = AppResources.Format("DeleteDialog_TitleFormat", id),
+            Content = AppResources.Get("DeleteDialog_Message"),
+            PrimaryButtonText = AppResources.Get("Common_Delete"),
+            CloseButtonText = AppResources.Get("Common_Cancel"),
             DefaultButton = ContentDialogButton.Close,
         };
         if (await dialog.ShowAsync() == ContentDialogResult.Primary) _draft.RemoveRule(id);
@@ -511,21 +588,21 @@ public sealed partial class MainPage : Page
         MousePanel.Visibility = type is "key_mouse_button" or "hold_mouse_button" ? Visibility.Visible : Visibility.Collapsed;
         TimeoutPanel.Visibility = type is "hold" or "hold_mouse_button" ? Visibility.Visible : Visibility.Collapsed;
         DirectionPanel.Visibility = type == "mouse_direction" ? Visibility.Visible : Visibility.Collapsed;
-        if (type != "mouse_direction") StopDirectionPreview("预览不保存轨迹，也不执行动作；点击开始相当于临时激活。", resetProgress: true);
+        if (type != "mouse_direction") StopDirectionPreview(AppResources.Get("Preview_DefaultMessage"), resetProgress: true);
         TimeoutHelpText.Text = type == "hold_mouse_button"
-            ? "计时对象是上方的键盘键；达到阈值后再按鼠标按钮。鼠标按钮本身不需要长按。"
-            : "计时对象是上方的键盘键；达到阈值后触发动作。";
+            ? AppResources.Get("RuleEditor_HoldMouseHelp")
+            : AppResources.Get("RuleEditor_HoldHelp");
     }
 
     private void CommitEdit_Click(object sender, RoutedEventArgs e)
     {
         if (!TryBuildEditedRule(out RuleDocument? rule, out string? error))
         {
-            ShowEditorError(error ?? "规则字段不完整。");
+            ShowEditorError(error ?? AppResources.Get("RuleEditor_Incomplete"));
             return;
         }
 
-        StopDirectionPreview("预览已停止。", resetProgress: false);
+        StopDirectionPreview(AppResources.Get("Preview_Stopped"), resetProgress: false);
         _draft.UpsertRule(rule!, _editingOriginalId);
         RuleEditor.Visibility = Visibility.Collapsed;
         UpdateResponsiveEditor();
@@ -533,7 +610,7 @@ public sealed partial class MainPage : Page
 
     private void CancelEdit_Click(object sender, RoutedEventArgs e)
     {
-        StopDirectionPreview("预览已取消。", resetProgress: false);
+        StopDirectionPreview(AppResources.Get("Preview_CancelledShort"), resetProgress: false);
         RuleEditor.Visibility = Visibility.Collapsed;
         EditorInfo.IsOpen = false;
         _editingOriginalId = null;
@@ -546,7 +623,7 @@ public sealed partial class MainPage : Page
         string id = RuleIdBox.Text.Trim();
         if (id.Length == 0)
         {
-            error = "规则 ID 不能为空。";
+            error = AppResources.Get("RuleValidation_IdRequired");
             return false;
         }
 
@@ -560,33 +637,33 @@ public sealed partial class MainPage : Page
         }
         else if (type == "key_mouse_button")
         {
-            trigger = new KeyMouseButtonTrigger(first!, MouseButtonCombo.SelectedItem as string ?? "Right");
+            trigger = new KeyMouseButtonTrigger(first!, SelectedChoice(MouseButtonCombo, "Right"));
         }
         else if (type is "hold" or "hold_mouse_button")
         {
             if (double.IsNaN(TimeoutBox.Value) || TimeoutBox.Value is < 1 or > 60000)
             {
-                error = "timeout_ms 必须在 1–60000 之间。";
+                error = AppResources.Get("RuleValidation_TimeoutRange");
                 return false;
             }
 
             ulong timeout = (ulong)TimeoutBox.Value;
             trigger = type == "hold"
                 ? new HoldTrigger(first!, timeout)
-                : new HoldMouseButtonTrigger(first!, timeout, MouseButtonCombo.SelectedItem as string ?? "Right");
+                : new HoldMouseButtonTrigger(first!, timeout, SelectedChoice(MouseButtonCombo, "Right"));
         }
         else
         {
-            if (DirectionCombo.SelectedItem is not MouseDirection direction)
+            if (DirectionCombo.SelectedItem is not LocalizedChoice<MouseDirection> directionChoice)
             {
-                error = "请选择鼠标方向。";
+                error = AppResources.Get("RuleValidation_DirectionRequired");
                 return false;
             }
             if (!TryDirectionParameters(out uint distance, out ulong duration, out uint tolerance, out error))
             {
                 return false;
             }
-            trigger = new MouseDirectionTrigger(first!, direction, distance, duration, tolerance);
+            trigger = new MouseDirectionTrigger(first!, directionChoice.Value, distance, duration, tolerance);
         }
 
         var actionKeys = new List<KeyIdentity>();
@@ -598,7 +675,7 @@ public sealed partial class MainPage : Page
 
         if (actionKeys.Count == 0)
         {
-            error = "动作至少需要一个键。";
+            error = AppResources.Get("RuleValidation_ActionKeyRequired");
             return false;
         }
 
@@ -627,17 +704,17 @@ public sealed partial class MainPage : Page
         double toleranceValue = DirectionToleranceBox.Value;
         if (double.IsNaN(distanceValue) || distanceValue is < 10 or > 2000 || distanceValue != Math.Truncate(distanceValue))
         {
-            error = "最小净位移必须是 10–2000 的整数屏幕像素。";
+            error = AppResources.Get("RuleValidation_DirectionDistanceRange");
             return false;
         }
         if (double.IsNaN(durationValue) || durationValue is < 100 or > 5000 || durationValue != Math.Truncate(durationValue))
         {
-            error = "最大时间窗必须是 100–5000 的整数毫秒。";
+            error = AppResources.Get("RuleValidation_DirectionDurationRange");
             return false;
         }
         if (double.IsNaN(toleranceValue) || toleranceValue is < 0 or > 2000 || toleranceValue != Math.Truncate(toleranceValue))
         {
-            error = "偏轴容差必须是 0–2000 的整数屏幕像素。";
+            error = AppResources.Get("RuleValidation_DirectionToleranceRange");
             return false;
         }
         distance = (uint)distanceValue;
@@ -651,22 +728,22 @@ public sealed partial class MainPage : Page
     {
         if (_captureIntent.IsInProgress)
         {
-            ShowEditorError("输入录制进行中；请先取消录制再开始方向预览。");
+            ShowEditorError(AppResources.Get("Preview_CaptureActive"));
             return;
         }
-        if (DirectionCombo.SelectedItem is not MouseDirection expected)
+        if (DirectionCombo.SelectedItem is not LocalizedChoice<MouseDirection> expectedChoice)
         {
-            ShowEditorError("请选择鼠标方向。");
+            ShowEditorError(AppResources.Get("RuleValidation_DirectionRequired"));
             return;
         }
         if (!TryDirectionParameters(out uint distance, out ulong duration, out uint tolerance, out string? error))
         {
-            ShowEditorError(error ?? "方向预览参数不完整。");
+            ShowEditorError(error ?? AppResources.Get("Preview_ParametersIncomplete"));
             return;
         }
         if (!GetCursorPos(out _directionPreviewOrigin))
         {
-            ShowEditorError("无法读取当前光标屏幕坐标，方向预览没有开始。");
+            ShowEditorError(AppResources.Get("Preview_CursorUnavailable"));
             return;
         }
 
@@ -674,26 +751,30 @@ public sealed partial class MainPage : Page
         EditorInfo.IsOpen = false;
         _directionPreviewClock = Stopwatch.StartNew();
         _directionPreviewTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
-        _directionPreviewTimer.Tick += (_, _) => UpdateDirectionPreview(expected, distance, duration, tolerance);
+        _directionPreviewTimer.Tick += (_, _) => UpdateDirectionPreview(expectedChoice.Value, distance, duration, tolerance);
         _directionPreviewTimer.Start();
         StartDirectionPreviewButton.IsEnabled = false;
         CancelDirectionPreviewButton.IsEnabled = true;
-        DirectionPreviewText.Text = $"预览已开始：起点 ({_directionPreviewOrigin.X}, {_directionPreviewOrigin.Y})。无需按激活键；本按钮只替代本次临时激活，最多 {duration} ms。";
+        DirectionPreviewText.Text = AppResources.Format(
+            "Preview_StartedFormat",
+            _directionPreviewOrigin.X,
+            _directionPreviewOrigin.Y,
+            duration);
     }
 
     private void CancelDirectionPreview_Click(object sender, RoutedEventArgs e) =>
-        StopDirectionPreview("预览已取消；未保存坐标轨迹，也未执行动作。", resetProgress: false);
+        StopDirectionPreview(AppResources.Get("Preview_Cancelled"), resetProgress: false);
 
     private void UpdateDirectionPreview(MouseDirection expected, uint distance, ulong duration, uint tolerance)
     {
         if (_directionPreviewClock is null || _directionPreviewClock.ElapsedMilliseconds > (long)duration)
         {
-            StopDirectionPreview("预览时间窗已结束；未命中且未执行动作。", resetProgress: false);
+            StopDirectionPreview(AppResources.Get("Preview_TimedOut"), resetProgress: false);
             return;
         }
         if (!GetCursorPos(out CursorPoint current))
         {
-            StopDirectionPreview("读取光标位置失败；预览已安全停止。", resetProgress: false);
+            StopDirectionPreview(AppResources.Get("Preview_CursorReadFailed"), resetProgress: false);
             return;
         }
 
@@ -704,7 +785,7 @@ public sealed partial class MainPage : Page
         if (absoluteX == absoluteY)
         {
             DirectionPreviewProgress.Value = Math.Min(100, absoluteX * 100.0 / distance);
-            DirectionPreviewText.Text = $"净位移 dx={dx}, dy={dy} px；主轴相等，方向尚未确定。";
+            DirectionPreviewText.Text = AppResources.Format("Preview_AxisEqualFormat", dx, dy);
             return;
         }
 
@@ -726,10 +807,18 @@ public sealed partial class MainPage : Page
 
         DirectionPreviewProgress.Value = Math.Min(100, primary * 100.0 / distance);
         bool matches = observed == expected && primary >= distance && offAxis <= tolerance;
-        DirectionPreviewText.Text = $"方向 {DirectionLabel(observed)}；净位移 dx={dx}, dy={dy} px；主轴 {primary} px，偏轴 {offAxis} px。";
+        DirectionPreviewText.Text = AppResources.Format(
+            "Preview_ProgressFormat",
+            DirectionLabel(observed),
+            dx,
+            dy,
+            primary,
+            offAxis);
         if (matches)
         {
-            StopDirectionPreview($"预览命中 {DirectionLabel(observed)}；这里只显示摘要，不执行动作。", resetProgress: false);
+            StopDirectionPreview(
+                AppResources.Format("Preview_MatchedFormat", DirectionLabel(observed)),
+                resetProgress: false);
             DirectionPreviewProgress.Value = 100;
         }
     }
@@ -748,10 +837,10 @@ public sealed partial class MainPage : Page
 
     private static string DirectionLabel(MouseDirection direction) => direction switch
     {
-        MouseDirection.Left => "左",
-        MouseDirection.Right => "右",
-        MouseDirection.Up => "上",
-        MouseDirection.Down => "下",
+        MouseDirection.Left => AppResources.Get("Direction_Left"),
+        MouseDirection.Right => AppResources.Get("Direction_Right"),
+        MouseDirection.Up => AppResources.Get("Direction_Up"),
+        MouseDirection.Down => AppResources.Get("Direction_Down"),
         _ => direction.ToString(),
     };
 
@@ -762,7 +851,14 @@ public sealed partial class MainPage : Page
         var picker = new KeyPicker();
         picker.SetIdentity(key);
         picker.CaptureRequested += KeyPicker_CaptureRequested;
-        var remove = new Button { Content = "移除", VerticalAlignment = VerticalAlignment.Top };
+        var remove = new Button
+        {
+            Content = AppResources.Get("Common_Remove"),
+            VerticalAlignment = VerticalAlignment.Top,
+        };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(
+            remove,
+            AppResources.Get("ActionKey_RemoveAutomationName"));
         var row = new Grid { ColumnSpacing = 8 };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -796,15 +892,15 @@ public sealed partial class MainPage : Page
 
     private async Task StartCaptureAsync(KeyPicker? picker, bool mouseTarget)
     {
-        StopDirectionPreview("方向预览已停止，正在录制输入。", resetProgress: false);
+        StopDirectionPreview(AppResources.Get("Preview_StoppedForCapture"), resetProgress: false);
         if (_coordinator is null || _busy || !_captureIntent.TryBegin()) return;
         _captureKeyTarget = picker;
         _captureMouseTarget = mouseTarget;
         SetCaptureEditorLocked(true);
         CaptureBar.IsOpen = true;
-        CaptureBar.Title = "正在启动录制";
+        CaptureBar.Title = AppResources.Get("Capture_StartingTitle");
         CaptureBar.Severity = InfoBarSeverity.Informational;
-        CaptureBar.Message = "请按下一个输入。一次录制只填写当前字段；Esc 取消且不会写入草稿。";
+        CaptureBar.Message = AppResources.Get("Capture_StartingMessage");
 
         CaptureStarted started;
         try
@@ -816,8 +912,12 @@ public sealed partial class MainPage : Page
             bool cancellationRequested = _captureIntent.FailBegin();
             FinishCaptureUi();
             ShowMessage(
-                cancellationRequested ? "录制已取消" : "无法开始录制",
-                cancellationRequested ? "取消意图已生效，没有输入会写入字段。" : error.Message,
+                cancellationRequested
+                    ? AppResources.Get("Capture_CancelledTitle")
+                    : AppResources.Get("Capture_StartFailedTitle"),
+                cancellationRequested
+                    ? AppResources.Get("Capture_CancelledBeforeStartMessage")
+                    : FriendlyError(error),
                 cancellationRequested ? InfoBarSeverity.Informational : InfoBarSeverity.Error);
             return;
         }
@@ -846,7 +946,10 @@ public sealed partial class MainPage : Page
                 int shown = remaining--;
                 DispatcherQueue.TryEnqueue(() =>
                 {
-                    if (_captureIntent.IsActiveSession(sessionId)) CaptureBar.Title = $"正在录制输入（剩余 {shown} 秒）";
+                    if (_captureIntent.IsActiveSession(sessionId))
+                    {
+                        CaptureBar.Title = AppResources.Format("Capture_CountdownFormat", shown);
+                    }
                 });
                 await Task.Delay(1000, token).ConfigureAwait(false);
             }
@@ -859,15 +962,21 @@ public sealed partial class MainPage : Page
         if (terminal.Kind == CaptureTerminalKind.Captured && terminal.Input is CapturedKey key && key.Logical == "Escape")
         {
             FinishCaptureUi();
-            ShowMessage("录制已取消", "Esc 保留为录制取消键；如需配置 Escape，请使用选择器。", InfoBarSeverity.Informational);
+            ShowMessage(
+                AppResources.Get("Capture_CancelledTitle"),
+                AppResources.Get("Capture_EscapeReservedMessage"),
+                InfoBarSeverity.Informational);
             return;
         }
 
         if (terminal.Kind == CaptureTerminalKind.Captured && _captureMouseTarget && terminal.Input is CapturedMouseButton mouse)
         {
-            MouseButtonCombo.SelectedItem = mouse.Button;
+            SelectChoice(MouseButtonCombo, mouse.Button);
             FinishCaptureUi();
-            ShowMessage("录制完成", $"已选择鼠标按钮 {mouse.Button}。", InfoBarSeverity.Success);
+            ShowMessage(
+                AppResources.Get("Capture_CompleteTitle"),
+                AppResources.Format("Capture_MouseCompleteFormat", MouseButtonLabel(mouse.Button)),
+                InfoBarSeverity.Success);
             return;
         }
 
@@ -875,15 +984,18 @@ public sealed partial class MainPage : Page
         {
             _captureKeyTarget.SetCaptured(capturedKey);
             FinishCaptureUi();
-            ShowMessage("录制完成", $"已记录 {capturedKey.Logical}；默认使用 logical identity。", InfoBarSeverity.Success);
+            ShowMessage(
+                AppResources.Get("Capture_CompleteTitle"),
+                AppResources.Format("Capture_KeyCompleteFormat", capturedKey.Logical),
+                InfoBarSeverity.Success);
             return;
         }
 
         string mismatch = terminal.Kind == CaptureTerminalKind.Captured
-            ? "录制到的输入类型不适合当前字段，请重新录制。"
-            : terminal.Message;
+            ? AppResources.Get("Capture_TypeMismatchMessage")
+            : CaptureTerminalMessage(terminal.Kind);
         FinishCaptureUi();
-        ShowMessage("录制未完成", mismatch, InfoBarSeverity.Warning);
+        ShowMessage(AppResources.Get("Capture_IncompleteTitle"), mismatch, InfoBarSeverity.Warning);
     }
 
     private async void CancelCapture_Click(object sender, RoutedEventArgs e) => await CancelCaptureBestEffortAsync();
@@ -897,8 +1009,8 @@ public sealed partial class MainPage : Page
         if (sessionId is null)
         {
             CaptureBar.IsOpen = true;
-            CaptureBar.Title = "正在取消录制";
-            CaptureBar.Message = "录制请求正在启动；取得 session ID 后会立即取消，期间不会写入任何字段。";
+            CaptureBar.Title = AppResources.Get("Capture_CancellingTitle");
+            CaptureBar.Message = AppResources.Get("Capture_CancellingPendingMessage");
             return;
         }
 
@@ -911,15 +1023,18 @@ public sealed partial class MainPage : Page
         try
         {
             await _coordinator!.CancelCaptureAsync(sessionId, deadline.Token);
-            ShowMessage("录制已取消", "取消键不会写入草稿。", InfoBarSeverity.Informational);
+            ShowMessage(
+                AppResources.Get("Capture_CancelledTitle"),
+                AppResources.Get("Capture_CancelledMessage"),
+                InfoBarSeverity.Informational);
         }
         catch (Exception error)
         {
             // UI intent is already invalidated. Owner connection disposal and
             // the agent timeout are the final cancellation guarantees.
             ShowMessage(
-                "取消意图已生效",
-                $"当前字段已失效，不会写入录制结果；Agent 未确认取消：{error.Message}",
+                AppResources.Get("Capture_CancelIntentTitle"),
+                AppResources.Format("Capture_CancelUnconfirmedFormat", FriendlyError(error)),
                 InfoBarSeverity.Warning);
         }
         finally
@@ -934,7 +1049,7 @@ public sealed partial class MainPage : Page
         if (e.Key == VirtualKey.Escape && _directionPreviewTimer is not null)
         {
             e.Handled = true;
-            StopDirectionPreview("预览已由 Esc 取消；未保存坐标轨迹，也未执行动作。", resetProgress: false);
+            StopDirectionPreview(AppResources.Get("Preview_EscapeCancelled"), resetProgress: false);
             return;
         }
         if (e.Key == VirtualKey.Escape && _captureIntent.IsInProgress)
@@ -949,7 +1064,7 @@ public sealed partial class MainPage : Page
         if (_directionPreviewTimer is not null)
         {
             args.Handled = true;
-            StopDirectionPreview("预览已由 Esc 取消；未保存坐标轨迹，也未执行动作。", resetProgress: false);
+            StopDirectionPreview(AppResources.Get("Preview_EscapeCancelled"), resetProgress: false);
             return;
         }
         if (!_captureIntent.IsInProgress) return;
@@ -965,7 +1080,7 @@ public sealed partial class MainPage : Page
         InvalidateCaptureTarget();
         SetCaptureEditorLocked(false);
         CaptureBar.IsOpen = false;
-        CaptureBar.Title = "正在录制输入";
+        CaptureBar.Title = AppResources.Get("CaptureBar_Title");
     }
 
     private void InvalidateCaptureTarget()
@@ -988,12 +1103,18 @@ public sealed partial class MainPage : Page
         if (!_draft.IsLoaded) return;
         if (!EmergencyKeyPicker.TryGetIdentity(out KeyIdentity? key, out string? error) || key?.Mode != KeyMatchMode.Logical)
         {
-            ShowMessage("紧急键无效", error ?? "紧急旁路键必须使用 logical identity。", InfoBarSeverity.Error);
+            ShowMessage(
+                AppResources.Get("Emergency_InvalidTitle"),
+                error ?? AppResources.Get("Emergency_LogicalRequiredMessage"),
+                InfoBarSeverity.Error);
             return;
         }
 
         _draft.SetEmergencyKey(key);
-        ShowMessage("已写入草稿", "紧急旁路键尚未保存；Agent 会在保存时检查规则冲突。", InfoBarSeverity.Informational);
+        ShowMessage(
+            AppResources.Get("Draft_UpdatedTitle"),
+            AppResources.Get("Emergency_DraftUpdatedMessage"),
+            InfoBarSeverity.Informational);
     }
 
     private void GroupFilter_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1004,16 +1125,17 @@ public sealed partial class MainPage : Page
     private void RefreshRuleList()
     {
         if (!_draft.IsLoaded) return;
-        string selected = GroupFilter.SelectedItem as string ?? "全部规则";
+        string allRules = AppResources.Get("RuleGroup_All");
+        string selected = GroupFilter.SelectedItem as string ?? allRules;
         List<RuleRow> all = _draft.Draft.Rules
             .Select(rule => RuleRow.From(rule, (id, enabled) => _draft.SetRuleEnabled(id, enabled)))
             .ToList();
-        List<string> groups = ["全部规则", .. all.Select(row => row.Group).Distinct().OrderBy(value => value, StringComparer.CurrentCulture)];
+        List<string> groups = [allRules, .. all.Select(row => row.Group).Distinct().OrderBy(value => value, StringComparer.CurrentCulture)];
         _refreshingRules = true;
         GroupFilter.ItemsSource = groups;
-        GroupFilter.SelectedItem = groups.Contains(selected) ? selected : "全部规则";
-        selected = GroupFilter.SelectedItem as string ?? "全部规则";
-        List<RuleRow> shown = selected == "全部规则" ? all : all.Where(row => row.Group == selected).ToList();
+        GroupFilter.SelectedItem = groups.Contains(selected) ? selected : allRules;
+        selected = GroupFilter.SelectedItem as string ?? allRules;
+        List<RuleRow> shown = selected == allRules ? all : all.Where(row => row.Group == selected).ToList();
         RulesList.ItemsSource = shown;
         EmptyRulesText.Visibility = shown.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         _refreshingRules = false;
@@ -1036,7 +1158,7 @@ public sealed partial class MainPage : Page
 
     private void ShowEditorError(string message)
     {
-        EditorInfo.Title = "规则字段有问题";
+        EditorInfo.Title = AppResources.Get("RuleEditor_ErrorTitle");
         EditorInfo.Message = message;
         EditorInfo.IsOpen = true;
     }
@@ -1065,19 +1187,104 @@ public sealed partial class MainPage : Page
     }
 
     private static string FormatPercentiles(PercentileSummary? summary) => summary is null || summary.Samples == 0
-        ? "暂无样本"
+        ? AppResources.Get("Diagnostics_NoSamples")
         : $"n={summary.Samples}, p50={summary.P50}, p95={summary.P95}, p99={summary.P99}, max={summary.Max}";
+
+    private static string ConnectionMessage(AgentConnectionKind kind) => kind switch
+    {
+        AgentConnectionKind.Connecting => AppResources.Get("Connection_ConnectingMessage"),
+        AgentConnectionKind.Online => AppResources.Get("Connection_OnlineMessage"),
+        AgentConnectionKind.EventStreamReconnecting => AppResources.Get("Connection_ReconnectingMessage"),
+        _ => AppResources.Get("Connection_OfflineMessage"),
+    };
+
+    private static string CaptureTerminalMessage(CaptureTerminalKind kind) => kind switch
+    {
+        CaptureTerminalKind.Cancelled => AppResources.Get("Capture_CancelledMessage"),
+        CaptureTerminalKind.TimedOut => AppResources.Get("Capture_TimedOutMessage"),
+        CaptureTerminalKind.AgentShutdown => AppResources.Get("Capture_AgentShutdownMessage"),
+        CaptureTerminalKind.EventStreamLost => AppResources.Get("Capture_EventStreamLostMessage"),
+        _ => AppResources.Get("Capture_TypeMismatchMessage"),
+    };
+
+    private static string FriendlyError(Exception error) => error switch
+    {
+        TimeoutException => AppResources.Get("Error_Timeout"),
+        UnauthorizedAccessException => AppResources.Get("Error_AccessDenied"),
+        ProtocolException protocol when protocol.Code == "unsupported_protocol" =>
+            AppResources.Get("Error_UnsupportedProtocol"),
+        ProtocolException protocol when protocol.Code == "unsupported_schema" =>
+            AppResources.Get("Error_UnsupportedSchema"),
+        ProtocolException protocol => AppResources.Format("Error_ProtocolFormat", protocol.Code),
+        IOException => AppResources.Get("Error_ConnectionInterrupted"),
+        InvalidOperationException => AppResources.Get("Error_InvalidState"),
+        FormatException => AppResources.Get("Error_InvalidAgentData"),
+        _ => AppResources.Format("Error_UnexpectedFormat", error.GetType().Name),
+    };
+
+    private static string MouseButtonLabel(string button) => button switch
+    {
+        "Left" => AppResources.Get("MouseButton_Left"),
+        "Right" => AppResources.Get("MouseButton_Right"),
+        "Middle" => AppResources.Get("MouseButton_Middle"),
+        "XButton1" => AppResources.Get("MouseButton_XButton1"),
+        "XButton2" => AppResources.Get("MouseButton_XButton2"),
+        _ => button,
+    };
+
+    private static string KeyGroupLabel(KeyIdentity key)
+    {
+        if (key.Mode == KeyMatchMode.Physical)
+        {
+            return key.StableName;
+        }
+
+        string logical = key.LogicalKey!;
+        if (logical is "LeftCtrl" or "RightCtrl") return "Ctrl";
+        if (logical is "LeftShift" or "RightShift") return "Shift";
+        if (logical is "LeftAlt" or "RightAlt") return "Alt";
+        if (logical.StartsWith("Oem", StringComparison.Ordinal)) return AppResources.Get("RuleGroup_Symbols");
+        if (logical.StartsWith("Digit", StringComparison.Ordinal)) return AppResources.Get("RuleGroup_Digits");
+        if (logical.StartsWith("Numpad", StringComparison.Ordinal)) return AppResources.Get("RuleGroup_Numpad");
+        if (logical.Length == 1 && char.IsAsciiLetter(logical[0])) return AppResources.Get("RuleGroup_Letters");
+        return logical == "Space" ? AppResources.Get("RuleGroup_Space") : InputCatalog.GroupName(key);
+    }
+
+    private static void SelectChoice<T>(ComboBox comboBox, T value)
+    {
+        comboBox.SelectedItem = comboBox.Items
+            .OfType<LocalizedChoice<T>>()
+            .FirstOrDefault(choice => EqualityComparer<T>.Default.Equals(choice.Value, value));
+    }
+
+    private static T SelectedChoice<T>(ComboBox comboBox, T fallback) =>
+        comboBox.SelectedItem is LocalizedChoice<T> choice ? choice.Value : fallback;
 
     private static string SaveTitle(SaveResultKind kind) => kind switch
     {
-        SaveResultKind.ValidationFailed => "验证失败",
-        SaveResultKind.PersistenceFailed => "持久化失败",
-        SaveResultKind.RuntimeCancelled => "运行时替换已取消",
-        SaveResultKind.RuntimeFailed => "运行时替换失败",
-        SaveResultKind.RuntimeBusy => "Agent 正在核对上一请求",
-        SaveResultKind.RolledBackAfterTimeout => "保存已回滚",
-        SaveResultKind.RecoveryRequired => "需要重启 Agent 恢复",
-        _ => "保存结果待核对",
+        SaveResultKind.ValidationFailed => AppResources.Get("SaveTitle_ValidationFailed"),
+        SaveResultKind.PersistenceFailed => AppResources.Get("SaveTitle_PersistenceFailed"),
+        SaveResultKind.RuntimeCancelled => AppResources.Get("SaveTitle_RuntimeCancelled"),
+        SaveResultKind.RuntimeFailed => AppResources.Get("SaveTitle_RuntimeFailed"),
+        SaveResultKind.RuntimeBusy => AppResources.Get("SaveTitle_RuntimeBusy"),
+        SaveResultKind.RolledBackAfterTimeout => AppResources.Get("SaveTitle_RolledBack"),
+        SaveResultKind.RecoveryRequired => AppResources.Get("SaveTitle_RecoveryRequired"),
+        _ => AppResources.Get("SaveTitle_Unknown"),
+    };
+
+    private static string SaveMessage(SaveResultKind kind, bool hasCleanupWarnings) => kind switch
+    {
+        SaveResultKind.Applied when hasCleanupWarnings => AppResources.Get("SaveMessage_AppliedWithWarnings"),
+        SaveResultKind.Applied => AppResources.Get("SaveMessage_Applied"),
+        SaveResultKind.ExternalChangeDetected => AppResources.Get("Save_ExternalChangeMessage"),
+        SaveResultKind.ValidationFailed => AppResources.Get("SaveMessage_ValidationFailed"),
+        SaveResultKind.PersistenceFailed => AppResources.Get("SaveMessage_PersistenceFailed"),
+        SaveResultKind.RuntimeCancelled => AppResources.Get("SaveMessage_RuntimeCancelled"),
+        SaveResultKind.RuntimeFailed => AppResources.Get("SaveMessage_RuntimeFailed"),
+        SaveResultKind.RuntimeBusy => AppResources.Get("SaveMessage_RuntimeBusy"),
+        SaveResultKind.RolledBackAfterTimeout => AppResources.Get("SaveMessage_RolledBack"),
+        SaveResultKind.RecoveryRequired => AppResources.Get("SaveMessage_RecoveryRequired"),
+        _ => AppResources.Get("SaveMessage_Unknown"),
     };
 
     private static InfoBarSeverity SaveSeverity(SaveResultKind kind) => kind switch
@@ -1110,29 +1317,49 @@ public sealed partial class MainPage : Page
         public string Group { get; }
         public string TriggerSummary { get; }
         public string ActionSummary { get; }
-        public string ToggleAutomationName => $"{Id} 启用状态";
-        public string EditAutomationName => $"编辑 {Id}";
-        public string DeleteAutomationName => $"删除 {Id}";
-        public string RowAutomationName => $"规则 {Id}，{TriggerSummary}，{ActionSummary}";
+        public string ToggleAutomationName => AppResources.Format("RuleRow_ToggleAutomationNameFormat", Id);
+        public string EditAutomationName => AppResources.Format("RuleRow_EditAutomationNameFormat", Id);
+        public string DeleteAutomationName => AppResources.Format("RuleRow_DeleteAutomationNameFormat", Id);
+        public string RowAutomationName => AppResources.Format(
+            "RuleRow_AutomationNameFormat",
+            Id,
+            TriggerSummary,
+            ActionSummary);
 
         public override string ToString() => RowAutomationName;
 
         public static RuleRow From(RuleDocument rule, Action<string, bool> enabledChanged) => new(
             rule.Id,
             rule.Enabled,
-            InputCatalog.GroupName(rule.Trigger.FirstKey),
+            KeyGroupLabel(rule.Trigger.FirstKey),
             TriggerLabel(rule.Trigger),
-            $"→ {string.Join(" + ", rule.Action.Keys.Select(KeyLabel))}",
+            AppResources.Format("RuleRow_ActionFormat", string.Join(" + ", rule.Action.Keys.Select(KeyLabel))),
             enabledChanged);
 
         private static string TriggerLabel(RuleTrigger trigger) => trigger switch
         {
             KeyChordTrigger chord => $"{KeyLabel(chord.First)} + {KeyLabel(chord.Second)}",
-            KeyMouseButtonTrigger mouse => $"{KeyLabel(mouse.Key)} + 鼠标 {mouse.Button}",
-            HoldTrigger hold => $"长按 {KeyLabel(hold.Key)} {hold.TimeoutMilliseconds} ms",
-            HoldMouseButtonTrigger holdMouse => $"长按 {KeyLabel(holdMouse.Key)} {holdMouse.TimeoutMilliseconds} ms + 鼠标 {holdMouse.Button}",
+            KeyMouseButtonTrigger mouse => AppResources.Format(
+                "RuleRow_KeyMouseTriggerFormat",
+                KeyLabel(mouse.Key),
+                MouseButtonLabel(mouse.Button)),
+            HoldTrigger hold => AppResources.Format(
+                "RuleRow_HoldTriggerFormat",
+                KeyLabel(hold.Key),
+                hold.TimeoutMilliseconds),
+            HoldMouseButtonTrigger holdMouse => AppResources.Format(
+                "RuleRow_HoldMouseTriggerFormat",
+                KeyLabel(holdMouse.Key),
+                holdMouse.TimeoutMilliseconds,
+                MouseButtonLabel(holdMouse.Button)),
             MouseDirectionTrigger direction =>
-                $"按住 {KeyLabel(direction.Key)} + 鼠标{DirectionLabel(direction.Direction)} ≥{direction.MinimumDistancePixels}px / {direction.MaximumDurationMilliseconds}ms / 偏轴≤{direction.OffAxisTolerancePixels}px",
+                AppResources.Format(
+                    "RuleRow_MouseDirectionTriggerFormat",
+                    KeyLabel(direction.Key),
+                    DirectionLabel(direction.Direction),
+                    direction.MinimumDistancePixels,
+                    direction.MaximumDurationMilliseconds,
+                    direction.OffAxisTolerancePixels),
             _ => trigger.Type,
         };
 
@@ -1141,5 +1368,10 @@ public sealed partial class MainPage : Page
             string display = KeyboardNameService.DisplayName(key);
             return display == key.StableName ? display : $"{display} [{key.StableName}]";
         }
+    }
+
+    private sealed record LocalizedChoice<T>(T Value, string Label)
+    {
+        public override string ToString() => Label;
     }
 }

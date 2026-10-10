@@ -4,7 +4,7 @@
 >
 > 最后更新：2026-10-10（Australia/Brisbane）
 >
-> 代码基线：`main`；H 已完成，当前 `v0.9.0` RC 的精确事实见 RC 执行记录
+> 代码基线：`main`；H 和旧 RC 基线已完成，当前执行项为 RC-01 英语／国际化补丁复验
 
 ## 当前结论
 
@@ -14,16 +14,21 @@ IPC、WinUI、真实边界、普通输入／拖拽、约 16 分钟混合输入�
 
 首版发布任务的 **H 已完成**。便携工程包、依赖、路径、自启动、升级／移除模拟和未来 Schema 降级
 保护已完成；全新 Windows x64 环境也已通过前后端启动、四方向规则命中与重开读回，以及一次真实
-重启登录自启动／禁用验收。`v0.9.0` RC 已完成：MIT License、版本面、许可附件、发布说明、干净构建、
-固定 zip、自动／IPC／Settings 壳层和精确包物理输入 smoke 全部通过。首个 release 尚未发布；用户要求
-先增加英语支持补丁，具体要求待提供。补丁后必须重新固定提交、生成包并重复受影响 RC 检查。
-24／72 小时长测继续安排在首个 release 之后。
+重启登录自启动／禁用验收。旧 `v0.9.0` RC 基线的 MIT License、版本面、许可附件、发布说明、干净构建、
+固定 zip、自动／IPC／Settings 壳层和精确包物理输入 smoke 全部通过。首个 release 尚未发布。
+
+RC-01 英语／国际化补丁已在本地工作树完成：Settings 具备 `en-US`／`zh-CN` 资源、system／English／
+简体中文选择和独立持久化，双语 UIA 文本、双语 README／用户指南及发布资源检查已接入。完整自动门槛、
+Debug／Release 双语运行、真实 UIA 持久化链路和 dirty-worktree 工程发布包均通过，当前结论为
+**READY FOR RC SMOKE**。补丁尚未固定为新提交；Narrator、缩放、真实 Agent 规则／物理输入和新精确 RC
+ZIP 仍须重新实机验证，不能继承旧包结果。24／72 小时长测继续安排在首个 release 之后。
 
 当前唯一执行入口是 [`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md)。Phase F 的完整历史
 证据见 [`../archive/phase-f/PHASE_F.md`](../archive/phase-f/PHASE_F.md)；G-PRE 完整结果见
 [`../archive/first-release/G_PRE.md`](../archive/first-release/G_PRE.md)。H 记录见
 [`../records/FIRST_RELEASE_H_EXECUTION.md`](../records/FIRST_RELEASE_H_EXECUTION.md)；当前 RC 记录见
-[`../records/FIRST_RELEASE_RC_EXECUTION.md`](../records/FIRST_RELEASE_RC_EXECUTION.md)。
+[`../records/FIRST_RELEASE_RC_EXECUTION.md`](../records/FIRST_RELEASE_RC_EXECUTION.md)。RC-01 的本地实施和
+待复验矩阵见 [`../releases/patches/RC-01-WinUI3-i18n-en-US-verification.md`](../releases/patches/RC-01-WinUI3-i18n-en-US-verification.md)。
 
 ## 阶段状态
 
@@ -34,7 +39,7 @@ IPC、WinUI、真实边界、普通输入／拖拽、约 16 分钟混合输入�
 | Phase F／M8 | **完成** | F0～F5、F-PHY-01～07、受影响 M6 路径和最终联合构建通过 |
 | G-PRE | **完成** | 自动门槛、15 分 53 秒资源采样、混合输入和 PRE-01～09 可用环境矩阵通过 |
 | H | **完成** | H0～H5 与 DIST-01～07 按声明支持范围通过 |
-| RC／首个 release | **RC 已完成；未发布** | `bc48c36d...` 固定包完整通过；发布前英语补丁会触发新包与受影响 RC 复验 |
+| RC／首个 release | **RC-01 已实现；等待新 RC smoke；未发布** | 旧 `bc48c36d...` 固定包保留为历史基线；补丁自动／UIA 工程验证通过，尚无新固定提交和精确 RC 包 |
 | G-POST | 计划于首版发布后 | 24／72 小时长测和 daily-drive，不阻塞首版 |
 
 ## 最近已验证证据
@@ -52,6 +57,17 @@ RC 固定包结果：
 - 用户在精确 zip 上确认四方向命中、距离不足／提前释放／右键取消、F12 暂停恢复、关闭 Settings 后
   Agent 继续运行和托盘正常退出均符合预期。日志最终为 `observed=299 output_sent=26`，failed/dropped
   均为 0，无 hook/logger panic 或 `shutdown_limit`；进程与 running marker 均已清除。
+
+RC-01 本地补丁证据：
+
+- 两套资源各 **293** 键且集合一致；85 个 `x:Uid`、动态资源键、UIA 附加属性和硬编码属性扫描通过。
+- `scripts/build-windows.ps1 -SkipRestore` 通过：Rust **172／172**、C# protocol **7／7**、Settings Core
+  **14／14**，WinUI Debug／Release 均 0 warning、0 error；四种 Debug／Release × en-US／zh-CN
+  runtime smoke 均退出 0。
+- 英语 Windows 上的真实 UIA 链路通过 English → 简体中文 → English → System 的保存和重开；测试后
+  恢复原偏好，Agent 不参与。Narrator 实际朗读与完整键盘浏览未执行。
+- dirty-worktree 工程包的双语发布运行验证通过，ZIP SHA-256 为
+  `8DE313D1553E0B4E7F40B9FB75BA42EA6BC5032993D9A42A3A4A1F15E2524711`；该 hash 不是新 RC hash。
 
 G-PRE 固定提交的自动与联合门槛：
 
@@ -113,12 +129,15 @@ H 本机分发结果：
 - H 工程包、本机与全新 Windows 的分发／自启动证据、升级／移除模拟均已完成。缺少 VC++ runtime
   的真实启动失败没有通过删除系统 DLL 强制制造；首版支持范围明确要求 Windows x64 和 VC++
   Redistributable，并在包名、manifest 与用户指南中给出可理解说明。
-- MIT License 已确定；签名和远端 release 仍未完成。H 工程包的 manifest 仍如实标记旧提交和 dirty 状态，
-  必须由 RC 从固定干净提交重新构建，不能直接改名冒充最终发行包。
+- MIT License 已确定；签名和远端 release 仍未完成。RC-01 工程包 manifest 如实标记当前提交和 dirty
+  状态；必须从补丁固定后的干净提交重新构建，不能直接改名冒充最终发行包。
+- RC-01 的中文／第三语言 Windows 系统匹配、Narrator 朗读、125%／150% 缩放、规则编辑页截图，以及
+  补丁后真实规则保存和物理 remapping 尚未执行；Agent 托盘语言未与 Settings 偏好同步。
 - 24／72 小时长测尚未执行；首版仍定位公开测试版本，不宣称长期稳定。
 
 ## 下一步
 
-等待用户提供英语支持补丁的具体要求。补丁实现后按 RC 变更边界重新固定提交、生成新包并复验受影响
-路径；当前 SHA-256 为 `A287489C...004537` 的包保留为已验证 RC 基线，不直接发布。没有对应远端发布
+人工审查 RC-01 补丁并固定新提交；随后用 `-RequireClean` 生成新 RC 包，对验证记录中的 NOT TESTED
+项目和受影响的规则／物理输入路径执行实机 smoke。SHA-256 为 `A287489C...004537` 的旧包只保留为历史
+RC 基线，dirty 工程包 SHA `8DE313D...24711` 只作发布布局证据，二者均不直接发布。没有对应远端发布
 要求和授权前，不创建／推送 tag 或 release；不提前执行发布后 G-POST。

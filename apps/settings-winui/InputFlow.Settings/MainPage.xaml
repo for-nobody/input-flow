@@ -17,21 +17,21 @@
 
     <NavigationView
         x:Name="RootNavigation"
-        AutomationProperties.Name="InputFlow 设置导航"
+        x:Uid="RootNavigation"
         IsBackButtonVisible="Collapsed"
         IsSettingsVisible="False"
         PaneDisplayMode="Auto"
         SelectionChanged="RootNavigation_SelectionChanged">
         <NavigationView.MenuItems>
-            <NavigationViewItem x:Name="RulesNavigation" Content="快捷规则" IsSelected="True" Tag="rules">
+            <NavigationViewItem x:Name="RulesNavigation" x:Uid="RulesNavigation" IsSelected="True" Tag="rules">
                 <NavigationViewItem.Icon><SymbolIcon Symbol="Edit" /></NavigationViewItem.Icon>
             </NavigationViewItem>
-            <NavigationViewItem Content="设置" Tag="settings">
+            <NavigationViewItem x:Uid="SettingsNavigation" Tag="settings">
                 <NavigationViewItem.Icon><SymbolIcon Symbol="Setting" /></NavigationViewItem.Icon>
             </NavigationViewItem>
         </NavigationView.MenuItems>
         <NavigationView.FooterMenuItems>
-            <NavigationViewItem Content="关于" Tag="about">
+            <NavigationViewItem x:Uid="AboutNavigation" Tag="about">
                 <NavigationViewItem.Icon><SymbolIcon Symbol="Help" /></NavigationViewItem.Icon>
             </NavigationViewItem>
         </NavigationView.FooterMenuItems>
@@ -49,8 +49,8 @@
                 IsClosable="False"
                 IsOpen="True"
                 Severity="Informational"
-                Title="正在连接">
-                <InfoBar.ActionButton><Button Click="RetryConnection_Click" Content="重试" /></InfoBar.ActionButton>
+                x:Uid="ConnectionBar">
+                <InfoBar.ActionButton><Button x:Uid="RetryConnectionButton" Click="RetryConnection_Click" /></InfoBar.ActionButton>
             </InfoBar>
             <InfoBar
                 x:Name="CaptureBar"
@@ -59,8 +59,8 @@
                 IsClosable="False"
                 IsOpen="False"
                 Severity="Informational"
-                Title="正在录制输入">
-                <InfoBar.ActionButton><Button Click="CancelCapture_Click" Content="取消 (Esc)" /></InfoBar.ActionButton>
+                x:Uid="CaptureBar">
+                <InfoBar.ActionButton><Button x:Uid="CancelCaptureButton" Click="CancelCapture_Click" /></InfoBar.ActionButton>
             </InfoBar>
             <InfoBar
                 x:Name="OperationBar"
@@ -81,19 +81,19 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <StackPanel Spacing="2">
-                        <TextBlock FontSize="24" FontWeight="SemiBold" Text="快捷规则" />
-                        <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="当前支持四种触发条件和键盘组合动作；修改先进入本地草稿。" TextWrapping="Wrap" />
+                        <TextBlock x:Uid="RulesPageTitle" FontSize="24" FontWeight="SemiBold" />
+                        <TextBlock x:Uid="RulesPageDescription" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
                     </StackPanel>
-                    <TextBlock x:Name="DirtyText" Grid.Column="1" VerticalAlignment="Center" AutomationProperties.LiveSetting="Polite" Foreground="{ThemeResource SystemFillColorCautionBrush}" Text="有未保存更改" Visibility="Collapsed" />
+                    <TextBlock x:Name="DirtyText" x:Uid="DirtyText" Grid.Column="1" VerticalAlignment="Center" AutomationProperties.LiveSetting="Polite" Foreground="{ThemeResource SystemFillColorCautionBrush}" Visibility="Collapsed" />
                 </Grid>
                 <CommandBar Grid.Row="1" DefaultLabelPosition="Right">
-                    <AppBarButton AutomationProperties.Name="新建规则" Click="AddRule_Click" Icon="Add" Label="新建" />
-                    <AppBarButton x:Name="SaveButton" AutomationProperties.Name="验证并保存草稿" Click="Save_Click" Icon="Save" Label="验证并保存" />
-                    <AppBarButton AutomationProperties.Name="重新加载正式配置" Click="Reload_Click" Icon="Refresh" Label="重新加载" />
+                    <AppBarButton x:Uid="AddRuleButton" Click="AddRule_Click" Icon="Add" />
+                    <AppBarButton x:Name="SaveButton" x:Uid="SaveButton" Click="Save_Click" Icon="Save" />
+                    <AppBarButton x:Uid="ReloadButton" Click="Reload_Click" Icon="Refresh" />
                     <AppBarSeparator />
-                    <AppBarButton x:Name="PauseButton" AutomationProperties.Name="暂停或恢复 Agent" Click="PauseResume_Click" Icon="Pause" Label="暂停" />
+                    <AppBarButton x:Name="PauseButton" x:Uid="PauseButton" Click="PauseResume_Click" Icon="Pause" />
                     <CommandBar.Content>
-                        <ComboBox x:Name="GroupFilter" MinWidth="160" AutomationProperties.Name="按首键筛选规则" SelectionChanged="GroupFilter_SelectionChanged" />
+                        <ComboBox x:Name="GroupFilter" x:Uid="GroupFilter" MinWidth="160" SelectionChanged="GroupFilter_SelectionChanged" />
                     </CommandBar.Content>
                 </CommandBar>
 
@@ -103,7 +103,7 @@
                         <ColumnDefinition x:Name="EditorColumn" Width="0" />
                     </Grid.ColumnDefinitions>
                     <Grid x:Name="RulesListPane">
-                        <ListView x:Name="RulesList" AutomationProperties.Name="规则列表" IsItemClickEnabled="False" SelectionMode="None">
+                        <ListView x:Name="RulesList" x:Uid="RulesList" IsItemClickEnabled="False" SelectionMode="None">
                             <ListView.ItemTemplate>
                                 <DataTemplate>
                                     <Border Margin="0,0,0,8" Padding="12" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6">
@@ -123,69 +123,69 @@
                                                 <TextBlock Text="{Binding TriggerSummary}" TextWrapping="Wrap" />
                                                 <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{Binding ActionSummary}" TextWrapping="Wrap" />
                                             </StackPanel>
-                                            <Button Grid.Column="2" AutomationProperties.Name="{Binding EditAutomationName}" Click="EditRule_Click" Content="编辑" Tag="{Binding Id}" />
-                                            <Button Grid.Column="3" AutomationProperties.Name="{Binding DeleteAutomationName}" Click="DeleteRule_Click" Content="删除" Tag="{Binding Id}" />
+                                            <Button x:Uid="RuleRowEditButton" Grid.Column="2" AutomationProperties.Name="{Binding EditAutomationName}" Click="EditRule_Click" Tag="{Binding Id}" />
+                                            <Button x:Uid="RuleRowDeleteButton" Grid.Column="3" AutomationProperties.Name="{Binding DeleteAutomationName}" Click="DeleteRule_Click" Tag="{Binding Id}" />
                                         </Grid>
                                     </Border>
                                 </DataTemplate>
                             </ListView.ItemTemplate>
                         </ListView>
-                        <TextBlock x:Name="EmptyRulesText" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="当前分组没有规则。选择“新建”开始。" Visibility="Collapsed" />
+                        <TextBlock x:Name="EmptyRulesText" x:Uid="EmptyRulesText" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="Collapsed" />
                     </Grid>
 
                     <Border x:Name="RuleEditor" Grid.Column="1" Padding="16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Visibility="Collapsed">
                         <ScrollViewer x:Name="RuleEditorScroll" HorizontalScrollBarVisibility="Disabled">
                             <StackPanel Spacing="12">
-                                <TextBlock x:Name="EditorTitle" FontSize="20" FontWeight="SemiBold" Text="编辑规则" />
+                                <TextBlock x:Name="EditorTitle" x:Uid="EditorTitle" FontSize="20" FontWeight="SemiBold" />
                                 <InfoBar x:Name="EditorInfo" IsClosable="False" IsOpen="False" Severity="Error" />
-                                <TextBox x:Name="RuleIdBox" AutomationProperties.Name="规则 ID" Header="规则 ID" />
-                                <ToggleSwitch x:Name="EditorEnabled" AutomationProperties.Name="规则启用状态" Header="启用规则" OffContent="禁用" OnContent="启用" />
-                                <ComboBox x:Name="TriggerTypeCombo" AutomationProperties.Name="触发条件类型" Header="触发条件" SelectionChanged="TriggerTypeCombo_SelectionChanged">
-                                    <ComboBoxItem Content="键 + 键" Tag="key_chord" />
-                                    <ComboBoxItem Content="键 + 鼠标按钮" Tag="key_mouse_button" />
-                                    <ComboBoxItem Content="长按键盘键" Tag="hold" />
-                                    <ComboBoxItem Content="长按键盘键 + 鼠标按钮" Tag="hold_mouse_button" />
-                                    <ComboBoxItem Content="按住键盘键 + 鼠标方向" Tag="mouse_direction" />
+                                <TextBox x:Name="RuleIdBox" x:Uid="RuleIdBox" />
+                                <ToggleSwitch x:Name="EditorEnabled" x:Uid="EditorEnabled" />
+                                <ComboBox x:Name="TriggerTypeCombo" x:Uid="TriggerTypeCombo" SelectionChanged="TriggerTypeCombo_SelectionChanged">
+                                    <ComboBoxItem x:Uid="TriggerKeyChord" Tag="key_chord" />
+                                    <ComboBoxItem x:Uid="TriggerKeyMouseButton" Tag="key_mouse_button" />
+                                    <ComboBoxItem x:Uid="TriggerHold" Tag="hold" />
+                                    <ComboBoxItem x:Uid="TriggerHoldMouseButton" Tag="hold_mouse_button" />
+                                    <ComboBoxItem x:Uid="TriggerMouseDirection" Tag="mouse_direction" />
                                 </ComboBox>
-                                <TextBlock FontWeight="SemiBold" Text="第一个键" />
+                                <TextBlock x:Uid="PrimaryKeyLabel" FontWeight="SemiBold" />
                                 <controls:KeyPicker x:Name="PrimaryKeyPicker" CaptureRequested="KeyPicker_CaptureRequested" />
                                 <StackPanel x:Name="SecondKeyPanel" Spacing="6">
-                                    <TextBlock FontWeight="SemiBold" Text="第二个键" />
+                                    <TextBlock x:Uid="SecondaryKeyLabel" FontWeight="SemiBold" />
                                     <controls:KeyPicker x:Name="SecondaryKeyPicker" CaptureRequested="KeyPicker_CaptureRequested" />
                                 </StackPanel>
                                 <StackPanel x:Name="TimeoutPanel" Spacing="6" Visibility="Collapsed">
-                                    <NumberBox x:Name="TimeoutBox" AutomationProperties.Name="键盘键长按毫秒数" Header="键盘键长按阈值（毫秒）" Maximum="60000" Minimum="1" SpinButtonPlacementMode="Inline" Value="250" />
+                                    <NumberBox x:Name="TimeoutBox" x:Uid="TimeoutBox" Maximum="60000" Minimum="1" SpinButtonPlacementMode="Inline" Value="250" />
                                     <TextBlock x:Name="TimeoutHelpText" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
                                 </StackPanel>
                                 <StackPanel x:Name="MousePanel" Spacing="6" Visibility="Collapsed">
-                                    <TextBlock FontWeight="SemiBold" Text="随后按下的鼠标按钮" />
+                                    <TextBlock x:Uid="MouseButtonLabel" FontWeight="SemiBold" />
                                     <Grid ColumnSpacing="8">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                        <ComboBox x:Name="MouseButtonCombo" AutomationProperties.Name="鼠标按钮" HorizontalAlignment="Stretch" />
-                                        <Button x:Name="RecordMouseButtonButton" Grid.Column="1" AutomationProperties.Name="录制鼠标按钮" Click="RecordMouseButton_Click" Content="录制" />
+                                        <ComboBox x:Name="MouseButtonCombo" x:Uid="MouseButtonCombo" HorizontalAlignment="Stretch" />
+                                        <Button x:Name="RecordMouseButtonButton" x:Uid="RecordMouseButtonButton" Grid.Column="1" Click="RecordMouseButton_Click" />
                                     </Grid>
                                 </StackPanel>
                                 <StackPanel x:Name="DirectionPanel" Spacing="8" Visibility="Collapsed">
-                                    <TextBlock FontWeight="SemiBold" Text="鼠标方向参数" />
-                                    <ComboBox x:Name="DirectionCombo" AutomationProperties.Name="鼠标移动方向" Header="方向" HorizontalAlignment="Stretch" />
-                                    <NumberBox x:Name="DirectionDistanceBox" AutomationProperties.Name="鼠标方向最小距离像素" Header="最小净位移（屏幕像素）" Maximum="2000" Minimum="10" SpinButtonPlacementMode="Inline" Value="80" />
-                                    <NumberBox x:Name="DirectionDurationBox" AutomationProperties.Name="鼠标方向最大时间毫秒" Header="最大时间窗（毫秒）" Maximum="5000" Minimum="100" SpinButtonPlacementMode="Inline" Value="500" />
-                                    <NumberBox x:Name="DirectionToleranceBox" AutomationProperties.Name="鼠标方向偏轴容差像素" Header="偏轴容差（屏幕像素）" Maximum="2000" Minimum="0" SpinButtonPlacementMode="Inline" Value="40" />
-                                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="按住上方激活键后移动；光标始终正常移动，每次按住最多触发一次，松开后重新武装。同一激活键的四方向规则必须使用相同参数。" TextWrapping="Wrap" />
+                                    <TextBlock x:Uid="DirectionParametersLabel" FontWeight="SemiBold" />
+                                    <ComboBox x:Name="DirectionCombo" x:Uid="DirectionCombo" HorizontalAlignment="Stretch" />
+                                    <NumberBox x:Name="DirectionDistanceBox" x:Uid="DirectionDistanceBox" Maximum="2000" Minimum="10" SpinButtonPlacementMode="Inline" Value="80" />
+                                    <NumberBox x:Name="DirectionDurationBox" x:Uid="DirectionDurationBox" Maximum="5000" Minimum="100" SpinButtonPlacementMode="Inline" Value="500" />
+                                    <NumberBox x:Name="DirectionToleranceBox" x:Uid="DirectionToleranceBox" Maximum="2000" Minimum="0" SpinButtonPlacementMode="Inline" Value="40" />
+                                    <TextBlock x:Uid="DirectionHelpText" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
                                     <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <Button x:Name="StartDirectionPreviewButton" AutomationProperties.Name="开始鼠标方向预览" Click="StartDirectionPreview_Click" Content="开始有限预览" />
-                                        <Button x:Name="CancelDirectionPreviewButton" AutomationProperties.Name="取消鼠标方向预览" Click="CancelDirectionPreview_Click" Content="取消预览" IsEnabled="False" />
+                                        <Button x:Name="StartDirectionPreviewButton" x:Uid="StartDirectionPreviewButton" Click="StartDirectionPreview_Click" />
+                                        <Button x:Name="CancelDirectionPreviewButton" x:Uid="CancelDirectionPreviewButton" Click="CancelDirectionPreview_Click" IsEnabled="False" />
                                     </StackPanel>
-                                    <ProgressBar x:Name="DirectionPreviewProgress" AutomationProperties.Name="鼠标方向预览进度" Maximum="100" Minimum="0" Value="0" />
-                                    <TextBlock x:Name="DirectionPreviewText" AutomationProperties.LiveSetting="Polite" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="预览不保存轨迹，也不执行动作；点击开始相当于临时激活。" TextWrapping="Wrap" />
+                                    <ProgressBar x:Name="DirectionPreviewProgress" x:Uid="DirectionPreviewProgress" Maximum="100" Minimum="0" Value="0" />
+                                    <TextBlock x:Name="DirectionPreviewText" x:Uid="DirectionPreviewText" AutomationProperties.LiveSetting="Polite" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
                                 </StackPanel>
-                                <TextBlock FontWeight="SemiBold" Text="动作：键盘组合" />
+                                <TextBlock x:Uid="ActionKeysLabel" FontWeight="SemiBold" />
                                 <StackPanel x:Name="ActionKeysPanel" Spacing="8" />
-                                <Button HorizontalAlignment="Left" AutomationProperties.Name="增加动作键" Click="AddActionKey_Click" Content="增加动作键" />
-                                <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="复制/粘贴可分别表达为 Ctrl+C / Ctrl+V。当前没有专用剪贴板动作。" TextWrapping="Wrap" />
+                                <Button x:Uid="AddActionKeyButton" HorizontalAlignment="Left" Click="AddActionKey_Click" />
+                                <TextBlock x:Uid="ActionKeysHelpText" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
                                 <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
-                                    <Button Click="CancelEdit_Click" Content="取消编辑" />
-                                    <Button Click="CommitEdit_Click" Content="写入草稿" Style="{StaticResource AccentButtonStyle}" />
+                                    <Button x:Uid="CancelEditButton" Click="CancelEdit_Click" />
+                                    <Button x:Uid="CommitEditButton" Click="CommitEdit_Click" Style="{StaticResource AccentButtonStyle}" />
                                 </StackPanel>
                             </StackPanel>
                         </ScrollViewer>
@@ -195,46 +195,58 @@
 
             <ScrollViewer x:Name="SettingsPage" Grid.Row="3" HorizontalContentAlignment="Stretch" HorizontalScrollBarVisibility="Disabled" Visibility="Collapsed">
                 <StackPanel Spacing="16">
-                    <TextBlock FontSize="24" FontWeight="SemiBold" Text="设置与诊断" />
+                    <TextBlock x:Uid="SettingsPageTitle" FontSize="24" FontWeight="SemiBold" />
                     <Border Padding="16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="6">
                         <StackPanel Spacing="10">
-                            <TextBlock FontSize="18" FontWeight="SemiBold" Text="紧急旁路键" />
-                            <TextBlock Text="紧急键必须是 logical，并且不能作为启用规则的首键。最终冲突由 Agent 校验。" TextWrapping="Wrap" />
+                            <TextBlock x:Uid="LanguageSectionTitle" FontSize="18" FontWeight="SemiBold" />
+                            <TextBlock x:Uid="LanguageSectionDescription" TextWrapping="Wrap" />
+                            <ComboBox x:Name="LanguageCombo" x:Uid="LanguageCombo" HorizontalAlignment="Stretch" SelectionChanged="LanguageCombo_SelectionChanged">
+                                <ComboBoxItem x:Uid="LanguageSystemOption" Tag="system" />
+                                <ComboBoxItem x:Uid="LanguageEnglishOption" Tag="en-US" />
+                                <ComboBoxItem x:Uid="LanguageChineseOption" Tag="zh-CN" />
+                            </ComboBox>
+                            <InfoBar x:Name="LanguageRestartBar" x:Uid="LanguageRestartBar" AutomationProperties.LiveSetting="Polite" IsClosable="True" IsOpen="False" Severity="Informational" />
+                        </StackPanel>
+                    </Border>
+                    <Border Padding="16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="6">
+                        <StackPanel Spacing="10">
+                            <TextBlock x:Uid="EmergencySectionTitle" FontSize="18" FontWeight="SemiBold" />
+                            <TextBlock x:Uid="EmergencySectionDescription" TextWrapping="Wrap" />
                             <controls:KeyPicker x:Name="EmergencyKeyPicker" CaptureEnabled="False" />
-                            <Button HorizontalAlignment="Left" Click="SetEmergencyKey_Click" Content="写入草稿" />
+                            <Button x:Uid="SetEmergencyKeyButton" HorizontalAlignment="Left" Click="SetEmergencyKey_Click" />
                         </StackPanel>
                     </Border>
                     <Border Padding="16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="6">
                         <StackPanel Spacing="8">
-                            <TextBlock FontSize="18" FontWeight="SemiBold" Text="Agent 状态" />
-                            <TextBlock x:Name="AgentStatusText" Text="未连接" TextWrapping="Wrap" />
+                            <TextBlock x:Uid="AgentStatusSectionTitle" FontSize="18" FontWeight="SemiBold" />
+                            <TextBlock x:Name="AgentStatusText" x:Uid="AgentStatusText" TextWrapping="Wrap" />
                             <TextBlock x:Name="AgentErrorText" Foreground="{ThemeResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button Click="PauseResume_Click" Content="暂停 / 恢复" />
-                                <Button Click="RetryConnection_Click" Content="重试连接" />
+                                <Button x:Uid="PauseResumeButton" Click="PauseResume_Click" />
+                                <Button x:Uid="RetryConnectionSettingsButton" Click="RetryConnection_Click" />
                             </StackPanel>
                         </StackPanel>
                     </Border>
                     <Border Padding="16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="6">
                         <StackPanel Spacing="8">
-                            <TextBlock FontSize="18" FontWeight="SemiBold" Text="诊断" />
-                            <TextBlock Text="统计只在点击刷新时查询；页面不会每秒轮询。" />
-                            <Button HorizontalAlignment="Left" Click="RefreshStats_Click" Content="刷新诊断" />
-                            <TextBlock x:Name="StatsText" FontFamily="Consolas" Text="尚未查询" TextWrapping="Wrap" />
+                            <TextBlock x:Uid="DiagnosticsSectionTitle" FontSize="18" FontWeight="SemiBold" />
+                            <TextBlock x:Uid="DiagnosticsSectionDescription" />
+                            <Button x:Uid="RefreshStatsButton" HorizontalAlignment="Left" Click="RefreshStats_Click" />
+                            <TextBlock x:Name="StatsText" x:Uid="StatsText" FontFamily="Consolas" TextWrapping="Wrap" />
                         </StackPanel>
                     </Border>
-                    <InfoBar IsClosable="False" IsOpen="True" Message="当前协议没有配置恢复 API。若显示 recovery_required，请重启 Agent 并重新读取正式配置；此页面不会假装恢复成功。" Severity="Warning" Title="配置恢复边界" />
+                    <InfoBar x:Uid="RecoveryBoundaryInfo" IsClosable="False" IsOpen="True" Severity="Warning" />
                 </StackPanel>
             </ScrollViewer>
 
             <ScrollViewer x:Name="AboutPage" Grid.Row="3" Visibility="Collapsed">
                 <StackPanel MaxWidth="700" HorizontalAlignment="Left" Spacing="14">
-                    <TextBlock FontSize="24" FontWeight="SemiBold" Text="关于 InputFlow" />
+                    <TextBlock x:Uid="AboutPageTitle" FontSize="24" FontWeight="SemiBold" />
                     <TextBlock x:Name="VersionText" TextWrapping="Wrap" />
-                    <TextBlock Text="支持范围：key_chord、key_mouse_button、hold、hold_mouse_button、mouse_direction 触发器，以及 key_chord 动作。录制一次只观察一个键或鼠标按钮。" TextWrapping="Wrap" />
-                    <TextBlock Text="v0.9.0 x64 便携包采用 unpackaged + 双 self-contained，随包携带 .NET 与 Windows App SDK；系统仍需 Microsoft Visual C++ Redistributable 2015–2022 x64。关闭此窗口不会停止 Rust Agent、Hook 或托盘。" TextWrapping="Wrap" />
-                    <TextBlock Text="项目采用 MIT 许可证；项目许可证和第三方许可文件随发布包提供。登录自启动默认关闭，可由包内 enable / status / disable 脚本管理。" TextWrapping="Wrap" />
-                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="尚不支持：Fn、任意三键、按应用生效、打开程序/文件夹/网页，以及设置页内的登录启动和系统辅助功能开关。" TextWrapping="Wrap" />
+                    <TextBlock x:Uid="AboutScopeText" TextWrapping="Wrap" />
+                    <TextBlock x:Uid="AboutDistributionText" TextWrapping="Wrap" />
+                    <TextBlock x:Uid="AboutLicenseText" TextWrapping="Wrap" />
+                    <TextBlock x:Uid="AboutLimitationsText" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
                 </StackPanel>
             </ScrollViewer>
         </Grid>

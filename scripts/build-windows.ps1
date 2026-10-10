@@ -109,6 +109,9 @@ try {
     Invoke-Checked { cargo clippy --workspace --all-targets -- -D warnings } 'Rust Clippy'
     Invoke-Checked { cargo build -p probe-cli } 'probe-cli build'
     Invoke-Checked { Invoke-ReleaseAgentBuild } 'Release agent build with private-path remapping'
+    Invoke-Checked {
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File '.\scripts\test-localization.ps1'
+    } 'WinUI localization resource contract'
 
     if (-not $SkipRestore) {
         Invoke-Checked { dotnet restore $solution -p:Configuration=Debug } 'WinUI Debug solution restore'
@@ -124,6 +127,31 @@ try {
     Invoke-Checked {
         dotnet run --project '.\apps\settings-winui\InputFlow.Settings.Core.Tests\InputFlow.Settings.Core.Tests.csproj' -c Debug --no-build
     } 'C# settings core tests'
+    foreach ($configuration in @('Debug', 'Release')) {
+        $settingsExecutable = Join-Path $repositoryRoot "apps\settings-winui\InputFlow.Settings\bin\$configuration\net10.0-windows10.0.26100.0\win-x64\InputFlow.Settings.exe"
+        foreach ($language in @('en-US', 'zh-CN')) {
+            Write-Host "==> WinUI $configuration $language localization smoke"
+            $previousSmokeLanguage = $env:INPUTFLOW_LOCALIZATION_SMOKE
+            try {
+                $env:INPUTFLOW_LOCALIZATION_SMOKE = $language
+                $process = Start-Process -FilePath $settingsExecutable `
+                    -WindowStyle Hidden `
+                    -Wait `
+                    -PassThru
+                if ($process.ExitCode -ne 0) {
+                    throw "WinUI $configuration $language localization smoke failed with exit code $($process.ExitCode)"
+                }
+            }
+            finally {
+                if ($null -eq $previousSmokeLanguage) {
+                    Remove-Item Env:INPUTFLOW_LOCALIZATION_SMOKE -ErrorAction SilentlyContinue
+                }
+                else {
+                    $env:INPUTFLOW_LOCALIZATION_SMOKE = $previousSmokeLanguage
+                }
+            }
+        }
+    }
 }
 finally {
     Pop-Location

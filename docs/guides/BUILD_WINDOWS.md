@@ -9,8 +9,8 @@
 本文记录可重复的开发构建、运行依赖和 H／RC 发布构建约束，不维护阶段状态或测试计数。历史
 环境和命令用于复现当前工程；执行新验证时把实际结果写入对应 `docs/records/` 文件。
 
-Phase A–E 的普通开发构建继续采用 framework-dependent 基线；H 的正式发布 profile 已实现 .NET 与
-Windows App SDK 双 self-contained 目录发布。开发构建成功仍不代表自启动、升级／移除或干净环境已经
+RC-01 起，普通 WinUI 开发构建与 H／RC 发布 profile 都使用 Windows App SDK self-contained；正式
+publish 另外固定 .NET self-contained。开发构建成功仍不代表自启动、升级／移除或干净环境已经
 验收，当前事实以 H 记录为准。
 
 ## 1. 目标产物与职责
@@ -82,7 +82,9 @@ apps/settings-winui/
 - `TargetPlatformMinVersion=10.0.17763.0`
 - Windows App SDK 2.5.1 与 Windows SDK BuildTools 10.0.28000.2705
 - `WindowsPackageType=None`：unpackaged
-- 普通开发构建 `WindowsAppSDKSelfContained=false`；发布 profile 单独覆盖为 `true`
+- 普通 Debug／Release 构建和发布 profile 均为 `WindowsAppSDKSelfContained=true`，保证本地化 PRI
+  runtime smoke 不依赖机器上另装同版 Windows App Runtime；发布 profile 另设 `PublishSelfContained=true`
+- `DefaultLanguage=en-US`；`Strings/en-US` 与 `Strings/zh-CN` 通过项目 PRI 提供 Settings 资源
 - Phase A 工程范围固定为 x64；x86/ARM64 尚未纳入支持范围
 
 实际可重复命令：
@@ -94,7 +96,19 @@ dotnet build .\apps\settings-winui\InputFlow.Settings.slnx -c Debug --no-restore
 dotnet build .\apps\settings-winui\InputFlow.Settings.slnx -c Release --no-restore
 dotnet run --project .\apps\settings-winui\InputFlow.Protocol.ContractTests\InputFlow.Protocol.ContractTests.csproj -c Debug --no-build
 dotnet run --project .\apps\settings-winui\InputFlow.Settings.Core.Tests\InputFlow.Settings.Core.Tests.csproj -c Debug --no-build
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-localization.ps1
 ```
+
+`scripts/build-windows.ps1` 还会分别以 en-US／zh-CN 启动 Debug 和 Release Settings 资源探针，共四次
+真实可执行文件 smoke。需要验证语言选择持久化和真实 UI Automation 名称时，在无重要未保存 Settings
+会话的桌面上运行：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\smoke-localization-ui.ps1
+```
+
+该脚本只结束自身启动的 Settings PID，且会恢复测试前的 `%LOCALAPPDATA%\InputFlow\ui-preferences.json`。
+它不启动或停止 Agent，也不代替 Narrator 人工朗读、规则保存或物理输入验收。
 
 Debug 与 Release 均为 0 warning、0 error。不要给 solution 命令添加 `-p:Platform=x64` 或 `-r win-x64`：该 `.slnx` 使用默认 solution configuration，项目文件已经明确固定 `win-x64`；前述额外参数在本机 solution 构建中分别造成无效 configuration 和 `NETSDK1134`。
 
@@ -108,11 +122,11 @@ Phase E 实测观察到标题为 `InputFlow 设置` 的原生窗口和真实 `ph
 
 ## 5. 部署模式比较与决定
 
-| 组合 | 本机证据 | 代价/限制 | Phase A 决定 |
+| 组合 | 本机证据 | 代价/限制 | 当前状态 |
 |---|---|---|---|
 | Packaged + framework-dependent | restore/build 成功；模板的 packaged 启动工具明确报 Developer Mode 未启用 | 开发启动需 Developer Mode/包注册；本轮没有管理员权限启用，故启动未验证 | 不选；保留为未来安装/分发评估项 |
-| Unpackaged + self-contained | 独立构建成功；原生窗口启动并正常关闭，exit code 0 | 输出携带 .NET/Windows App SDK，体积和更新责任更大 | 已验证的离线/部署 fallback，不作为当前默认 |
-| Unpackaged + framework-dependent | 安装 Windows App Runtime 2.5.1 x64 后，Debug/Release 构建成功；窗口启动并正常关闭，exit code 0 | 目标机必须具备匹配的 .NET Desktop Runtime 和 Windows App Runtime | **当前选择**；适合本地系统工具开发并由共享运行库获得服务更新 |
+| Unpackaged + self-contained | 独立构建成功；双语 PRI、Debug／Release 和发布目录运行 smoke 通过 | 输出携带运行组件，体积和更新责任更大 | **当前开发／发布基线**；正式包同时为 .NET self-contained |
+| Unpackaged + framework-dependent | Phase A 安装 Windows App Runtime 2.5.1 x64 后曾通过 Debug/Release 启动 | 目标机必须具备匹配的 .NET Desktop Runtime 和 Windows App Runtime | 历史开发基线；RC-01 后不再是项目默认构建配置 |
 
 该选择只固定 Phase A 开发基线，不等于最终安装器方案已经完成。干净测试机的首次安装、升级、卸载和缺少运行库时的用户体验均未执行。`Package.appxmanifest` 作为官方模板源文件保留，但 `WindowsPackageType=None` 时不参与当前运行路径。
 
@@ -158,7 +172,8 @@ Phase C 自动 smoke 示例（不含物理输入）：
 
 ## 8. 联合构建入口
 
-`scripts/build-windows.ps1` 调用已经验证的 Cargo、WinUI、protocol contract 和 settings core 测试；任一步失败都会返回非零。可用 `-SkipRestore` 复用已还原依赖。脚本不得：
+`scripts/build-windows.ps1` 调用已经验证的 Cargo、WinUI、protocol contract、settings core、本地化资源
+契约和四种双语 Settings runtime smoke；任一步失败都会返回非零。可用 `-SkipRestore` 复用已还原依赖。脚本不得：
 
 脚本先通过 `vswhere` 选择实际具备 x64 MSVC import libraries 的 Visual Studio／Build Tools 安装并
 导入 `VsDevCmd.bat` 环境。不能依赖 PATH 中碰巧排在前面的不完整安装；找不到 `msvcrt.lib` 时必须
@@ -222,7 +237,9 @@ dotnet publish .\apps\settings-winui\InputFlow.Settings\InputFlow.Settings.cspro
 `win-x64.pubxml` 固定 `PublishSelfContained=true`、`WindowsAppSDKSelfContained=true`，并关闭 trim、
 single-file、AOT 和 ReadyToRun。Windows App SDK 2.5.1 当前会生成项目 PRI 但遗漏出 publish 目录；
 缺少 `InputFlow.Settings.pri` 会导致 Settings 延迟以 `0xc000027b` 崩溃。项目中的
-`AddInputFlowProjectPriToPublish` target 仅把已生成 PRI 加入发布清单，且在 SDK 自行修复后可移除。
+`AddInputFlowProjectPriToPublish` target 仅把已生成 PRI 加入发布清单，且在 SDK 自行修复后可移除。打包脚本
+要求 `InputFlow.Settings.pri`、英语 `README.md` 和中文 `README.zh-CN.md` 均存在，并在 staging 目录直接
+运行 en-US／zh-CN 资源 smoke；任一失败时不会提升为最终目录或 ZIP。
 
 发布目录必须保留全部 UI DLL、XBF、PRI 和运行组件，Agent 与 `InputFlow.Settings.exe` 同目录。Agent
 PE x64 imports 已核对：除 Windows 系统 API 外需要中央安装的 `VCRUNTIME140.dll`，因此目标机必须安装

@@ -1,0 +1,316 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType><xsd:choice maxOccurs="unbounded">
+        <xsd:element name="metadata"><xsd:complexType><xsd:sequence><xsd:element name="value" type="xsd:string" minOccurs="0" /></xsd:sequence><xsd:attribute name="name" use="required" type="xsd:string" /><xsd:attribute name="type" type="xsd:string" /><xsd:attribute name="mimetype" type="xsd:string" /><xsd:attribute ref="xml:space" /></xsd:complexType></xsd:element>
+        <xsd:element name="assembly"><xsd:complexType><xsd:attribute name="alias" type="xsd:string" /><xsd:attribute name="name" type="xsd:string" /></xsd:complexType></xsd:element>
+        <xsd:element name="data"><xsd:complexType><xsd:sequence><xsd:element name="value" type="xsd:string" minOccurs="0" /><xsd:element name="comment" type="xsd:string" minOccurs="0" /></xsd:sequence><xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" /><xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" /><xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" /><xsd:attribute ref="xml:space" /></xsd:complexType></xsd:element>
+        <xsd:element name="resheader"><xsd:complexType><xsd:sequence><xsd:element name="value" type="xsd:string" minOccurs="0" /></xsd:sequence><xsd:attribute name="name" type="xsd:string" use="required" /></xsd:complexType></xsd:element>
+      </xsd:choice></xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+
+  <data name="LanguageTag" xml:space="preserve"><value>en-US</value></data>
+  <data name="Window_Title" xml:space="preserve"><value>InputFlow Settings</value></data>
+  <data name="MainWindow.Title" xml:space="preserve"><value>InputFlow Settings</value></data>
+  <data name="AppTitleBar.Title" xml:space="preserve"><value>InputFlow Settings</value></data>
+  <data name="MainPage.Language" xml:space="preserve"><value>en-US</value></data>
+  <data name="KeyPicker.Language" xml:space="preserve"><value>en-US</value></data>
+  <data name="LocalizationProbeText.Text" xml:space="preserve"><value>Localization ready</value></data>
+  <data name="LocalizationProbeButton.Content" xml:space="preserve"><value>OK</value></data>
+  <data name="LocalizationProbeButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Localization smoke button</value></data>
+
+  <data name="RootNavigation.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>InputFlow Settings navigation</value></data>
+  <data name="RootNavigation.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve"><value>Navigate between rules, settings, and about.</value></data>
+  <data name="RulesNavigation.Content" xml:space="preserve"><value>Rules</value></data>
+  <data name="SettingsNavigation.Content" xml:space="preserve"><value>Settings</value></data>
+  <data name="AboutNavigation.Content" xml:space="preserve"><value>About</value></data>
+  <data name="ConnectionBar.Title" xml:space="preserve"><value>Connecting</value></data>
+  <data name="RetryConnectionButton.Content" xml:space="preserve"><value>Retry</value></data>
+  <data name="RetryConnectionButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Retry Agent connection</value></data>
+  <data name="CaptureBar.Title" xml:space="preserve"><value>Capturing input</value></data>
+  <data name="CancelCaptureButton.Content" xml:space="preserve"><value>Cancel (Esc)</value></data>
+  <data name="CancelCaptureButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Cancel input capture</value></data>
+  <data name="RulesPageTitle.Text" xml:space="preserve"><value>Rules</value></data>
+  <data name="RulesPageDescription.Text" xml:space="preserve"><value>Create keyboard and mouse triggers with key-chord actions. Changes remain in a local draft until saved.</value></data>
+  <data name="DirtyText.Text" xml:space="preserve"><value>Unsaved changes</value></data>
+  <data name="AddRuleButton.Label" xml:space="preserve"><value>New</value></data>
+  <data name="AddRuleButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Create a new rule</value></data>
+  <data name="SaveButton.Label" xml:space="preserve"><value>Validate and save</value></data>
+  <data name="SaveButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Validate and save the draft</value></data>
+  <data name="ReloadButton.Label" xml:space="preserve"><value>Reload</value></data>
+  <data name="ReloadButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Reload the formal configuration</value></data>
+  <data name="PauseButton.Label" xml:space="preserve"><value>Pause</value></data>
+  <data name="PauseButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Pause Agent</value></data>
+  <data name="GroupFilter.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Filter rules by first key</value></data>
+  <data name="RulesList.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Rule list</value></data>
+  <data name="RuleRowEditButton.Content" xml:space="preserve"><value>Edit</value></data>
+  <data name="RuleRowDeleteButton.Content" xml:space="preserve"><value>Delete</value></data>
+  <data name="EmptyRulesText.Text" xml:space="preserve"><value>No rules in this group. Select New to begin.</value></data>
+  <data name="EditorTitle.Text" xml:space="preserve"><value>Edit rule</value></data>
+  <data name="RuleIdBox.Header" xml:space="preserve"><value>Rule ID</value></data>
+  <data name="RuleIdBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Rule ID</value></data>
+  <data name="EditorEnabled.Header" xml:space="preserve"><value>Enable rule</value></data>
+  <data name="EditorEnabled.OnContent" xml:space="preserve"><value>Enabled</value></data>
+  <data name="EditorEnabled.OffContent" xml:space="preserve"><value>Disabled</value></data>
+  <data name="EditorEnabled.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Rule enabled state</value></data>
+  <data name="TriggerTypeCombo.Header" xml:space="preserve"><value>Trigger</value></data>
+  <data name="TriggerTypeCombo.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Trigger type</value></data>
+  <data name="TriggerKeyChord.Content" xml:space="preserve"><value>Key + key</value></data>
+  <data name="TriggerKeyMouseButton.Content" xml:space="preserve"><value>Key + mouse button</value></data>
+  <data name="TriggerHold.Content" xml:space="preserve"><value>Hold keyboard key</value></data>
+  <data name="TriggerHoldMouseButton.Content" xml:space="preserve"><value>Hold keyboard key + mouse button</value></data>
+  <data name="TriggerMouseDirection.Content" xml:space="preserve"><value>Hold keyboard key + mouse direction</value></data>
+  <data name="PrimaryKeyLabel.Text" xml:space="preserve"><value>First key</value></data>
+  <data name="SecondaryKeyLabel.Text" xml:space="preserve"><value>Second key</value></data>
+  <data name="TimeoutBox.Header" xml:space="preserve"><value>Keyboard hold threshold (milliseconds)</value></data>
+  <data name="TimeoutBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Keyboard hold threshold in milliseconds</value></data>
+  <data name="MouseButtonLabel.Text" xml:space="preserve"><value>Mouse button pressed afterward</value></data>
+  <data name="MouseButtonCombo.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Mouse button</value></data>
+  <data name="RecordMouseButtonButton.Content" xml:space="preserve"><value>Capture</value></data>
+  <data name="RecordMouseButtonButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Capture a mouse button</value></data>
+  <data name="DirectionParametersLabel.Text" xml:space="preserve"><value>Mouse direction parameters</value></data>
+  <data name="DirectionCombo.Header" xml:space="preserve"><value>Direction</value></data>
+  <data name="DirectionCombo.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Mouse movement direction</value></data>
+  <data name="DirectionDistanceBox.Header" xml:space="preserve"><value>Minimum net displacement (screen pixels)</value></data>
+  <data name="DirectionDistanceBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Minimum mouse direction distance in pixels</value></data>
+  <data name="DirectionDurationBox.Header" xml:space="preserve"><value>Maximum time window (milliseconds)</value></data>
+  <data name="DirectionDurationBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Maximum mouse direction time in milliseconds</value></data>
+  <data name="DirectionToleranceBox.Header" xml:space="preserve"><value>Off-axis tolerance (screen pixels)</value></data>
+  <data name="DirectionToleranceBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Mouse direction off-axis tolerance in pixels</value></data>
+  <data name="DirectionHelpText.Text" xml:space="preserve"><value>Hold the activation key and move. The pointer always moves normally. Each hold can trigger once and rearms after release. Four directions using the same activation key must share these parameters.</value></data>
+  <data name="StartDirectionPreviewButton.Content" xml:space="preserve"><value>Start limited preview</value></data>
+  <data name="StartDirectionPreviewButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Start mouse direction preview</value></data>
+  <data name="CancelDirectionPreviewButton.Content" xml:space="preserve"><value>Cancel preview</value></data>
+  <data name="CancelDirectionPreviewButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Cancel mouse direction preview</value></data>
+  <data name="DirectionPreviewProgress.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Mouse direction preview progress</value></data>
+  <data name="DirectionPreviewText.Text" xml:space="preserve"><value>The preview does not save pointer paths or run actions. Starting it acts as a temporary activation.</value></data>
+  <data name="ActionKeysLabel.Text" xml:space="preserve"><value>Action: key chord</value></data>
+  <data name="AddActionKeyButton.Content" xml:space="preserve"><value>Add action key</value></data>
+  <data name="AddActionKeyButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Add an action key</value></data>
+  <data name="ActionKeysHelpText.Text" xml:space="preserve"><value>Copy and paste can be represented as Ctrl+C and Ctrl+V. There is no dedicated clipboard action.</value></data>
+  <data name="CancelEditButton.Content" xml:space="preserve"><value>Cancel edit</value></data>
+  <data name="CommitEditButton.Content" xml:space="preserve"><value>Write to draft</value></data>
+
+  <data name="SettingsPageTitle.Text" xml:space="preserve"><value>Settings and diagnostics</value></data>
+  <data name="LanguageSectionTitle.Text" xml:space="preserve"><value>Display language</value></data>
+  <data name="LanguageSectionDescription.Text" xml:space="preserve"><value>Choose the language for Settings. Reopen Settings to apply the change; the Agent keeps running.</value></data>
+  <data name="LanguageCombo.Header" xml:space="preserve"><value>Settings language</value></data>
+  <data name="LanguageCombo.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Settings display language</value></data>
+  <data name="LanguageCombo.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve"><value>Select system matching, English, or Simplified Chinese. Reopen Settings to apply.</value></data>
+  <data name="LanguageSystemOption.Content" xml:space="preserve"><value>System default / 跟随系统</value></data>
+  <data name="LanguageSystemOption.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>System default; follow Windows display language</value></data>
+  <data name="LanguageEnglishOption.Content" xml:space="preserve"><value>English</value></data>
+  <data name="LanguageEnglishOption.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>English</value></data>
+  <data name="LanguageChineseOption.Content" xml:space="preserve"><value>简体中文</value></data>
+  <data name="LanguageChineseOption.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Simplified Chinese</value></data>
+  <data name="LanguageRestartBar.Title" xml:space="preserve"><value>Reopen Settings to apply</value></data>
+  <data name="EmergencySectionTitle.Text" xml:space="preserve"><value>Emergency bypass key</value></data>
+  <data name="EmergencySectionDescription.Text" xml:space="preserve"><value>The emergency key must use logical identity and cannot be the first key of an enabled rule. The Agent performs the final conflict check.</value></data>
+  <data name="SetEmergencyKeyButton.Content" xml:space="preserve"><value>Write to draft</value></data>
+  <data name="AgentStatusSectionTitle.Text" xml:space="preserve"><value>Agent status</value></data>
+  <data name="AgentStatusText.Text" xml:space="preserve"><value>Not connected</value></data>
+  <data name="PauseResumeButton.Content" xml:space="preserve"><value>Pause / Resume</value></data>
+  <data name="RetryConnectionSettingsButton.Content" xml:space="preserve"><value>Retry connection</value></data>
+  <data name="DiagnosticsSectionTitle.Text" xml:space="preserve"><value>Diagnostics</value></data>
+  <data name="DiagnosticsSectionDescription.Text" xml:space="preserve"><value>Statistics are queried only when you select Refresh; this page does not poll every second.</value></data>
+  <data name="RefreshStatsButton.Content" xml:space="preserve"><value>Refresh diagnostics</value></data>
+  <data name="StatsText.Text" xml:space="preserve"><value>Not queried</value></data>
+  <data name="RecoveryBoundaryInfo.Title" xml:space="preserve"><value>Configuration recovery boundary</value></data>
+  <data name="RecoveryBoundaryInfo.Message" xml:space="preserve"><value>The current protocol has no configuration recovery API. If recovery_required appears, restart the Agent and reload the formal configuration; this page will not claim recovery succeeded.</value></data>
+  <data name="AboutPageTitle.Text" xml:space="preserve"><value>About InputFlow</value></data>
+  <data name="AboutScopeText.Text" xml:space="preserve"><value>Supported triggers: key_chord, key_mouse_button, hold, hold_mouse_button, and mouse_direction; supported action: key_chord. Each capture observes one key or mouse button.</value></data>
+  <data name="AboutDistributionText.Text" xml:space="preserve"><value>The v0.9.0 x64 portable package is unpackaged and carries self-contained .NET and Windows App SDK components. Microsoft Visual C++ Redistributable 2015–2022 x64 is still required. Closing this window does not stop the Rust Agent, hooks, or tray icon.</value></data>
+  <data name="AboutLicenseText.Text" xml:space="preserve"><value>The project uses the MIT License. Project and third-party license files are included with the distribution. Sign-in autostart is disabled by default and can be managed with the included enable, status, and disable scripts.</value></data>
+  <data name="AboutLimitationsText.Text" xml:space="preserve"><value>Not supported: Fn, arbitrary three-key chords, per-application rules, opening programs/folders/web pages, or sign-in startup and system accessibility switches inside Settings.</value></data>
+
+  <data name="LogicalKeyCombo.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Logical key</value></data>
+  <data name="LogicalKeyCombo.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve"><value>Select the stable logical key identity.</value></data>
+  <data name="KeyCaptureButton.Content" xml:space="preserve"><value>Capture</value></data>
+  <data name="KeyCaptureButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Capture this key</value></data>
+  <data name="AdvancedKeyIdentityExpander.Header" xml:space="preserve"><value>Advanced key identity</value></data>
+  <data name="PhysicalMode.Header" xml:space="preserve"><value>Match physical position</value></data>
+  <data name="PhysicalMode.OffContent" xml:space="preserve"><value>Logical</value></data>
+  <data name="PhysicalMode.OnContent" xml:space="preserve"><value>Physical</value></data>
+  <data name="PhysicalMode.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Use physical scan code</value></data>
+  <data name="ScanCodeBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Scan code</value></data>
+  <data name="ScanCodeBox.Header" xml:space="preserve"><value>Scan code</value></data>
+  <data name="ExtendedCheck.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Extended key flag</value></data>
+  <data name="ExtendedCheck.Content" xml:space="preserve"><value>Extended</value></data>
+  <data name="PhysicalModeHelpText.Text" xml:space="preserve"><value>Physical mode follows key position and requires a nonzero scan code. Display text is not written to the configuration.</value></data>
+
+  <data name="CloseDialog_Title" xml:space="preserve"><value>Unsaved draft</value></data>
+  <data name="CloseDialog_Message" xml:space="preserve"><value>The current rule edit or draft exists only in Settings memory and has not been saved by the Agent. Save successfully before exiting, or explicitly discard the changes.</value></data>
+  <data name="CloseDialog_SaveAndExit" xml:space="preserve"><value>Save and exit</value></data>
+  <data name="CloseDialog_ExitWithoutSaving" xml:space="preserve"><value>Exit without saving</value></data>
+  <data name="Common_Back" xml:space="preserve"><value>Back</value></data>
+  <data name="Common_Cancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="Common_Delete" xml:space="preserve"><value>Delete</value></data>
+  <data name="Common_Reload" xml:space="preserve"><value>Reload</value></data>
+  <data name="Common_Remove" xml:space="preserve"><value>Remove</value></data>
+  <data name="Common_Pause" xml:space="preserve"><value>Pause</value></data>
+  <data name="Common_Resume" xml:space="preserve"><value>Resume</value></data>
+  <data name="Common_NotConnected" xml:space="preserve"><value>not connected</value></data>
+  <data name="Common_ListSeparator" xml:space="preserve"><value>; </value></data>
+  <data name="RuleEditor_CannotCommit" xml:space="preserve"><value>The current rule edit cannot be written to the draft.</value></data>
+  <data name="RuleEditor_NewTitle" xml:space="preserve"><value>New rule</value></data>
+  <data name="RuleEditor_EditTitle" xml:space="preserve"><value>Edit rule</value></data>
+  <data name="RuleEditor_HoldMouseHelp" xml:space="preserve"><value>The keyboard key is timed. Press the mouse button after the threshold; the mouse button itself does not need to be held.</value></data>
+  <data name="RuleEditor_HoldHelp" xml:space="preserve"><value>The keyboard key is timed. The action runs after the threshold.</value></data>
+  <data name="RuleEditor_Incomplete" xml:space="preserve"><value>Some rule fields are incomplete.</value></data>
+  <data name="RuleEditor_ErrorTitle" xml:space="preserve"><value>Check the rule fields</value></data>
+  <data name="Connection_NotConnectedTitle" xml:space="preserve"><value>Agent not connected</value></data>
+  <data name="Connection_OnlineTitle" xml:space="preserve"><value>Agent connected</value></data>
+  <data name="Connection_StatusTitle" xml:space="preserve"><value>Agent connection status</value></data>
+  <data name="Connection_ConnectingMessage" xml:space="preserve"><value>Connecting to InputFlow Agent…</value></data>
+  <data name="Connection_OnlineMessage" xml:space="preserve"><value>The control and event connections are available.</value></data>
+  <data name="Connection_ReconnectingMessage" xml:space="preserve"><value>The event subscription was interrupted and is reconnecting.</value></data>
+  <data name="Connection_OfflineMessage" xml:space="preserve"><value>InputFlow Agent is offline. Start the Agent or retry the connection.</value></data>
+  <data name="Authority_ChangedTitle" xml:space="preserve"><value>Formal configuration changed</value></data>
+  <data name="Authority_ChangedMessage" xml:space="preserve"><value>Another client changed the rules. Saving will compare again and ask you to reload or confirm an overwrite.</value></data>
+  <data name="Status_Suspended" xml:space="preserve"><value>paused</value></data>
+  <data name="Status_Running" xml:space="preserve"><value>running</value></data>
+  <data name="Status_SummaryFormat" xml:space="preserve"><value>phase={0}  {1}  enabled rules={2}  reconciliation={3}</value></data>
+  <data name="Status_WithLastErrorFormat" xml:space="preserve"><value>{0}  Last error: {1}</value></data>
+  <data name="PauseButton_ResumeAutomationName" xml:space="preserve"><value>Resume Agent</value></data>
+  <data name="PauseButton_PauseAutomationName" xml:space="preserve"><value>Pause Agent</value></data>
+  <data name="About_VersionFormat" xml:space="preserve"><value>Settings v{0}  Agent v{1}  process architecture {2}  configuration Schema v{3}</value></data>
+  <data name="Reconnect_FailedTitle" xml:space="preserve"><value>Reconnect failed</value></data>
+  <data name="ReloadDialog_Title" xml:space="preserve"><value>Discard the unsaved draft?</value></data>
+  <data name="ReloadDialog_Message" xml:space="preserve"><value>Reloading discards unsaved Settings changes and does not modify the Agent.</value></data>
+  <data name="ReloadDialog_DiscardAndReload" xml:space="preserve"><value>Discard and reload</value></data>
+  <data name="Reload_CompleteTitle" xml:space="preserve"><value>Reload complete</value></data>
+  <data name="Reload_CompleteMessage" xml:space="preserve"><value>The draft was reset to the Agent's formal configuration.</value></data>
+  <data name="Reload_FailedTitle" xml:space="preserve"><value>Reload failed</value></data>
+  <data name="Save_FinishEditingFirst" xml:space="preserve"><value>Write the current rule to the draft or cancel the edit before saving the full configuration.</value></data>
+  <data name="Save_ExternalChangeTitle" xml:space="preserve"><value>Formal rules changed elsewhere</value></data>
+  <data name="Save_ExternalChangeMessage" xml:space="preserve"><value>The formal rules changed in another client. Reload, or explicitly confirm an overwrite. This check is not an atomic concurrency transaction.</value></data>
+  <data name="Save_ConfirmOverwrite" xml:space="preserve"><value>Confirm overwrite</value></data>
+  <data name="Save_KeepDraft" xml:space="preserve"><value>Keep draft</value></data>
+  <data name="Save_CleanupWarningsFormat" xml:space="preserve"><value>&#xA;Cleanup warnings: {0}</value></data>
+  <data name="Save_CompleteTitle" xml:space="preserve"><value>Save complete</value></data>
+  <data name="Save_IncompleteTitle" xml:space="preserve"><value>Save incomplete</value></data>
+  <data name="Save_IncompleteMessageFormat" xml:space="preserve"><value>{0} If the request was sent, a timeout does not prove that saving failed. Reconnect and verify.</value></data>
+  <data name="SaveTitle_ValidationFailed" xml:space="preserve"><value>Validation failed</value></data>
+  <data name="SaveTitle_PersistenceFailed" xml:space="preserve"><value>Persistence failed</value></data>
+  <data name="SaveTitle_RuntimeCancelled" xml:space="preserve"><value>Runtime replacement cancelled</value></data>
+  <data name="SaveTitle_RuntimeFailed" xml:space="preserve"><value>Runtime replacement failed</value></data>
+  <data name="SaveTitle_RuntimeBusy" xml:space="preserve"><value>Agent is reconciling a previous request</value></data>
+  <data name="SaveTitle_RolledBack" xml:space="preserve"><value>Save rolled back</value></data>
+  <data name="SaveTitle_RecoveryRequired" xml:space="preserve"><value>Restart Agent to recover</value></data>
+  <data name="SaveTitle_Unknown" xml:space="preserve"><value>Save result needs verification</value></data>
+  <data name="SaveMessage_Applied" xml:space="preserve"><value>The Agent validated, saved, applied, and read back the rules.</value></data>
+  <data name="SaveMessage_AppliedWithWarnings" xml:space="preserve"><value>The rules were applied, but cleanup of old recovery files reported warnings.</value></data>
+  <data name="SaveMessage_ValidationFailed" xml:space="preserve"><value>The Agent rejected the draft. Correct the rules and save again.</value></data>
+  <data name="SaveMessage_PersistenceFailed" xml:space="preserve"><value>The configuration could not be persisted. The old rules continue running.</value></data>
+  <data name="SaveMessage_RuntimeCancelled" xml:space="preserve"><value>Runtime replacement was cancelled before it began. The old rules continue running.</value></data>
+  <data name="SaveMessage_RuntimeFailed" xml:space="preserve"><value>Runtime replacement failed. The draft was preserved.</value></data>
+  <data name="SaveMessage_RuntimeBusy" xml:space="preserve"><value>The Agent is reconciling a previous configuration apply. This draft was not submitted again.</value></data>
+  <data name="SaveMessage_RolledBack" xml:space="preserve"><value>The timed-out runtime replacement failed and the Agent restored the previous formal configuration. The draft remains available.</value></data>
+  <data name="SaveMessage_RecoveryRequired" xml:space="preserve"><value>The Agent could not determine or recover the runtime result. Restart the Agent, then reload the formal configuration. Do not submit again first.</value></data>
+  <data name="SaveMessage_Unknown" xml:space="preserve"><value>The result cannot be proven applied or rolled back. The draft was preserved; reconnect and verify.</value></data>
+  <data name="Runtime_PausedTitle" xml:space="preserve"><value>Agent paused</value></data>
+  <data name="Runtime_ResumedTitle" xml:space="preserve"><value>Agent resumed</value></data>
+  <data name="Runtime_ControlConfirmedMessage" xml:space="preserve"><value>The Agent confirmed the state. Later tray, F12, and other-client changes will synchronize through events.</value></data>
+  <data name="Runtime_ControlFailedTitle" xml:space="preserve"><value>Runtime control failed</value></data>
+  <data name="Diagnostics_StatsFormat" xml:space="preserve"><value>observed_events: {0}&#xA;output batches: sent={1}, failed={2}, dropped={3}&#xA;callback_latency_us: {4}&#xA;hold_delay_us: {5}</value></data>
+  <data name="Diagnostics_QueryFailedFormat" xml:space="preserve"><value>Query failed: {0}</value></data>
+  <data name="Diagnostics_NoSamples" xml:space="preserve"><value>no samples</value></data>
+  <data name="Language_RestartTitle" xml:space="preserve"><value>Reopen Settings to apply</value></data>
+  <data name="Language_RestartMessage" xml:space="preserve"><value>The preference was saved. Close and reopen Settings to use the selected language. The Agent and active rules keep running.</value></data>
+  <data name="Language_SaveFailedTitle" xml:space="preserve"><value>Language preference not saved</value></data>
+  <data name="Language_SaveFailedMessage" xml:space="preserve"><value>Settings could not write the per-user UI preference. The current language will remain in effect.</value></data>
+  <data name="DeleteDialog_TitleFormat" xml:space="preserve"><value>Delete {0} from the draft?</value></data>
+  <data name="DeleteDialog_Message" xml:space="preserve"><value>Deletion changes only the local draft. It affects the Agent after you select Validate and save.</value></data>
+  <data name="RuleValidation_IdRequired" xml:space="preserve"><value>Rule ID is required.</value></data>
+  <data name="RuleValidation_TimeoutRange" xml:space="preserve"><value>timeout_ms must be from 1 through 60000.</value></data>
+  <data name="RuleValidation_DirectionRequired" xml:space="preserve"><value>Select a mouse direction.</value></data>
+  <data name="RuleValidation_ActionKeyRequired" xml:space="preserve"><value>The action requires at least one key.</value></data>
+  <data name="RuleValidation_DirectionDistanceRange" xml:space="preserve"><value>Minimum net displacement must be an integer from 10 through 2000 screen pixels.</value></data>
+  <data name="RuleValidation_DirectionDurationRange" xml:space="preserve"><value>Maximum time window must be an integer from 100 through 5000 milliseconds.</value></data>
+  <data name="RuleValidation_DirectionToleranceRange" xml:space="preserve"><value>Off-axis tolerance must be an integer from 0 through 2000 screen pixels.</value></data>
+  <data name="Preview_DefaultMessage" xml:space="preserve"><value>The preview does not save pointer paths or run actions. Starting it acts as a temporary activation.</value></data>
+  <data name="Preview_Stopped" xml:space="preserve"><value>Preview stopped.</value></data>
+  <data name="Preview_CancelledShort" xml:space="preserve"><value>Preview cancelled.</value></data>
+  <data name="Preview_ConnectionLost" xml:space="preserve"><value>The Agent connection was lost; direction preview was cancelled.</value></data>
+  <data name="Preview_CaptureActive" xml:space="preserve"><value>Input capture is active. Cancel capture before starting direction preview.</value></data>
+  <data name="Preview_ParametersIncomplete" xml:space="preserve"><value>Direction preview parameters are incomplete.</value></data>
+  <data name="Preview_CursorUnavailable" xml:space="preserve"><value>The current pointer screen coordinates could not be read, so preview did not start.</value></data>
+  <data name="Preview_StartedFormat" xml:space="preserve"><value>Preview started at ({0}, {1}). You do not need to hold the activation key; this button replaces temporary activation for up to {2} ms.</value></data>
+  <data name="Preview_Cancelled" xml:space="preserve"><value>Preview cancelled. No pointer path was saved and no action ran.</value></data>
+  <data name="Preview_TimedOut" xml:space="preserve"><value>The preview time window ended without a match or action.</value></data>
+  <data name="Preview_CursorReadFailed" xml:space="preserve"><value>Reading the pointer position failed; preview stopped safely.</value></data>
+  <data name="Preview_AxisEqualFormat" xml:space="preserve"><value>Net displacement dx={0}, dy={1} px; the axes are equal, so direction is not determined.</value></data>
+  <data name="Preview_ProgressFormat" xml:space="preserve"><value>Direction {0}; net displacement dx={1}, dy={2} px; primary axis {3} px, off-axis {4} px.</value></data>
+  <data name="Preview_MatchedFormat" xml:space="preserve"><value>Preview matched {0}. This is only a summary; no action ran.</value></data>
+  <data name="Preview_StoppedForCapture" xml:space="preserve"><value>Direction preview stopped while input capture starts.</value></data>
+  <data name="Preview_EscapeCancelled" xml:space="preserve"><value>Esc cancelled the preview. No pointer path was saved and no action ran.</value></data>
+  <data name="Direction_Left" xml:space="preserve"><value>Left</value></data>
+  <data name="Direction_Right" xml:space="preserve"><value>Right</value></data>
+  <data name="Direction_Up" xml:space="preserve"><value>Up</value></data>
+  <data name="Direction_Down" xml:space="preserve"><value>Down</value></data>
+  <data name="MouseButton_Left" xml:space="preserve"><value>Left</value></data>
+  <data name="MouseButton_Right" xml:space="preserve"><value>Right</value></data>
+  <data name="MouseButton_Middle" xml:space="preserve"><value>Middle</value></data>
+  <data name="MouseButton_XButton1" xml:space="preserve"><value>Extra button 1</value></data>
+  <data name="MouseButton_XButton2" xml:space="preserve"><value>Extra button 2</value></data>
+  <data name="ActionKey_RemoveAutomationName" xml:space="preserve"><value>Remove this action key</value></data>
+  <data name="Capture_StartingTitle" xml:space="preserve"><value>Starting input capture</value></data>
+  <data name="Capture_StartingMessage" xml:space="preserve"><value>Press one input. Each capture fills only the current field; Esc cancels without writing to the draft.</value></data>
+  <data name="Capture_CancelledTitle" xml:space="preserve"><value>Capture cancelled</value></data>
+  <data name="Capture_StartFailedTitle" xml:space="preserve"><value>Could not start capture</value></data>
+  <data name="Capture_CancelledBeforeStartMessage" xml:space="preserve"><value>The cancellation request took effect. No input will be written to the field.</value></data>
+  <data name="Capture_CountdownFormat" xml:space="preserve"><value>Capturing input ({0} seconds remaining)</value></data>
+  <data name="Capture_EscapeReservedMessage" xml:space="preserve"><value>Esc is reserved for cancelling capture. To configure Escape, use the selector.</value></data>
+  <data name="Capture_CompleteTitle" xml:space="preserve"><value>Capture complete</value></data>
+  <data name="Capture_MouseCompleteFormat" xml:space="preserve"><value>Selected the {0} mouse button.</value></data>
+  <data name="Capture_KeyCompleteFormat" xml:space="preserve"><value>Captured {0}; logical identity is used by default.</value></data>
+  <data name="Capture_TypeMismatchMessage" xml:space="preserve"><value>The captured input type does not fit this field. Capture again.</value></data>
+  <data name="Capture_IncompleteTitle" xml:space="preserve"><value>Capture incomplete</value></data>
+  <data name="Capture_CancellingTitle" xml:space="preserve"><value>Cancelling capture</value></data>
+  <data name="Capture_CancellingPendingMessage" xml:space="preserve"><value>The capture request is starting. It will be cancelled as soon as a session ID is available; no input will be written meanwhile.</value></data>
+  <data name="Capture_CancelledMessage" xml:space="preserve"><value>The cancellation key was not written to the draft.</value></data>
+  <data name="Capture_CancelIntentTitle" xml:space="preserve"><value>Cancellation request applied</value></data>
+  <data name="Capture_CancelUnconfirmedFormat" xml:space="preserve"><value>The current field was invalidated and will not accept capture results. The Agent did not confirm cancellation: {0}</value></data>
+  <data name="Capture_TimedOutMessage" xml:space="preserve"><value>Input capture timed out.</value></data>
+  <data name="Capture_AgentShutdownMessage" xml:space="preserve"><value>The Agent exited before capture completed.</value></data>
+  <data name="Capture_EventStreamLostMessage" xml:space="preserve"><value>The event connection was lost, so the capture result cannot be determined. Capture again.</value></data>
+  <data name="CaptureBar_Title" xml:space="preserve"><value>Capturing input</value></data>
+  <data name="Emergency_InvalidTitle" xml:space="preserve"><value>Invalid emergency key</value></data>
+  <data name="Emergency_LogicalRequiredMessage" xml:space="preserve"><value>The emergency bypass key must use logical identity.</value></data>
+  <data name="Draft_UpdatedTitle" xml:space="preserve"><value>Draft updated</value></data>
+  <data name="Emergency_DraftUpdatedMessage" xml:space="preserve"><value>The emergency bypass key is not saved yet. The Agent checks rule conflicts during save.</value></data>
+  <data name="RuleGroup_All" xml:space="preserve"><value>All rules</value></data>
+  <data name="RuleGroup_Symbols" xml:space="preserve"><value>Symbol keys</value></data>
+  <data name="RuleGroup_Digits" xml:space="preserve"><value>Digits</value></data>
+  <data name="RuleGroup_Numpad" xml:space="preserve"><value>Numpad</value></data>
+  <data name="RuleGroup_Letters" xml:space="preserve"><value>Letters</value></data>
+  <data name="RuleGroup_Space" xml:space="preserve"><value>Space</value></data>
+  <data name="RuleRow_ToggleAutomationNameFormat" xml:space="preserve"><value>{0} enabled state</value></data>
+  <data name="RuleRow_EditAutomationNameFormat" xml:space="preserve"><value>Edit {0}</value></data>
+  <data name="RuleRow_DeleteAutomationNameFormat" xml:space="preserve"><value>Delete {0}</value></data>
+  <data name="RuleRow_AutomationNameFormat" xml:space="preserve"><value>Rule {0}, {1}, {2}</value></data>
+  <data name="RuleRow_ActionFormat" xml:space="preserve"><value>→ {0}</value></data>
+  <data name="RuleRow_KeyMouseTriggerFormat" xml:space="preserve"><value>{0} + {1} mouse button</value></data>
+  <data name="RuleRow_HoldTriggerFormat" xml:space="preserve"><value>Hold {0} for {1} ms</value></data>
+  <data name="RuleRow_HoldMouseTriggerFormat" xml:space="preserve"><value>Hold {0} for {1} ms + {2} mouse button</value></data>
+  <data name="RuleRow_MouseDirectionTriggerFormat" xml:space="preserve"><value>Hold {0} + mouse {1} ≥{2}px / {3}ms / off-axis ≤{4}px</value></data>
+  <data name="Error_Timeout" xml:space="preserve"><value>The Agent did not respond before the timeout.</value></data>
+  <data name="Error_AccessDenied" xml:space="preserve"><value>Settings cannot connect to the Agent. Confirm that both run in the same user session.</value></data>
+  <data name="Error_UnsupportedProtocol" xml:space="preserve"><value>The Settings and Agent protocol versions are incompatible.</value></data>
+  <data name="Error_UnsupportedSchema" xml:space="preserve"><value>The Settings and Agent configuration Schema versions are incompatible.</value></data>
+  <data name="Error_ProtocolFormat" xml:space="preserve"><value>The Agent rejected the request with protocol error {0}.</value></data>
+  <data name="Error_ConnectionInterrupted" xml:space="preserve"><value>The Agent connection was interrupted.</value></data>
+  <data name="Error_InvalidState" xml:space="preserve"><value>The operation is not available in the current Agent state.</value></data>
+  <data name="Error_InvalidAgentData" xml:space="preserve"><value>The Agent returned data that Settings could not read.</value></data>
+  <data name="Error_UnexpectedFormat" xml:space="preserve"><value>An unexpected {0} error occurred.</value></data>
+  <data name="KeyPicker_PhysicalScanCodeInvalid" xml:space="preserve"><value>Physical scan code must be from 1 through 65535.</value></data>
+  <data name="KeyPicker_LogicalKeyRequired" xml:space="preserve"><value>Select a logical key.</value></data>
+  <data name="KeyPicker_IdentityFormat" xml:space="preserve"><value>Display: {0}  Identity: {1}</value></data>
+</root>

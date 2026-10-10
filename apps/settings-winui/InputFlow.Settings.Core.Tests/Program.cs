@@ -214,6 +214,58 @@ Run("event id gaps require an authority resync", () =>
     Assert(!tracker.Observe(20), "new subscription inherited the previous sequence");
 });
 
+Run("UI language preference defaults safely and persists supported values", () =>
+{
+    string testDirectory = Path.Combine(Path.GetTempPath(), $"InputFlow-language-{Guid.NewGuid():N}");
+    string preferencePath = Path.Combine(testDirectory, "ui-preferences.json");
+    try
+    {
+        var store = new UiLanguagePreferenceStore(preferencePath);
+        UiLanguagePreferenceLoadResult missing = store.Load();
+        Assert(missing.Language == UiLanguagePreference.System && !missing.UsedFallback,
+            "missing UI preference did not default to system");
+
+        store.Save(UiLanguagePreference.EnglishUnitedStates);
+        UiLanguagePreferenceLoadResult english = store.Load();
+        Assert(english.Language == UiLanguagePreference.EnglishUnitedStates && !english.UsedFallback,
+            "English UI preference did not round-trip");
+
+        store.Save(UiLanguagePreference.ChineseSimplified);
+        UiLanguagePreferenceLoadResult chinese = store.Load();
+        Assert(chinese.Language == UiLanguagePreference.ChineseSimplified && !chinese.UsedFallback,
+            "Simplified Chinese UI preference did not round-trip");
+        Assert(Directory.GetFiles(testDirectory, "*.tmp").Length == 0,
+            "atomic preference save left a temporary file behind");
+    }
+    finally
+    {
+        if (Directory.Exists(testDirectory)) Directory.Delete(testDirectory, recursive: true);
+    }
+});
+
+Run("UI language preference rejects corrupt and unsupported values", () =>
+{
+    string testDirectory = Path.Combine(Path.GetTempPath(), $"InputFlow-language-{Guid.NewGuid():N}");
+    string preferencePath = Path.Combine(testDirectory, "ui-preferences.json");
+    try
+    {
+        Directory.CreateDirectory(testDirectory);
+        File.WriteAllText(preferencePath, "{not-json");
+        UiLanguagePreferenceLoadResult corrupt = new UiLanguagePreferenceStore(preferencePath).Load();
+        Assert(corrupt.Language == UiLanguagePreference.System && corrupt.UsedFallback,
+            "corrupt UI preference did not use the safe fallback");
+
+        File.WriteAllText(preferencePath, "{\"language\":\"fr-FR\"}");
+        UiLanguagePreferenceLoadResult unsupported = new UiLanguagePreferenceStore(preferencePath).Load();
+        Assert(unsupported.Language == UiLanguagePreference.System && unsupported.UsedFallback,
+            "unsupported UI preference did not use the safe fallback");
+    }
+    finally
+    {
+        if (Directory.Exists(testDirectory)) Directory.Delete(testDirectory, recursive: true);
+    }
+});
+
 Console.WriteLine($"InputFlow.Settings.Core tests passed: {passed}");
 
 void Run(string name, Action test)

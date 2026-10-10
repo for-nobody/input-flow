@@ -25,6 +25,8 @@ $settingsPackageManifest = Join-Path $repoRoot 'apps\settings-winui\InputFlow.Se
 $protocolConstants = Join-Path $repoRoot 'apps\settings-winui\InputFlow.Protocol\ProtocolConstants.cs'
 $projectLicense = Join-Path $repoRoot 'LICENSE'
 $thirdPartyNotices = Join-Path $repoRoot 'THIRD-PARTY-NOTICES.txt'
+$englishUserGuide = Join-Path $repoRoot 'docs\guides\USER_GUIDE.en-US.md'
+$chineseUserGuide = Join-Path $repoRoot 'docs\guides\USER_GUIDE.md'
 
 foreach ($requiredInput in @(
     $agentManifest,
@@ -33,7 +35,9 @@ foreach ($requiredInput in @(
     $settingsPackageManifest,
     $protocolConstants,
     $projectLicense,
-    $thirdPartyNotices
+    $thirdPartyNotices,
+    $englishUserGuide,
+    $chineseUserGuide
 )) {
     if (-not (Test-Path -LiteralPath $requiredInput -PathType Leaf)) {
         throw "Required release input is missing: $requiredInput"
@@ -217,7 +221,8 @@ try {
     )) {
         Copy-Item -LiteralPath (Join-Path $repoRoot "scripts\distribution\$name") -Destination $stagingPackage
     }
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs\guides\USER_GUIDE.md') -Destination (Join-Path $stagingPackage 'README.md')
+    Copy-Item -LiteralPath $englishUserGuide -Destination (Join-Path $stagingPackage 'README.md')
+    Copy-Item -LiteralPath $chineseUserGuide -Destination (Join-Path $stagingPackage 'README.zh-CN.md')
     Copy-Item -LiteralPath $releaseNotes -Destination (Join-Path $stagingPackage 'RELEASE_NOTES.md')
     Copy-Item -LiteralPath $projectLicense -Destination (Join-Path $stagingPackage 'LICENSE.txt')
     Copy-Item -LiteralPath $thirdPartyNotices -Destination (Join-Path $stagingPackage 'THIRD-PARTY-NOTICES.txt')
@@ -274,8 +279,10 @@ try {
     $required = @(
         'inputflow-agent.exe',
         'InputFlow.Settings.exe',
+        'InputFlow.Settings.pri',
         'InputFlow.Settings.runtimeconfig.json',
         'README.md',
+        'README.zh-CN.md',
         'RELEASE_NOTES.md',
         'LICENSE.txt',
         'THIRD-PARTY-NOTICES.txt',
@@ -287,6 +294,29 @@ try {
     foreach ($name in $required) {
         if (-not (Test-Path -LiteralPath (Join-Path $stagingPackage $name) -PathType Leaf)) {
             throw "Required package file is missing: $name"
+        }
+    }
+    foreach ($language in @('en-US', 'zh-CN')) {
+        $previousSmokeLanguage = $env:INPUTFLOW_LOCALIZATION_SMOKE
+        try {
+            $env:INPUTFLOW_LOCALIZATION_SMOKE = $language
+            $settingsSmoke = Start-Process `
+                -FilePath (Join-Path $stagingPackage 'InputFlow.Settings.exe') `
+                -WorkingDirectory $stagingPackage `
+                -WindowStyle Hidden `
+                -Wait `
+                -PassThru
+            if ($settingsSmoke.ExitCode -ne 0) {
+                throw "Published Settings $language localization smoke failed with exit code $($settingsSmoke.ExitCode)."
+            }
+        }
+        finally {
+            if ($null -eq $previousSmokeLanguage) {
+                Remove-Item Env:INPUTFLOW_LOCALIZATION_SMOKE -ErrorAction SilentlyContinue
+            }
+            else {
+                $env:INPUTFLOW_LOCALIZATION_SMOKE = $previousSmokeLanguage
+            }
         }
     }
     if ((Get-PeMachine (Join-Path $stagingPackage 'inputflow-agent.exe')) -ne 0x8664 -or

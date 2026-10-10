@@ -1,0 +1,316 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType><xsd:choice maxOccurs="unbounded">
+        <xsd:element name="metadata"><xsd:complexType><xsd:sequence><xsd:element name="value" type="xsd:string" minOccurs="0" /></xsd:sequence><xsd:attribute name="name" use="required" type="xsd:string" /><xsd:attribute name="type" type="xsd:string" /><xsd:attribute name="mimetype" type="xsd:string" /><xsd:attribute ref="xml:space" /></xsd:complexType></xsd:element>
+        <xsd:element name="assembly"><xsd:complexType><xsd:attribute name="alias" type="xsd:string" /><xsd:attribute name="name" type="xsd:string" /></xsd:complexType></xsd:element>
+        <xsd:element name="data"><xsd:complexType><xsd:sequence><xsd:element name="value" type="xsd:string" minOccurs="0" /><xsd:element name="comment" type="xsd:string" minOccurs="0" /></xsd:sequence><xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" /><xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" /><xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" /><xsd:attribute ref="xml:space" /></xsd:complexType></xsd:element>
+        <xsd:element name="resheader"><xsd:complexType><xsd:sequence><xsd:element name="value" type="xsd:string" minOccurs="0" /></xsd:sequence><xsd:attribute name="name" type="xsd:string" use="required" /></xsd:complexType></xsd:element>
+      </xsd:choice></xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+
+  <data name="LanguageTag" xml:space="preserve"><value>zh-CN</value></data>
+  <data name="Window_Title" xml:space="preserve"><value>InputFlow 设置</value></data>
+  <data name="MainWindow.Title" xml:space="preserve"><value>InputFlow 设置</value></data>
+  <data name="AppTitleBar.Title" xml:space="preserve"><value>InputFlow 设置</value></data>
+  <data name="MainPage.Language" xml:space="preserve"><value>zh-CN</value></data>
+  <data name="KeyPicker.Language" xml:space="preserve"><value>zh-CN</value></data>
+  <data name="LocalizationProbeText.Text" xml:space="preserve"><value>本地化已就绪</value></data>
+  <data name="LocalizationProbeButton.Content" xml:space="preserve"><value>确定</value></data>
+  <data name="LocalizationProbeButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>本地化冒烟测试按钮</value></data>
+
+  <data name="RootNavigation.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>InputFlow 设置导航</value></data>
+  <data name="RootNavigation.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve"><value>在规则、设置和关于页面之间切换。</value></data>
+  <data name="RulesNavigation.Content" xml:space="preserve"><value>快捷规则</value></data>
+  <data name="SettingsNavigation.Content" xml:space="preserve"><value>设置</value></data>
+  <data name="AboutNavigation.Content" xml:space="preserve"><value>关于</value></data>
+  <data name="ConnectionBar.Title" xml:space="preserve"><value>正在连接</value></data>
+  <data name="RetryConnectionButton.Content" xml:space="preserve"><value>重试</value></data>
+  <data name="RetryConnectionButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>重试 Agent 连接</value></data>
+  <data name="CaptureBar.Title" xml:space="preserve"><value>正在录制输入</value></data>
+  <data name="CancelCaptureButton.Content" xml:space="preserve"><value>取消 (Esc)</value></data>
+  <data name="CancelCaptureButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>取消输入录制</value></data>
+  <data name="RulesPageTitle.Text" xml:space="preserve"><value>快捷规则</value></data>
+  <data name="RulesPageDescription.Text" xml:space="preserve"><value>创建键盘和鼠标触发条件及键盘组合动作；修改在保存前只进入本地草稿。</value></data>
+  <data name="DirtyText.Text" xml:space="preserve"><value>有未保存更改</value></data>
+  <data name="AddRuleButton.Label" xml:space="preserve"><value>新建</value></data>
+  <data name="AddRuleButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>新建规则</value></data>
+  <data name="SaveButton.Label" xml:space="preserve"><value>验证并保存</value></data>
+  <data name="SaveButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>验证并保存草稿</value></data>
+  <data name="ReloadButton.Label" xml:space="preserve"><value>重新加载</value></data>
+  <data name="ReloadButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>重新加载正式配置</value></data>
+  <data name="PauseButton.Label" xml:space="preserve"><value>暂停</value></data>
+  <data name="PauseButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>暂停 Agent</value></data>
+  <data name="GroupFilter.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>按首键筛选规则</value></data>
+  <data name="RulesList.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>规则列表</value></data>
+  <data name="RuleRowEditButton.Content" xml:space="preserve"><value>编辑</value></data>
+  <data name="RuleRowDeleteButton.Content" xml:space="preserve"><value>删除</value></data>
+  <data name="EmptyRulesText.Text" xml:space="preserve"><value>当前分组没有规则。选择“新建”开始。</value></data>
+  <data name="EditorTitle.Text" xml:space="preserve"><value>编辑规则</value></data>
+  <data name="RuleIdBox.Header" xml:space="preserve"><value>规则 ID</value></data>
+  <data name="RuleIdBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>规则 ID</value></data>
+  <data name="EditorEnabled.Header" xml:space="preserve"><value>启用规则</value></data>
+  <data name="EditorEnabled.OnContent" xml:space="preserve"><value>启用</value></data>
+  <data name="EditorEnabled.OffContent" xml:space="preserve"><value>禁用</value></data>
+  <data name="EditorEnabled.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>规则启用状态</value></data>
+  <data name="TriggerTypeCombo.Header" xml:space="preserve"><value>触发条件</value></data>
+  <data name="TriggerTypeCombo.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>触发条件类型</value></data>
+  <data name="TriggerKeyChord.Content" xml:space="preserve"><value>键 + 键</value></data>
+  <data name="TriggerKeyMouseButton.Content" xml:space="preserve"><value>键 + 鼠标按钮</value></data>
+  <data name="TriggerHold.Content" xml:space="preserve"><value>长按键盘键</value></data>
+  <data name="TriggerHoldMouseButton.Content" xml:space="preserve"><value>长按键盘键 + 鼠标按钮</value></data>
+  <data name="TriggerMouseDirection.Content" xml:space="preserve"><value>按住键盘键 + 鼠标方向</value></data>
+  <data name="PrimaryKeyLabel.Text" xml:space="preserve"><value>第一个键</value></data>
+  <data name="SecondaryKeyLabel.Text" xml:space="preserve"><value>第二个键</value></data>
+  <data name="TimeoutBox.Header" xml:space="preserve"><value>键盘键长按阈值（毫秒）</value></data>
+  <data name="TimeoutBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>键盘键长按毫秒数</value></data>
+  <data name="MouseButtonLabel.Text" xml:space="preserve"><value>随后按下的鼠标按钮</value></data>
+  <data name="MouseButtonCombo.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>鼠标按钮</value></data>
+  <data name="RecordMouseButtonButton.Content" xml:space="preserve"><value>录制</value></data>
+  <data name="RecordMouseButtonButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>录制鼠标按钮</value></data>
+  <data name="DirectionParametersLabel.Text" xml:space="preserve"><value>鼠标方向参数</value></data>
+  <data name="DirectionCombo.Header" xml:space="preserve"><value>方向</value></data>
+  <data name="DirectionCombo.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>鼠标移动方向</value></data>
+  <data name="DirectionDistanceBox.Header" xml:space="preserve"><value>最小净位移（屏幕像素）</value></data>
+  <data name="DirectionDistanceBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>鼠标方向最小距离像素</value></data>
+  <data name="DirectionDurationBox.Header" xml:space="preserve"><value>最大时间窗（毫秒）</value></data>
+  <data name="DirectionDurationBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>鼠标方向最大时间毫秒</value></data>
+  <data name="DirectionToleranceBox.Header" xml:space="preserve"><value>偏轴容差（屏幕像素）</value></data>
+  <data name="DirectionToleranceBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>鼠标方向偏轴容差像素</value></data>
+  <data name="DirectionHelpText.Text" xml:space="preserve"><value>按住上方激活键后移动；光标始终正常移动，每次按住最多触发一次，松开后重新武装。同一激活键的四方向规则必须使用相同参数。</value></data>
+  <data name="StartDirectionPreviewButton.Content" xml:space="preserve"><value>开始有限预览</value></data>
+  <data name="StartDirectionPreviewButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>开始鼠标方向预览</value></data>
+  <data name="CancelDirectionPreviewButton.Content" xml:space="preserve"><value>取消预览</value></data>
+  <data name="CancelDirectionPreviewButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>取消鼠标方向预览</value></data>
+  <data name="DirectionPreviewProgress.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>鼠标方向预览进度</value></data>
+  <data name="DirectionPreviewText.Text" xml:space="preserve"><value>预览不保存轨迹，也不执行动作；点击开始相当于临时激活。</value></data>
+  <data name="ActionKeysLabel.Text" xml:space="preserve"><value>动作：键盘组合</value></data>
+  <data name="AddActionKeyButton.Content" xml:space="preserve"><value>增加动作键</value></data>
+  <data name="AddActionKeyButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>增加动作键</value></data>
+  <data name="ActionKeysHelpText.Text" xml:space="preserve"><value>复制/粘贴可分别表达为 Ctrl+C / Ctrl+V。当前没有专用剪贴板动作。</value></data>
+  <data name="CancelEditButton.Content" xml:space="preserve"><value>取消编辑</value></data>
+  <data name="CommitEditButton.Content" xml:space="preserve"><value>写入草稿</value></data>
+
+  <data name="SettingsPageTitle.Text" xml:space="preserve"><value>设置与诊断</value></data>
+  <data name="LanguageSectionTitle.Text" xml:space="preserve"><value>显示语言</value></data>
+  <data name="LanguageSectionDescription.Text" xml:space="preserve"><value>选择 Settings 的显示语言。关闭并重新打开 Settings 后生效；Agent 会继续运行。</value></data>
+  <data name="LanguageCombo.Header" xml:space="preserve"><value>设置界面语言</value></data>
+  <data name="LanguageCombo.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>设置界面显示语言</value></data>
+  <data name="LanguageCombo.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve"><value>选择跟随系统、英语或简体中文。重新打开 Settings 后生效。</value></data>
+  <data name="LanguageSystemOption.Content" xml:space="preserve"><value>System default / 跟随系统</value></data>
+  <data name="LanguageSystemOption.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>跟随 Windows 系统显示语言</value></data>
+  <data name="LanguageEnglishOption.Content" xml:space="preserve"><value>English</value></data>
+  <data name="LanguageEnglishOption.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>英语</value></data>
+  <data name="LanguageChineseOption.Content" xml:space="preserve"><value>简体中文</value></data>
+  <data name="LanguageChineseOption.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>简体中文</value></data>
+  <data name="LanguageRestartBar.Title" xml:space="preserve"><value>重新打开 Settings 后生效</value></data>
+  <data name="EmergencySectionTitle.Text" xml:space="preserve"><value>紧急旁路键</value></data>
+  <data name="EmergencySectionDescription.Text" xml:space="preserve"><value>紧急键必须是 logical，并且不能作为启用规则的首键。最终冲突由 Agent 校验。</value></data>
+  <data name="SetEmergencyKeyButton.Content" xml:space="preserve"><value>写入草稿</value></data>
+  <data name="AgentStatusSectionTitle.Text" xml:space="preserve"><value>Agent 状态</value></data>
+  <data name="AgentStatusText.Text" xml:space="preserve"><value>未连接</value></data>
+  <data name="PauseResumeButton.Content" xml:space="preserve"><value>暂停 / 恢复</value></data>
+  <data name="RetryConnectionSettingsButton.Content" xml:space="preserve"><value>重试连接</value></data>
+  <data name="DiagnosticsSectionTitle.Text" xml:space="preserve"><value>诊断</value></data>
+  <data name="DiagnosticsSectionDescription.Text" xml:space="preserve"><value>统计只在点击刷新时查询；页面不会每秒轮询。</value></data>
+  <data name="RefreshStatsButton.Content" xml:space="preserve"><value>刷新诊断</value></data>
+  <data name="StatsText.Text" xml:space="preserve"><value>尚未查询</value></data>
+  <data name="RecoveryBoundaryInfo.Title" xml:space="preserve"><value>配置恢复边界</value></data>
+  <data name="RecoveryBoundaryInfo.Message" xml:space="preserve"><value>当前协议没有配置恢复 API。若显示 recovery_required，请重启 Agent 并重新读取正式配置；此页面不会假装恢复成功。</value></data>
+  <data name="AboutPageTitle.Text" xml:space="preserve"><value>关于 InputFlow</value></data>
+  <data name="AboutScopeText.Text" xml:space="preserve"><value>支持范围：key_chord、key_mouse_button、hold、hold_mouse_button、mouse_direction 触发器，以及 key_chord 动作。录制一次只观察一个键或鼠标按钮。</value></data>
+  <data name="AboutDistributionText.Text" xml:space="preserve"><value>v0.9.0 x64 便携包采用 unpackaged + 双 self-contained，随包携带 .NET 与 Windows App SDK；系统仍需 Microsoft Visual C++ Redistributable 2015–2022 x64。关闭此窗口不会停止 Rust Agent、Hook 或托盘。</value></data>
+  <data name="AboutLicenseText.Text" xml:space="preserve"><value>项目采用 MIT 许可证；项目许可证和第三方许可文件随发布包提供。登录自启动默认关闭，可由包内 enable、status 和 disable 脚本管理。</value></data>
+  <data name="AboutLimitationsText.Text" xml:space="preserve"><value>尚不支持：Fn、任意三键、按应用生效、打开程序/文件夹/网页，以及设置页内的登录启动和系统辅助功能开关。</value></data>
+
+  <data name="LogicalKeyCombo.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>逻辑键</value></data>
+  <data name="LogicalKeyCombo.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve"><value>选择稳定的 logical 键身份。</value></data>
+  <data name="KeyCaptureButton.Content" xml:space="preserve"><value>录制</value></data>
+  <data name="KeyCaptureButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>录制这个键</value></data>
+  <data name="AdvancedKeyIdentityExpander.Header" xml:space="preserve"><value>高级键身份</value></data>
+  <data name="PhysicalMode.Header" xml:space="preserve"><value>按物理位置匹配</value></data>
+  <data name="PhysicalMode.OffContent" xml:space="preserve"><value>Logical</value></data>
+  <data name="PhysicalMode.OnContent" xml:space="preserve"><value>Physical</value></data>
+  <data name="PhysicalMode.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>使用物理扫描码</value></data>
+  <data name="ScanCodeBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>扫描码</value></data>
+  <data name="ScanCodeBox.Header" xml:space="preserve"><value>Scan code</value></data>
+  <data name="ExtendedCheck.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>扩展键标志</value></data>
+  <data name="ExtendedCheck.Content" xml:space="preserve"><value>Extended</value></data>
+  <data name="PhysicalModeHelpText.Text" xml:space="preserve"><value>物理模式跟随键盘位置；仅在非零 scan code 时可用。显示文字不会写入配置。</value></data>
+
+  <data name="CloseDialog_Title" xml:space="preserve"><value>有未保存的草稿</value></data>
+  <data name="CloseDialog_Message" xml:space="preserve"><value>当前规则编辑或草稿只存在于设置程序内存中，尚未由 Agent 保存。保存成功后退出，或明确放弃这些更改。</value></data>
+  <data name="CloseDialog_SaveAndExit" xml:space="preserve"><value>保存并退出</value></data>
+  <data name="CloseDialog_ExitWithoutSaving" xml:space="preserve"><value>不保存退出</value></data>
+  <data name="Common_Back" xml:space="preserve"><value>返回</value></data>
+  <data name="Common_Cancel" xml:space="preserve"><value>取消</value></data>
+  <data name="Common_Delete" xml:space="preserve"><value>删除</value></data>
+  <data name="Common_Reload" xml:space="preserve"><value>重新加载</value></data>
+  <data name="Common_Remove" xml:space="preserve"><value>移除</value></data>
+  <data name="Common_Pause" xml:space="preserve"><value>暂停</value></data>
+  <data name="Common_Resume" xml:space="preserve"><value>恢复</value></data>
+  <data name="Common_NotConnected" xml:space="preserve"><value>未连接</value></data>
+  <data name="Common_ListSeparator" xml:space="preserve"><value>；</value></data>
+  <data name="RuleEditor_CannotCommit" xml:space="preserve"><value>当前规则编辑无法写入草稿。</value></data>
+  <data name="RuleEditor_NewTitle" xml:space="preserve"><value>新建规则</value></data>
+  <data name="RuleEditor_EditTitle" xml:space="preserve"><value>编辑规则</value></data>
+  <data name="RuleEditor_HoldMouseHelp" xml:space="preserve"><value>计时对象是上方的键盘键；达到阈值后再按鼠标按钮。鼠标按钮本身不需要长按。</value></data>
+  <data name="RuleEditor_HoldHelp" xml:space="preserve"><value>计时对象是上方的键盘键；达到阈值后触发动作。</value></data>
+  <data name="RuleEditor_Incomplete" xml:space="preserve"><value>规则字段不完整。</value></data>
+  <data name="RuleEditor_ErrorTitle" xml:space="preserve"><value>规则字段有问题</value></data>
+  <data name="Connection_NotConnectedTitle" xml:space="preserve"><value>Agent 未连接</value></data>
+  <data name="Connection_OnlineTitle" xml:space="preserve"><value>Agent 已连接</value></data>
+  <data name="Connection_StatusTitle" xml:space="preserve"><value>Agent 连接状态</value></data>
+  <data name="Connection_ConnectingMessage" xml:space="preserve"><value>正在连接 InputFlow Agent…</value></data>
+  <data name="Connection_OnlineMessage" xml:space="preserve"><value>控制连接和事件连接均可用。</value></data>
+  <data name="Connection_ReconnectingMessage" xml:space="preserve"><value>事件订阅已中断，正在重新连接。</value></data>
+  <data name="Connection_OfflineMessage" xml:space="preserve"><value>InputFlow Agent 已离线。请启动 Agent 或重试连接。</value></data>
+  <data name="Authority_ChangedTitle" xml:space="preserve"><value>正式配置已变化</value></data>
+  <data name="Authority_ChangedMessage" xml:space="preserve"><value>另一客户端已经更改规则。保存时会再次比较，并要求重新加载或确认覆盖。</value></data>
+  <data name="Status_Suspended" xml:space="preserve"><value>已暂停</value></data>
+  <data name="Status_Running" xml:space="preserve"><value>运行中</value></data>
+  <data name="Status_SummaryFormat" xml:space="preserve"><value>phase={0}　{1}　启用规则={2}　reconciliation={3}</value></data>
+  <data name="Status_WithLastErrorFormat" xml:space="preserve"><value>{0}　最近错误：{1}</value></data>
+  <data name="PauseButton_ResumeAutomationName" xml:space="preserve"><value>恢复 Agent</value></data>
+  <data name="PauseButton_PauseAutomationName" xml:space="preserve"><value>暂停 Agent</value></data>
+  <data name="About_VersionFormat" xml:space="preserve"><value>Settings v{0}　Agent v{1}　进程架构 {2}　配置 Schema v{3}</value></data>
+  <data name="Reconnect_FailedTitle" xml:space="preserve"><value>重连失败</value></data>
+  <data name="ReloadDialog_Title" xml:space="preserve"><value>放弃未保存草稿？</value></data>
+  <data name="ReloadDialog_Message" xml:space="preserve"><value>重新加载会丢弃当前设置程序中的未保存更改，不会修改 Agent。</value></data>
+  <data name="ReloadDialog_DiscardAndReload" xml:space="preserve"><value>放弃并重新加载</value></data>
+  <data name="Reload_CompleteTitle" xml:space="preserve"><value>已重新加载</value></data>
+  <data name="Reload_CompleteMessage" xml:space="preserve"><value>草稿已重置为 Agent 的正式配置。</value></data>
+  <data name="Reload_FailedTitle" xml:space="preserve"><value>重新加载失败</value></data>
+  <data name="Save_FinishEditingFirst" xml:space="preserve"><value>请先“写入草稿”或取消当前规则编辑，再保存整份配置。</value></data>
+  <data name="Save_ExternalChangeTitle" xml:space="preserve"><value>正式规则已在其他地方改变</value></data>
+  <data name="Save_ExternalChangeMessage" xml:space="preserve"><value>正式规则已在其他客户端改变。可重新加载，或明确确认覆盖；该检查不是原子并发事务。</value></data>
+  <data name="Save_ConfirmOverwrite" xml:space="preserve"><value>确认覆盖</value></data>
+  <data name="Save_KeepDraft" xml:space="preserve"><value>保留草稿</value></data>
+  <data name="Save_CleanupWarningsFormat" xml:space="preserve"><value>&#xA;清理警告：{0}</value></data>
+  <data name="Save_CompleteTitle" xml:space="preserve"><value>保存完成</value></data>
+  <data name="Save_IncompleteTitle" xml:space="preserve"><value>保存未完成</value></data>
+  <data name="Save_IncompleteMessageFormat" xml:space="preserve"><value>{0} 若请求已经发出，超时不等于保存失败，请重连核对。</value></data>
+  <data name="SaveTitle_ValidationFailed" xml:space="preserve"><value>验证失败</value></data>
+  <data name="SaveTitle_PersistenceFailed" xml:space="preserve"><value>持久化失败</value></data>
+  <data name="SaveTitle_RuntimeCancelled" xml:space="preserve"><value>运行时替换已取消</value></data>
+  <data name="SaveTitle_RuntimeFailed" xml:space="preserve"><value>运行时替换失败</value></data>
+  <data name="SaveTitle_RuntimeBusy" xml:space="preserve"><value>Agent 正在核对上一请求</value></data>
+  <data name="SaveTitle_RolledBack" xml:space="preserve"><value>保存已回滚</value></data>
+  <data name="SaveTitle_RecoveryRequired" xml:space="preserve"><value>需要重启 Agent 恢复</value></data>
+  <data name="SaveTitle_Unknown" xml:space="preserve"><value>保存结果待核对</value></data>
+  <data name="SaveMessage_Applied" xml:space="preserve"><value>规则已经由 Agent 验证、保存、应用并读回核对。</value></data>
+  <data name="SaveMessage_AppliedWithWarnings" xml:space="preserve"><value>规则已应用，但清理旧恢复文件时有警告。</value></data>
+  <data name="SaveMessage_ValidationFailed" xml:space="preserve"><value>Agent 拒绝了草稿，请修正规则后再保存。</value></data>
+  <data name="SaveMessage_PersistenceFailed" xml:space="preserve"><value>配置无法持久化，旧规则继续运行。</value></data>
+  <data name="SaveMessage_RuntimeCancelled" xml:space="preserve"><value>运行时替换尚未开始且已取消，旧规则继续运行。</value></data>
+  <data name="SaveMessage_RuntimeFailed" xml:space="preserve"><value>运行时替换失败，草稿已保留。</value></data>
+  <data name="SaveMessage_RuntimeBusy" xml:space="preserve"><value>Agent 正在核对上一项配置应用，当前草稿没有再次提交。</value></data>
+  <data name="SaveMessage_RolledBack" xml:space="preserve"><value>先前超时的运行时替换最终失败；Agent 已恢复旧正式配置，当前草稿仍保留。</value></data>
+  <data name="SaveMessage_RecoveryRequired" xml:space="preserve"><value>Agent 无法确定或恢复运行时结果。请重启 Agent 后重新读取正式配置；不要重复提交。</value></data>
+  <data name="SaveMessage_Unknown" xml:space="preserve"><value>无法证明结果已应用或已回滚。草稿已保留，请重连核对。</value></data>
+  <data name="Runtime_PausedTitle" xml:space="preserve"><value>Agent 已暂停</value></data>
+  <data name="Runtime_ResumedTitle" xml:space="preserve"><value>Agent 已恢复</value></data>
+  <data name="Runtime_ControlConfirmedMessage" xml:space="preserve"><value>状态已由 Agent 确认；托盘、F12 和其他客户端的后续变化会通过事件同步。</value></data>
+  <data name="Runtime_ControlFailedTitle" xml:space="preserve"><value>运行控制失败</value></data>
+  <data name="Diagnostics_StatsFormat" xml:space="preserve"><value>observed_events: {0}&#xA;output batches: sent={1}, failed={2}, dropped={3}&#xA;callback_latency_us: {4}&#xA;hold_delay_us: {5}</value></data>
+  <data name="Diagnostics_QueryFailedFormat" xml:space="preserve"><value>查询失败：{0}</value></data>
+  <data name="Diagnostics_NoSamples" xml:space="preserve"><value>暂无样本</value></data>
+  <data name="Language_RestartTitle" xml:space="preserve"><value>重新打开 Settings 后生效</value></data>
+  <data name="Language_RestartMessage" xml:space="preserve"><value>偏好已保存。关闭并重新打开 Settings 后将使用所选语言；Agent 和当前规则会继续运行。</value></data>
+  <data name="Language_SaveFailedTitle" xml:space="preserve"><value>语言偏好未保存</value></data>
+  <data name="Language_SaveFailedMessage" xml:space="preserve"><value>Settings 无法写入当前用户的界面偏好，将继续使用当前语言。</value></data>
+  <data name="DeleteDialog_TitleFormat" xml:space="preserve"><value>从草稿删除 {0}？</value></data>
+  <data name="DeleteDialog_Message" xml:space="preserve"><value>删除只修改本地草稿；点击“验证并保存”后才会影响 Agent。</value></data>
+  <data name="RuleValidation_IdRequired" xml:space="preserve"><value>规则 ID 不能为空。</value></data>
+  <data name="RuleValidation_TimeoutRange" xml:space="preserve"><value>timeout_ms 必须在 1–60000 之间。</value></data>
+  <data name="RuleValidation_DirectionRequired" xml:space="preserve"><value>请选择鼠标方向。</value></data>
+  <data name="RuleValidation_ActionKeyRequired" xml:space="preserve"><value>动作至少需要一个键。</value></data>
+  <data name="RuleValidation_DirectionDistanceRange" xml:space="preserve"><value>最小净位移必须是 10–2000 的整数屏幕像素。</value></data>
+  <data name="RuleValidation_DirectionDurationRange" xml:space="preserve"><value>最大时间窗必须是 100–5000 的整数毫秒。</value></data>
+  <data name="RuleValidation_DirectionToleranceRange" xml:space="preserve"><value>偏轴容差必须是 0–2000 的整数屏幕像素。</value></data>
+  <data name="Preview_DefaultMessage" xml:space="preserve"><value>预览不保存轨迹，也不执行动作；点击开始相当于临时激活。</value></data>
+  <data name="Preview_Stopped" xml:space="preserve"><value>预览已停止。</value></data>
+  <data name="Preview_CancelledShort" xml:space="preserve"><value>预览已取消。</value></data>
+  <data name="Preview_ConnectionLost" xml:space="preserve"><value>Agent 连接已断开；方向预览已取消。</value></data>
+  <data name="Preview_CaptureActive" xml:space="preserve"><value>输入录制进行中；请先取消录制再开始方向预览。</value></data>
+  <data name="Preview_ParametersIncomplete" xml:space="preserve"><value>方向预览参数不完整。</value></data>
+  <data name="Preview_CursorUnavailable" xml:space="preserve"><value>无法读取当前光标屏幕坐标，方向预览没有开始。</value></data>
+  <data name="Preview_StartedFormat" xml:space="preserve"><value>预览已开始：起点 ({0}, {1})。无需按激活键；本按钮只替代本次临时激活，最多 {2} ms。</value></data>
+  <data name="Preview_Cancelled" xml:space="preserve"><value>预览已取消；未保存坐标轨迹，也未执行动作。</value></data>
+  <data name="Preview_TimedOut" xml:space="preserve"><value>预览时间窗已结束；未命中且未执行动作。</value></data>
+  <data name="Preview_CursorReadFailed" xml:space="preserve"><value>读取光标位置失败；预览已安全停止。</value></data>
+  <data name="Preview_AxisEqualFormat" xml:space="preserve"><value>净位移 dx={0}, dy={1} px；主轴相等，方向尚未确定。</value></data>
+  <data name="Preview_ProgressFormat" xml:space="preserve"><value>方向 {0}；净位移 dx={1}, dy={2} px；主轴 {3} px，偏轴 {4} px。</value></data>
+  <data name="Preview_MatchedFormat" xml:space="preserve"><value>预览命中 {0}；这里只显示摘要，不执行动作。</value></data>
+  <data name="Preview_StoppedForCapture" xml:space="preserve"><value>方向预览已停止，正在录制输入。</value></data>
+  <data name="Preview_EscapeCancelled" xml:space="preserve"><value>预览已由 Esc 取消；未保存坐标轨迹，也未执行动作。</value></data>
+  <data name="Direction_Left" xml:space="preserve"><value>左</value></data>
+  <data name="Direction_Right" xml:space="preserve"><value>右</value></data>
+  <data name="Direction_Up" xml:space="preserve"><value>上</value></data>
+  <data name="Direction_Down" xml:space="preserve"><value>下</value></data>
+  <data name="MouseButton_Left" xml:space="preserve"><value>左键</value></data>
+  <data name="MouseButton_Right" xml:space="preserve"><value>右键</value></data>
+  <data name="MouseButton_Middle" xml:space="preserve"><value>中键</value></data>
+  <data name="MouseButton_XButton1" xml:space="preserve"><value>扩展按钮 1</value></data>
+  <data name="MouseButton_XButton2" xml:space="preserve"><value>扩展按钮 2</value></data>
+  <data name="ActionKey_RemoveAutomationName" xml:space="preserve"><value>移除此动作键</value></data>
+  <data name="Capture_StartingTitle" xml:space="preserve"><value>正在启动录制</value></data>
+  <data name="Capture_StartingMessage" xml:space="preserve"><value>请按下一个输入。一次录制只填写当前字段；Esc 取消且不会写入草稿。</value></data>
+  <data name="Capture_CancelledTitle" xml:space="preserve"><value>录制已取消</value></data>
+  <data name="Capture_StartFailedTitle" xml:space="preserve"><value>无法开始录制</value></data>
+  <data name="Capture_CancelledBeforeStartMessage" xml:space="preserve"><value>取消意图已生效，没有输入会写入字段。</value></data>
+  <data name="Capture_CountdownFormat" xml:space="preserve"><value>正在录制输入（剩余 {0} 秒）</value></data>
+  <data name="Capture_EscapeReservedMessage" xml:space="preserve"><value>Esc 保留为录制取消键；如需配置 Escape，请使用选择器。</value></data>
+  <data name="Capture_CompleteTitle" xml:space="preserve"><value>录制完成</value></data>
+  <data name="Capture_MouseCompleteFormat" xml:space="preserve"><value>已选择鼠标{0}。</value></data>
+  <data name="Capture_KeyCompleteFormat" xml:space="preserve"><value>已记录 {0}；默认使用 logical identity。</value></data>
+  <data name="Capture_TypeMismatchMessage" xml:space="preserve"><value>录制到的输入类型不适合当前字段，请重新录制。</value></data>
+  <data name="Capture_IncompleteTitle" xml:space="preserve"><value>录制未完成</value></data>
+  <data name="Capture_CancellingTitle" xml:space="preserve"><value>正在取消录制</value></data>
+  <data name="Capture_CancellingPendingMessage" xml:space="preserve"><value>录制请求正在启动；取得 session ID 后会立即取消，期间不会写入任何字段。</value></data>
+  <data name="Capture_CancelledMessage" xml:space="preserve"><value>取消键不会写入草稿。</value></data>
+  <data name="Capture_CancelIntentTitle" xml:space="preserve"><value>取消意图已生效</value></data>
+  <data name="Capture_CancelUnconfirmedFormat" xml:space="preserve"><value>当前字段已失效，不会写入录制结果；Agent 未确认取消：{0}</value></data>
+  <data name="Capture_TimedOutMessage" xml:space="preserve"><value>输入录制已超时。</value></data>
+  <data name="Capture_AgentShutdownMessage" xml:space="preserve"><value>Agent 已退出，录制未完成。</value></data>
+  <data name="Capture_EventStreamLostMessage" xml:space="preserve"><value>事件连接已断开，无法确定录制结果，请重新录制。</value></data>
+  <data name="CaptureBar_Title" xml:space="preserve"><value>正在录制输入</value></data>
+  <data name="Emergency_InvalidTitle" xml:space="preserve"><value>紧急键无效</value></data>
+  <data name="Emergency_LogicalRequiredMessage" xml:space="preserve"><value>紧急旁路键必须使用 logical identity。</value></data>
+  <data name="Draft_UpdatedTitle" xml:space="preserve"><value>已写入草稿</value></data>
+  <data name="Emergency_DraftUpdatedMessage" xml:space="preserve"><value>紧急旁路键尚未保存；Agent 会在保存时检查规则冲突。</value></data>
+  <data name="RuleGroup_All" xml:space="preserve"><value>全部规则</value></data>
+  <data name="RuleGroup_Symbols" xml:space="preserve"><value>符号键</value></data>
+  <data name="RuleGroup_Digits" xml:space="preserve"><value>数字</value></data>
+  <data name="RuleGroup_Numpad" xml:space="preserve"><value>小键盘</value></data>
+  <data name="RuleGroup_Letters" xml:space="preserve"><value>字母</value></data>
+  <data name="RuleGroup_Space" xml:space="preserve"><value>空格</value></data>
+  <data name="RuleRow_ToggleAutomationNameFormat" xml:space="preserve"><value>{0} 启用状态</value></data>
+  <data name="RuleRow_EditAutomationNameFormat" xml:space="preserve"><value>编辑 {0}</value></data>
+  <data name="RuleRow_DeleteAutomationNameFormat" xml:space="preserve"><value>删除 {0}</value></data>
+  <data name="RuleRow_AutomationNameFormat" xml:space="preserve"><value>规则 {0}，{1}，{2}</value></data>
+  <data name="RuleRow_ActionFormat" xml:space="preserve"><value>→ {0}</value></data>
+  <data name="RuleRow_KeyMouseTriggerFormat" xml:space="preserve"><value>{0} + 鼠标{1}</value></data>
+  <data name="RuleRow_HoldTriggerFormat" xml:space="preserve"><value>长按 {0} {1} ms</value></data>
+  <data name="RuleRow_HoldMouseTriggerFormat" xml:space="preserve"><value>长按 {0} {1} ms + 鼠标{2}</value></data>
+  <data name="RuleRow_MouseDirectionTriggerFormat" xml:space="preserve"><value>按住 {0} + 鼠标{1} ≥{2}px / {3}ms / 偏轴≤{4}px</value></data>
+  <data name="Error_Timeout" xml:space="preserve"><value>Agent 未在超时前响应。</value></data>
+  <data name="Error_AccessDenied" xml:space="preserve"><value>Settings 无权连接 Agent。请确认两者位于同一用户会话。</value></data>
+  <data name="Error_UnsupportedProtocol" xml:space="preserve"><value>Settings 与 Agent 的协议版本不兼容。</value></data>
+  <data name="Error_UnsupportedSchema" xml:space="preserve"><value>Settings 与 Agent 的配置 Schema 版本不兼容。</value></data>
+  <data name="Error_ProtocolFormat" xml:space="preserve"><value>Agent 以协议错误 {0} 拒绝了请求。</value></data>
+  <data name="Error_ConnectionInterrupted" xml:space="preserve"><value>Agent 连接已中断。</value></data>
+  <data name="Error_InvalidState" xml:space="preserve"><value>当前 Agent 状态不允许执行此操作。</value></data>
+  <data name="Error_InvalidAgentData" xml:space="preserve"><value>Agent 返回了 Settings 无法读取的数据。</value></data>
+  <data name="Error_UnexpectedFormat" xml:space="preserve"><value>发生意外的 {0} 错误。</value></data>
+  <data name="KeyPicker_PhysicalScanCodeInvalid" xml:space="preserve"><value>Physical scan code 必须在 1–65535 之间。</value></data>
+  <data name="KeyPicker_LogicalKeyRequired" xml:space="preserve"><value>请选择逻辑键。</value></data>
+  <data name="KeyPicker_IdentityFormat" xml:space="preserve"><value>显示：{0}　Identity：{1}</value></data>
+</root>

@@ -11,13 +11,15 @@
 1. [`status/CURRENT_STATUS.md`](status/CURRENT_STATUS.md)：当前阶段、已验证证据、未完成项和下一步。
 2. [`tasks/FIRST_RELEASE.md`](tasks/FIRST_RELEASE.md)：当前唯一正在执行的任务卡，当前阶段为 RC。
 3. [`records/FIRST_RELEASE_RC_EXECUTION.md`](records/FIRST_RELEASE_RC_EXECUTION.md)：`v0.9.0` RC 的版本、构建、包与 smoke 证据。
-4. [`records/FIRST_RELEASE_H_EXECUTION.md`](records/FIRST_RELEASE_H_EXECUTION.md)：H 分发与生命周期完成证据。
-5. [`releases/V0.9.0.md`](releases/V0.9.0.md)：当前版本的用户发布说明草稿。
-6. [`archive/phase-f/PHASE_F.md`](archive/phase-f/PHASE_F.md)：Phase F 的完整完成记录与限制。
-7. [`planning/PROJECT_PLAN.md`](planning/PROJECT_PLAN.md)：产品范围、架构和不变量。
-8. [`planning/RELEASE_ROADMAP.md`](planning/RELEASE_ROADMAP.md)：首版发布阶段顺序和门槛。
-9. [`guides/BUILD_WINDOWS.md`](guides/BUILD_WINDOWS.md)：Windows 构建与验证命令。
-10. [`decisions/`](decisions/)：已接受的架构决策。
+4. [`releases/patches/RC-01-WinUI3-i18n-en-US-verification.md`](releases/patches/RC-01-WinUI3-i18n-en-US-verification.md)：英语／国际化补丁的本地实施证据与新 RC 待测项。
+5. [`records/FIRST_RELEASE_H_EXECUTION.md`](records/FIRST_RELEASE_H_EXECUTION.md)：H 分发与生命周期完成证据。
+6. [`releases/V0.9.0.md`](releases/V0.9.0.md)：当前版本的用户发布说明草稿。
+7. [`archive/phase-f/PHASE_F.md`](archive/phase-f/PHASE_F.md)：Phase F 的完整完成记录与限制。
+8. [`planning/PROJECT_PLAN.md`](planning/PROJECT_PLAN.md)：产品范围、架构和不变量。
+9. [`planning/RELEASE_ROADMAP.md`](planning/RELEASE_ROADMAP.md)：首版发布阶段顺序和门槛。
+10. [`guides/BUILD_WINDOWS.md`](guides/BUILD_WINDOWS.md)：Windows 构建与验证命令。
+11. [`guides/USER_GUIDE.en-US.md`](guides/USER_GUIDE.en-US.md)／[`guides/USER_GUIDE.md`](guides/USER_GUIDE.md)：英语／中文用户指南。
+12. [`decisions/`](decisions/)：已接受的架构决策。
 
 ## 目录职责
 

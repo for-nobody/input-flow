@@ -5,7 +5,6 @@ namespace InputFlow_Settings;
 
 internal sealed class SettingsInstance : IDisposable
 {
-    public const string WindowTitle = "InputFlow 设置";
     private const int SwRestore = 9;
     private readonly Mutex _mutex;
 
@@ -27,11 +26,11 @@ internal sealed class SettingsInstance : IDisposable
         return null;
     }
 
-    public static void ActivateExistingWindow()
+    public static void ActivateExistingWindow(string windowTitle)
     {
         for (int attempt = 0; attempt < 20; attempt++)
         {
-            nint window = FindWindow(null, WindowTitle);
+            nint window = FindWindow(null, windowTitle);
             if (window != 0)
             {
                 ShowWindow(window, SwRestore);

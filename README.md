@@ -1,119 +1,105 @@
 # InputFlow
 
-InputFlow 是 Windows 全局键盘与鼠标输入组合引擎。它只暂扣可能构成已启用规则的事件；
-命中后消费输入并发送动作，失败或超时则按序尽力回放。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-## 当前状态
+InputFlow is a Windows-wide keyboard and mouse combination engine. It withholds only input that may form an
+enabled rule. A matching rule consumes that input and sends its action; a failed or timed-out candidate replays
+the withheld input in order on a best-effort basis.
 
-M1～M7、Phase F／M8 和发布前 G-PRE 已完成。鼠标四方向、Schema v4、IPC、WinUI、真实方向
-与边界、约 16 分钟混合输入、UI／Pipe／配置／恢复及 pause／replace／正常退出回归均已收口。
-分发阶段 H 已完成，包括本机工程包、生命周期、真实重启登录与全新 Windows x64 环境验收。项目已
-`v0.9.0` RC 已完成：版本、MIT License、固定包、许可附件、说明、校验和，以及精确 ZIP 的自动、
-桌面和物理输入 smoke 均已通过。首个 release 尚未发布；发布前将按用户后续要求增加英语支持补丁，
-并重新生成包和复验受影响路径。24／72 小时长测安排在首版发布后。
+## Current status
 
-详细状态和下一步以
-[`docs/status/CURRENT_STATUS.md`](docs/status/CURRENT_STATUS.md) 为唯一权威。
+InputFlow v0.9.0 is preparing its first public pre-release. The pre-i18n RC package passed automated, desktop,
+and physical-input smoke tests. The current RC-01 patch adds complete English and Simplified Chinese resources
+to WinUI Settings; it must receive a new package hash and affected RC smoke evidence before release. No remote
+release has been published yet. See [the authoritative current status](docs/status/CURRENT_STATUS.md).
 
-## 文档入口
+## Architecture and safety boundaries
 
-- [文档索引](docs/README.md)
-- [当前执行顺序](docs/planning/IMPLEMENTATION_STEPS.md)
-- [项目规划](docs/planning/PROJECT_PLAN.md)
-- [首版发布路线](docs/planning/RELEASE_ROADMAP.md)
-- [当前首版发布任务（当前执行 RC）](docs/tasks/FIRST_RELEASE.md)
-- [v0.9.0 发布说明草稿](docs/releases/V0.9.0.md)
-- [RC 执行记录](docs/records/FIRST_RELEASE_RC_EXECUTION.md)
-- [G-PRE 完成记录](docs/archive/first-release/G_PRE.md)
-- [Phase F 完成记录](docs/archive/phase-f/PHASE_F.md)
-- [Windows 构建指南](docs/guides/BUILD_WINDOWS.md)
-- [文档存储与生命周期规则](docs/governance/DOCUMENTATION_POLICY.md)
+- `inputflow-agent.exe` is the only owner of hooks, tray state, the rule runtime, formal configuration, and IPC.
+- `InputFlow.Settings.exe` is an on-demand C# + WinUI 3 application. Closing its last window exits Settings only.
+- Settings never installs hooks or directly writes formal configuration. The Agent validates, atomically saves,
+  and hot-applies changes.
+- The Agent does not load .NET, WinUI, WebView, or JavaScript runtimes.
+- The hook hot path performs no UI, disk or network I/O, unbounded allocation, unbounded queueing, or UI waits.
+- `F12` is reserved as the emergency bypass and cannot be swallowed by input capture.
+- The project does not use Tauri, React, Node.js, npm, WebView2, or Electron.
 
-## 产品原则
+## Implemented features
 
-- `inputflow-agent.exe` 是唯一的 Hook、托盘、规则运行时、正式配置和 IPC 服务所有者。
-- `InputFlow.Settings.exe` 是按需启动的 C# + WinUI 3 设置程序；关闭最后一个窗口后进程退出。
-- 设置程序不安装 Hook、不直接写正式配置；Agent 负责验证、原子保存和热应用。
-- Agent 不加载 .NET、WinUI、WebView 或 JavaScript 运行时。
-- Hook 热路径不执行 UI、磁盘、网络、无界分配、无界队列或等待 UI。
-- F12 保留为紧急旁路；输入录制不能吞掉它。
-- 项目不使用 Tauri、React、Node.js、npm、WebView2 或 Electron。
+- KeyChord, Key+MouseButton, Hold, Hold+MouseButton, and four-direction mouse-movement triggers.
+- Logical and physical key identities, named keys, scan-code replay, and layout-aware display names.
+- Key-chord actions, persistent rule enablement, validation, atomic save, recovery, and runtime replacement.
+- Rust/Win32 resident Agent with tray controls, single instance handling, and Explorer tray recovery.
+- Versioned, bounded Windows Named Pipe IPC protected for the current user.
+- WinUI rule editing, input capture, connection coordination, diagnostics, and accessible labels/status regions.
+- Schema v4 mouse direction parameters: activation key, net displacement, off-axis tolerance, timeout, and one
+  match per hold. Normal pointer movement always passes through. Schemas v1–v3 migrate deterministically.
 
-## 已实现能力
+## Install and run the portable preview
 
-- Hold、KeyChord、Key+MouseButton 和 Hold+MouseButton 触发器。
-- logical／physical 键身份、完整具名键、scan-code 回放和布局相关显示名。
-- 持久化规则启停、配置验证、原子保存、恢复和运行时热替换。
-- Rust/Win32 常驻 Agent、托盘、单实例和 Explorer 托盘恢复。
-- 版本化、有限帧、当前用户 ACL 的 Windows Named Pipe。
-- WinUI 规则编辑、录制、保存、连接协调、诊断和可访问性支持。
-- Schema v4 鼠标四方向规则：键盘激活、净位移阈值、偏轴容差、超时和一次命中；普通 move
-  始终直通。Schema v1／v2／v3 保持可读并确定迁移。
+The release package is `InputFlow-0.9.0-win-x64.zip`. It targets Windows x64 and declares Windows 10 build 17763
+as its minimum. The unpackaged directory carries self-contained .NET and Windows App SDK components. Microsoft
+Visual C++ Redistributable 2015–2022 x64 is still required. The first release is unsigned.
 
-## 快速构建
+1. Verify the downloaded zip against the accompanying `SHA256SUMS.txt`.
+2. Extract the complete archive into a user-writable directory; keep all DLL, PRI, documentation, and license files.
+3. Run `inputflow-agent.exe`, then open Settings from the tray icon.
+4. Use `F12` to pause or resume immediately. Exit the Agent normally from its tray menu.
 
-Rust workspace：
+The exact public artifact does not exist until RC-01 is rebuilt and revalidated; this repository does not invent
+a download URL. Detailed operation, upgrade, autostart, and removal instructions are in the
+[English user guide](docs/guides/USER_GUIDE.en-US.md).
+
+## Display language and accessibility
+
+Settings follows the Windows display language by default and falls back to English when no supported resource
+matches. Under **Settings and diagnostics > Display language**, select **System default / 跟随系统**,
+**English**, or **简体中文**, then close and reopen Settings. The Agent and active rules keep running.
+
+Visible text, dynamic notifications, and UI Automation names are localized in `en-US` and `zh-CN`. Narrator
+reads the selected language's labels; voice selection depends on language voices installed in Windows. InputFlow
+does not install voices or modify system Narrator settings.
+
+## Build and test
+
+Prerequisites and exact toolchain details are in the [Windows build guide](docs/guides/BUILD_WINDOWS.md).
 
 ```powershell
 cargo fmt --all -- --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo build -p inputflow-agent --release
-```
-
-完整 Rust + C# 验证链：
-
-```powershell
 ./scripts/build-windows.ps1
 ```
 
-具体工具链、restore、WinUI Debug／Release 命令和运行依赖见
-[`docs/guides/BUILD_WINDOWS.md`](docs/guides/BUILD_WINDOWS.md)。
+The complete script validates Rust, the protocol and Settings Core runners, WinUI Debug/Release builds, resource
+key parity, and English/Chinese runtime resource loading. Release packaging is performed separately by
+`scripts/package-release.ps1` and requires a clean fixed commit for an RC artifact.
 
-## 仓库结构
+## Known limitations
 
-```text
-input-flow/
-├── README.md                    # 根目录唯一 Markdown；项目摘要
-├── apps/
-│   ├── probe-cli/               # 共用 runtime 的诊断控制台
-│   ├── inputflow-agent/         # Rust/Win32 常驻 Agent
-│   └── settings-winui/          # WinUI 设置、状态核心、协议客户端和 contract runners
-├── crates/
-│   ├── inputflow-engine/
-│   ├── inputflow-config/
-│   ├── inputflow-runtime/
-│   ├── inputflow-windows/
-│   └── inputflow-protocol/
-├── docs/
-│   ├── README.md                # 文档索引
-│   ├── governance/              # 文档规则
-│   ├── planning/                # 稳定规划与路线
-│   ├── status/                  # 当前进度唯一权威
-│   ├── tasks/                   # 未完成任务
-│   ├── records/                 # 当前阶段证据
-│   ├── guides/                  # 构建与验收指南
-│   ├── releases/                # 版本对应的用户发布说明
-│   ├── reference/               # 术语、研究和 fixture 契约
-│   ├── decisions/               # ADR
-│   └── archive/                 # 已完成任务和历史快照
-├── fixtures/                    # 配置与协议 golden JSON
-└── scripts/                     # 构建和 Windows 验收工具
-```
+- Real cross-monitor, cross-DPI, and hot-plug behavior has not been verified on representative hardware.
+- `SendInput` is affected by UIPI, focus, and modifier state; perfect replay into every target is not guaranteed.
+- Force-ending the Agent cannot guarantee recovery of historical input already withheld.
+- Some special-key hardware, partial `SendInput`, sleep/resume, and actual Narrator voice availability remain
+  environment-dependent or not fully tested.
+- The public preview does not claim 24-hour or 72-hour endurance evidence.
+- Fn, arbitrary three-key chords, per-application rules, and URL/program/folder actions are not implemented.
 
-## 已知边界
+## Documentation and contribution
 
-- 鼠标方向已完成真实四方向、普通拖拽和约五分钟物理 move 验收；本机只有一个显示器，真实
-  跨屏／跨 DPI／热插拔以及实际 polling rate 仍未验证。
-- G-PRE 的 941 个样本保留 stats RTT p99 151.274 ms／max 1064.207 ms 的调度尖峰；callback
-  p99 0.340 ms／max 17.265 ms，且没有输出失败、丢弃或 Hook 中断；发布后长测继续观察。
-- `SendInput` 受 UIPI、焦点和当前修饰状态影响，不能承诺所有目标中 100% 原样回放。
-- 进程被强杀时，已暂扣的历史输入无法保证恢复。
-- keypad Enter、独立播放键、中文 Narrator 语音和 partial `SendInput` 仍受当前硬件／环境限制。
-- H 工程包、本机自启动、真实登录、升级／移除模拟和全新 Windows x64 环境验收已完成。
-- 首版定位公开测试版本；发布前不要求 24／72 小时长测，也不宣称已经证明长期稳定。
+- [Documentation index](docs/README.md)
+- [Current status](docs/status/CURRENT_STATUS.md)
+- [First-release task](docs/tasks/FIRST_RELEASE.md)
+- [RC execution record](docs/records/FIRST_RELEASE_RC_EXECUTION.md)
+- [Windows build guide](docs/guides/BUILD_WINDOWS.md)
 
-## 许可证
+When filing an issue, include the InputFlow version, Windows build, rule type and parameters, reproduction steps,
+target elevation state, and relevant logs with sensitive data removed. Do not upload private configurations or
+complete input traces.
 
-InputFlow 采用 [MIT License](LICENSE)。第三方组件及其许可证见
-[`THIRD-PARTY-NOTICES.txt`](THIRD-PARTY-NOTICES.txt)；发布包还包含锁定依赖的完整许可文件。
+## License
+
+InputFlow is licensed under the [MIT License](LICENSE). Third-party notices are in
+[THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt); distribution packages also include the locked dependencies'
+license files.
