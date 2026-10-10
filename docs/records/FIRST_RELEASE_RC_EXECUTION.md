@@ -125,3 +125,40 @@ RC 完成不等于远端已发布。若没有发布前代码／资源变化，�
 附件为 zip、`SHA256SUMS.txt`、版本发布说明和用户指南。当前已经明确计划英语支持补丁，所以必须先让
 补丁后的新固定提交和新包完成受影响 RC 检查，再确定实际 tag。没有明确发布要求和授权时不创建或推送
 tag／release，也不提前进入发布后的 G-POST。
+
+## 5. RC-01 英语／国际化补丁后的候选重开
+
+2026-10-10，RC-01 补丁的 34 个文件以 commit
+`b83f4c368321017f3415f9bb71e0c56b39d3eee6` 固定并推送到 GitHub `origin/main`。旧候选及其物理结果继续
+作为历史证据，不改写；新候选重新执行受影响门槛。
+
+从 `HEAD == origin/main == b83f4c3...`、干净工作树执行：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-release.ps1 `
+  -RequireClean -OutputRoot .\target\distribution-rc01-candidate
+```
+
+结果：
+
+- 完整门槛通过：Rust 172／172、Protocol 7／7、Settings Core 14／14、WinUI Debug／Release 均
+  0 warning／0 error，Debug／Release × en-US／zh-CN 四种运行 smoke 退出 0；
+- 候选 ZIP：`target/distribution-rc01-candidate/InputFlow-0.9.0-win-x64.zip`；
+- ZIP 94,154,465 bytes，SHA-256
+  `DA0DED2CF4162A6A78B12172AAF48AB6FAC799A3C753EDD32F83B44F890A82F7`；
+- 解压目录 245,294,323 bytes、总文件数 580，项目 PRI 2,243,768 bytes；manifest commit 匹配、
+  `worktree_dirty=false`、MIT、Pre-release、双 self-contained 和私有路径重映射声明正确；
+- 精确 ZIP 的全新解压副本通过 Agent 100 轮、Settings en-US／zh-CN、真实 Named Pipe live contract，
+  Agent 限时干净退出 0；
+- 精确 ZIP 通过 English → 简体中文 → English → System 的真实 UI Automation、偏好持久化和重开链路，
+  测试后恢复原偏好，Settings／Agent 进程均不存在。
+
+第一次完整候选命令在 NuGet restore 时被沙箱网络策略拒绝，第一次精确包 Agent 启动也被沙箱拒绝写入
+正常 `%LOCALAPPDATA%\InputFlow\agent.log`；在获准网络／当前用户文件权限下以相同提交和输入重跑后通过。
+这两项记录为执行环境拒绝，不伪装成产品测试结果。
+
+当前仍未关闭的发布前项目是：未保存草稿和真实规则保存、物理四方向／取消／F12、Narrator／LiveRegion、
+125%／150% 缩放、规则编辑页截图，以及可用时的中文／第三语言 Windows 系统匹配。精确步骤和 L01–L16
+状态见
+[`../releases/patches/RC-01-WinUI3-i18n-en-US-verification.md`](../releases/patches/RC-01-WinUI3-i18n-en-US-verification.md)。
+当前结论仍为 `READY FOR RC SMOKE`，不是 `READY FOR RELEASE`；尚未创建 tag 或 GitHub Release。

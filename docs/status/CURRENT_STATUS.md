@@ -17,11 +17,12 @@ IPC、WinUI、真实边界、普通输入／拖拽、约 16 分钟混合输入�
 重启登录自启动／禁用验收。旧 `v0.9.0` RC 基线的 MIT License、版本面、许可附件、发布说明、干净构建、
 固定 zip、自动／IPC／Settings 壳层和精确包物理输入 smoke 全部通过。首个 release 尚未发布。
 
-RC-01 英语／国际化补丁已在本地工作树完成：Settings 具备 `en-US`／`zh-CN` 资源、system／English／
-简体中文选择和独立持久化，双语 UIA 文本、双语 README／用户指南及发布资源检查已接入。完整自动门槛、
-Debug／Release 双语运行、真实 UIA 持久化链路和 dirty-worktree 工程发布包均通过，当前结论为
-**READY FOR RC SMOKE**。补丁尚未固定为新提交；Narrator、缩放、真实 Agent 规则／物理输入和新精确 RC
-ZIP 仍须重新实机验证，不能继承旧包结果。24／72 小时长测继续安排在首个 release 之后。
+RC-01 英语／国际化补丁已固定为 commit `b83f4c368321017f3415f9bb71e0c56b39d3eee6` 并推送到
+GitHub `origin/main`。Settings 具备 `en-US`／`zh-CN` 资源、system／English／简体中文选择和独立持久化，
+双语 UIA 文本、双语 README／用户指南及发布资源检查已接入。已从该干净提交生成新精确 RC ZIP；完整
+自动门槛、双语运行、真实 UIA 持久化、Agent 100 轮和 live IPC 均通过，当前结论为 **READY FOR RC
+SMOKE**。Narrator、缩放、真实 Agent 规则／物理输入仍须对新候选人工验证，不能继承旧包结果。
+24／72 小时长测继续安排在首个 release 之后。
 
 当前唯一执行入口是 [`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md)。Phase F 的完整历史
 证据见 [`../archive/phase-f/PHASE_F.md`](../archive/phase-f/PHASE_F.md)；G-PRE 完整结果见
@@ -39,7 +40,7 @@ ZIP 仍须重新实机验证，不能继承旧包结果。24／72 小时长测�
 | Phase F／M8 | **完成** | F0～F5、F-PHY-01～07、受影响 M6 路径和最终联合构建通过 |
 | G-PRE | **完成** | 自动门槛、15 分 53 秒资源采样、混合输入和 PRE-01～09 可用环境矩阵通过 |
 | H | **完成** | H0～H5 与 DIST-01～07 按声明支持范围通过 |
-| RC／首个 release | **RC-01 已实现；等待新 RC smoke；未发布** | 旧 `bc48c36d...` 固定包保留为历史基线；补丁自动／UIA 工程验证通过，尚无新固定提交和精确 RC 包 |
+| RC／首个 release | **RC-01 候选已固定；等待剩余人工 smoke；未发布** | 新 commit `b83f4c3...` 和 ZIP SHA `DA0DED2C...A82F7` 的自动／UIA smoke 通过；Narrator、缩放、规则和物理输入待测 |
 | G-POST | 计划于首版发布后 | 24／72 小时长测和 daily-drive，不阻塞首版 |
 
 ## 最近已验证证据
@@ -66,8 +67,11 @@ RC-01 本地补丁证据：
   runtime smoke 均退出 0。
 - 英语 Windows 上的真实 UIA 链路通过 English → 简体中文 → English → System 的保存和重开；测试后
   恢复原偏好，Agent 不参与。Narrator 实际朗读与完整键盘浏览未执行。
-- dirty-worktree 工程包的双语发布运行验证通过，ZIP SHA-256 为
-  `8DE313D1553E0B4E7F40B9FB75BA42EA6BC5032993D9A42A3A4A1F15E2524711`；该 hash 不是新 RC hash。
+- 干净候选 `InputFlow-0.9.0-win-x64.zip` 为 94,154,465 bytes，SHA-256
+  `DA0DED2CF4162A6A78B12172AAF48AB6FAC799A3C753EDD32F83B44F890A82F7`；manifest 提交匹配、
+  `worktree_dirty=false`，目录 245,294,323 bytes，总文件数 580，PRI 2,243,768 bytes。
+- 新精确 ZIP 的全新解压副本通过 Agent 100 轮、Settings en-US／zh-CN、真实 Named Pipe live contract
+  和 English → 简体中文 → English → System UIA 持久化链路；进程均已退出，测试后语言偏好恢复。
 
 G-PRE 固定提交的自动与联合门槛：
 
@@ -129,15 +133,15 @@ H 本机分发结果：
 - H 工程包、本机与全新 Windows 的分发／自启动证据、升级／移除模拟均已完成。缺少 VC++ runtime
   的真实启动失败没有通过删除系统 DLL 强制制造；首版支持范围明确要求 Windows x64 和 VC++
   Redistributable，并在包名、manifest 与用户指南中给出可理解说明。
-- MIT License 已确定；签名和远端 release 仍未完成。RC-01 工程包 manifest 如实标记当前提交和 dirty
-  状态；必须从补丁固定后的干净提交重新构建，不能直接改名冒充最终发行包。
+- MIT License 已确定；签名和远端 release 仍未完成。RC-01 已从固定干净提交生成候选，尚未创建 tag
+  或 GitHub Release；当前候选只有在剩余人工 smoke 通过后才能作为发布附件。
 - RC-01 的中文／第三语言 Windows 系统匹配、Narrator 朗读、125%／150% 缩放、规则编辑页截图，以及
   补丁后真实规则保存和物理 remapping 尚未执行；Agent 托盘语言未与 Settings 偏好同步。
 - 24／72 小时长测尚未执行；首版仍定位公开测试版本，不宣称长期稳定。
 
 ## 下一步
 
-人工审查 RC-01 补丁并固定新提交；随后用 `-RequireClean` 生成新 RC 包，对验证记录中的 NOT TESTED
-项目和受影响的规则／物理输入路径执行实机 smoke。SHA-256 为 `A287489C...004537` 的旧包只保留为历史
-RC 基线，dirty 工程包 SHA `8DE313D...24711` 只作发布布局证据，二者均不直接发布。没有对应远端发布
-要求和授权前，不创建／推送 tag 或 release；不提前执行发布后 G-POST。
+只使用 commit `b83f4c3...`、SHA `DA0DED2C...A82F7` 的候选执行验证记录第 9 节剩余人工 smoke：未保存
+草稿／规则保存、真实物理方向与取消、F12 旁路、Narrator／LiveRegion、125%／150% 缩放和规则编辑页
+截图；中文／第三语言 Windows 不可得时继续明确记为 NOT TESTED。通过后再更新 READY FOR RELEASE
+结论。没有对应远端发布授权前，不创建／推送 tag 或 release；不提前执行发布后 G-POST。
