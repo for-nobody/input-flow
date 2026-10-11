@@ -48,6 +48,10 @@ Redistributable 2015–2022 x64。首版未签名。
 精确 RC 附件已在本地固定；只有 GitHub Pre-release 实际发布后才会补充公开下载地址。完整操作、升级、
 自启动和移除说明见[中文用户指南](docs/guides/USER_GUIDE.md)。
 
+仓库里另有一条 0.9.1 的 Windows x64 安装包路径，它不是已经发布的 v0.9.0 下载。安装包装到
+`C:\Program Files\InputFlow`，使用系统中的 .NET 10、Windows App Runtime 2.5.1 和 Visual C++ 2015–2022 x64。
+构建步骤见 [BUILD_WINDOWS.md 第 13 节](docs/guides/BUILD_WINDOWS.md)。setup.exe 不放进 git。
+
 ## 显示语言与辅助功能
 
 Settings 默认跟随 Windows 显示语言，无匹配时回退英语。可在 **设置与诊断 > 显示语言** 选择
@@ -89,6 +93,7 @@ cargo build -p inputflow-agent --release
 - [v0.9.0 发布说明](docs/releases/V0.9.0.md)
 - [首版发布归档记录](docs/archive/first-release/FIRST_RELEASE_RC_EXECUTION.md)
 - [Windows 构建指南](docs/guides/BUILD_WINDOWS.md)
+- [Windows 安装包说明](docs/guides/BUILD_WINDOWS.md)（第 13 节）
 
 反馈问题时请提供 InputFlow 版本、Windows build、规则类型与参数、复现步骤、目标程序是否提升，以及移除
 敏感数据后的相关日志。不要上传私人配置或完整输入轨迹。

@@ -51,6 +51,11 @@ The exact RC artifact is fixed locally; a public download URL will only be added
 published. Detailed operation, upgrade, autostart, and removal instructions are in the
 [English user guide](docs/guides/USER_GUIDE.en-US.md).
 
+The repository also contains a separate Windows x64 setup path for 0.9.1. It is not the published v0.9.0
+download. The setup installs into `C:\Program Files\InputFlow` and uses the system .NET 10 runtime, Windows App
+Runtime 2.5.1, and the Visual C++ 2015–2022 x64 redistributable. Build it from
+[BUILD_WINDOWS.md section 13](docs/guides/BUILD_WINDOWS.md). The setup executable is not committed.
+
 ## Display language and accessibility
 
 Settings follows the Windows display language by default and falls back to English when no supported resource
@@ -95,6 +100,7 @@ key parity, and English/Chinese runtime resource loading. Release packaging is p
 - [v0.9.0 release notes](docs/releases/V0.9.0.md)
 - [Archived first-release record](docs/archive/first-release/FIRST_RELEASE_RC_EXECUTION.md)
 - [Windows build guide](docs/guides/BUILD_WINDOWS.md)
+- [Windows setup notes](docs/guides/BUILD_WINDOWS.md) (section 13)
 
 When filing an issue, include the InputFlow version, Windows build, rule type and parameters, reproduction steps,
 target elevation state, and relevant logs with sensitive data removed. Do not upload private configurations or
