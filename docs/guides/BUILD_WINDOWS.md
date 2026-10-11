@@ -268,7 +268,16 @@ Rust 诊断源路径，Release WinUI 项目关闭 CodeView/PDB 路径；打包�
 
 版本号和安装目录清单只写在 [`../../installer/release.psd1`](../../installer/release.psd1)。`Version` 决定目录名和 setup 文件名。`PublishFiles` 是 Settings 的框架依赖发布结果；`RustLicenses` 与 `NuGetLicenses` 是按 [ADR-010](../decisions/ADR-010-安装包许可范围.md) 拷贝的许可。脚本另外放入 `inputflow-agent.exe`、`LICENSE.txt` 和 `installer\InputFlow.ico` 不在这份清单里，图标由安装脚本单独拷到安装位置。技术栈不变时，改这份文件即可，不用改 `scripts/package-installer.ps1` 或 `Innoscripts.iss`。
 
-`InputFlow-<版本>-install\` 和 `inno_setup_output\` 是构建产物，已写入 `.gitignore`。在仓库根目录运行：
+`InputFlow-<版本>-install\` 和 `inno_setup_output\` 是构建产物，已写入 `.gitignore`。
+
+生成 setup 的机器要先安装 [Inno Setup 7](https://jrsoftware.org/isdl.php)、带 x64 MSVC 的 Visual Studio 或 Build Tools、Rust，以及 `global.json` 要求的 .NET SDK。运行已经生成的 setup 不使用这些工具。脚本按下面的方式找到它们：
+
+- Inno Setup：依次检查 `%ProgramFiles%\Inno Setup 7\ISCC.exe`、`%ProgramFiles(x86)%\Inno Setup 7\ISCC.exe`，以及这两处对应的 Inno Setup 6 目录。四处都不存在时，再在当前进程的 `PATH` 里查找 `ISCC.exe`。默认安装落在第一处，可以直接用。装到其它目录时，把放有 `ISCC.exe` 的目录加入 `PATH`。
+- Visual Studio 或 Build Tools：脚本读取 `%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe`，在它列出的安装中选择含有 `lib\x64\msvcrt.lib` 的一套，再执行该安装里的 `Common7\Tools\VsDevCmd.bat`。`VsDevCmd.bat` 会设置本进程的 `PATH` 和 `LIB`。安装位置由 Visual Studio 安装程序登记给 vswhere。
+- Rust：脚本只查找 `%USERPROFILE%\.cargo\bin\cargo.exe`，这是 rustup 的默认位置，然后把该目录加到本进程 `PATH` 的前面。
+- .NET SDK：脚本调用当前 `PATH` 上的 `dotnet`。`global.json` 固定 SDK 10.0.401，并允许同一 10.0 功能带里更新的补丁。SDK 安装程序会把 `C:\Program Files\dotnet` 写入系统 `PATH`。
+
+在仓库根目录运行：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-installer.ps1 -Force
