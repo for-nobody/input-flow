@@ -28,11 +28,13 @@ use windows_sys::Win32::UI::Shell::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CS_HREDRAW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu,
-    DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, IDI_APPLICATION, LoadIconW,
+    DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, GetSystemMetrics, HICON,
+    ICON_BIG, ICON_SMALL, IDI_APPLICATION, IMAGE_ICON, LR_SHARED, LoadIconW, LoadImageW,
     MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG, PostThreadMessageW, RegisterClassW,
-    RegisterWindowMessageW, SetForegroundWindow, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON,
-    TrackPopupMenu, TranslateMessage, UnregisterClassW, WM_APP, WM_CONTEXTMENU, WM_LBUTTONDBLCLK,
-    WM_NULL, WM_QUIT, WM_RBUTTONUP, WNDCLASSW,
+    RegisterWindowMessageW, SM_CXICON, SM_CXSMICON, SM_CYICON, SM_CYSMICON, SendMessageW,
+    SetForegroundWindow, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu,
+    TranslateMessage, UnregisterClassW, WM_APP, WM_CONTEXTMENU, WM_LBUTTONDBLCLK, WM_NULL,
+    WM_QUIT, WM_RBUTTONUP, WM_SETICON, WNDCLASSW,
 };
 
 const TRAY_ICON_ID: u32 = 1;
@@ -198,13 +200,16 @@ fn tray_thread(ready: mpsc::Sender<Result<u32, String>>) {
     TASKBAR_CREATED.store(taskbar_message, Ordering::Release);
     // SAFETY: null requests the current module handle.
     let instance = unsafe { GetModuleHandleW(std::ptr::null()) };
+    let large_icon = load_product_icon(instance, SM_CXICON, SM_CYICON);
+    let small_icon = load_product_icon(instance, SM_CXSMICON, SM_CYSMICON);
+    let window_title = wide("InputFlow");
     let class = WNDCLASSW {
         style: CS_HREDRAW,
         lpfnWndProc: Some(tray_window_proc),
         cbClsExtra: 0,
         cbWndExtra: 0,
         hInstance: instance,
-        hIcon: std::ptr::null_mut(),
+        hIcon: large_icon,
         hCursor: std::ptr::null_mut(),
         hbrBackground: std::ptr::null_mut(),
         lpszMenuName: std::ptr::null(),
@@ -223,7 +228,7 @@ fn tray_thread(ready: mpsc::Sender<Result<u32, String>>) {
         CreateWindowExW(
             0,
             class_name.as_ptr(),
-            class_name.as_ptr(),
+            window_title.as_ptr(),
             0,
             0,
             0,
@@ -235,6 +240,14 @@ fn tray_thread(ready: mpsc::Sender<Result<u32, String>>) {
             std::ptr::null(),
         )
     };
+    if !window.is_null() {
+        // SAFETY: the window belongs to this thread, and both icons are shared
+        // module resources that remain valid for the process lifetime.
+        unsafe {
+            SendMessageW(window, WM_SETICON, ICON_SMALL as usize, small_icon as isize);
+            SendMessageW(window, WM_SETICON, ICON_BIG as usize, large_icon as isize);
+        }
+    }
     if window.is_null() {
         let error = unsafe { GetLastError() };
         // SAFETY: this thread registered the class above.
@@ -402,6 +415,26 @@ fn delete_tray_icon(window: HWND) {
     unsafe { Shell_NotifyIconW(NIM_DELETE, &data) };
 }
 
+fn load_product_icon(instance: windows_sys::Win32::Foundation::HINSTANCE, width: i32, height: i32) -> HICON {
+    if !instance.is_null() {
+        let icon = unsafe {
+            LoadImageW(
+                instance,
+                1 as *const u16,
+                IMAGE_ICON,
+                GetSystemMetrics(width),
+                GetSystemMetrics(height),
+                LR_SHARED,
+            )
+        };
+        if !icon.is_null() {
+            return icon;
+        }
+    }
+    // SAFETY: the stock application icon is a shared system resource.
+    unsafe { LoadIconW(std::ptr::null_mut(), IDI_APPLICATION) }
+}
+
 fn notification_data(window: HWND) -> NOTIFYICONDATAW {
     let mut data = NOTIFYICONDATAW {
         cbSize: core::mem::size_of::<NOTIFYICONDATAW>() as u32,
@@ -409,8 +442,13 @@ fn notification_data(window: HWND) -> NOTIFYICONDATAW {
         uID: TRAY_ICON_ID,
         uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP,
         uCallbackMessage: WM_INPUTFLOW_TRAY,
-        // SAFETY: stock application icon is a shared system resource.
-        hIcon: unsafe { LoadIconW(std::ptr::null_mut(), IDI_APPLICATION) },
+        // SAFETY: null asks for this executable. The embedded icon is shared and
+        // must not be destroyed. The stock icon is the fallback.
+        hIcon: load_product_icon(
+            unsafe { GetModuleHandleW(std::ptr::null()) },
+            SM_CXSMICON,
+            SM_CYSMICON,
+        ),
         ..Default::default()
     };
     let tooltip = if super::windows::is_suspended() {
