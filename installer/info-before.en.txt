@@ -1,0 +1,11 @@
+InputFlow installs into C:\Program Files\InputFlow. Setup asks for administrator approval. After installation, InputFlow runs as a normal user.
+
+If any of these Microsoft components is missing, Setup asks before downloading that pinned version from Microsoft:
+
+- Microsoft Visual C++ 2015–2022 x64, version 14.44.35211 or newer
+- Microsoft .NET Runtime 10.0.12 x64
+- Windows App Runtime 2.5.1 x64
+
+Choosing No, or a failed download or check, stops Setup before InputFlow is copied. The download page shows progress, and Cancel stays available there. An offline computer that is missing one of these components cannot finish installation.
+
+Configuration and logs stay in %LOCALAPPDATA%\InputFlow. Uninstall does not delete that folder, and it does not remove these Microsoft runtimes.

@@ -1,0 +1,9 @@
+从开始菜单打开 InputFlow。程序会留在通知区域。
+
+打开设置可以使用开始菜单中的“InputFlow Settings”，也可以右键通知区域图标并选择 Open Settings，或者双击该图标。
+
+紧急情况下按 F12 暂停或恢复。
+
+除非安装时勾选了登录启动，否则不会在登录时启动。退出请使用通知区域图标上的 Exit InputFlow。按键按住期间不要在任务管理器里结束进程。
+
+卸载会保留 %LOCALAPPDATA%\InputFlow 中的配置，也会保留这些 Microsoft 运行库。

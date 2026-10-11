@@ -5,3 +5,9 @@ target/
 apps/settings-winui/**/bin/
 apps/settings-winui/**/obj/
 apps/settings-winui/.vs/
+
+# Installer build outputs
+InputFlow-*-install/
+InputFlow-*-win-x64/
+InputFlow-*-win-x64.zip
+inno_setup_output/

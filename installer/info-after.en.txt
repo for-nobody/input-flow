@@ -1,0 +1,9 @@
+Open InputFlow from the Start menu. The agent stays in the notification area.
+
+Open Settings from the Start menu item "InputFlow Settings", by right-clicking the notification icon and choosing Open Settings, or by double-clicking that icon.
+
+Press F12 to pause or resume in an emergency.
+
+InputFlow does not start at sign-in unless that task was checked. Use Exit InputFlow on the notification icon to quit. Do not end the process in Task Manager while a key is held.
+
+Uninstall keeps the configuration in %LOCALAPPDATA%\InputFlow and leaves the Microsoft runtimes installed.

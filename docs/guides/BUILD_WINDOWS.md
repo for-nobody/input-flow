@@ -34,7 +34,7 @@ publish 另外固定 .NET self-contained。开发构建成功仍不代表自启�
 | Windows SDK | 已安装多个版本；本工程目标 SDK `10.0.26100.0`，最低 `10.0.17763.0` |
 | .NET | SDK 10.0.401；MSBuild 18.9.11；host、Core、Windows Desktop Runtime 均为 10.0.12 x64 |
 | WinUI 模板 | `Microsoft.WindowsAppSDK.WinUI.CSharp.Templates` 0.0.7-alpha；`dotnet new list winui` 可见 `WinUI Blank App` |
-| Windows App SDK | NuGet `Microsoft.WindowsAppSDK` 2.5.1 |
+| Windows App SDK | NuGet `Microsoft.WindowsAppSDK.WinUI` 2.3.9、`Microsoft.WindowsAppSDK.Runtime` 2.5.1、`Microsoft.WindowsAppSDK.InteractiveExperiences` 2.1.9 |
 | Windows SDK BuildTools | NuGet `Microsoft.Windows.SDK.BuildTools` 10.0.28000.2705 |
 | Windows App Runtime | 官方 2.5.1 x64 安装程序退出码 0；framework-dependent smoke 随后成功启动 |
 | Developer Mode | 未启用；尝试写系统设置被当前非管理员会话拒绝。未绕过 UAC，也未自动提升。 |
@@ -208,7 +208,7 @@ Phase C 自动 smoke 示例（不含物理输入）：
 
 首版实施依据已归档于 [`../archive/first-release/FIRST_RELEASE.md`](../archive/first-release/FIRST_RELEASE.md)，
 并遵循 [`../decisions/ADR-009-首版分发与用户生命周期.md`](../decisions/ADR-009-首版分发与用户生命周期.md)。
-首版采用 unpackaged Windows x64 便携目录；独立 installer／MSIX／签名不属于默认首版范围。
+首版采用 unpackaged Windows x64 便携目录；MSIX 与签名不属于默认首版范围。0.9.1 另有一条框架依赖的 Inno Setup 安装包路径，见第 13 节，它不替换本节的 zip。
 
 统一入口（默认先执行第 8 节完整门槛）：
 
@@ -261,3 +261,19 @@ Rust 诊断源路径，Release WinUI 项目关闭 CodeView/PDB 路径；打包�
 现有五分钟采样脚本的 `DurationSeconds` 上限为 86400、固定 PID，不能直接宣称支持可靠 72 小时采样。G-POST 另行核对／扩展超时、断线重连、实例身份、分段轮转与可取消机制，保留短测工具。详见 [`../tasks/POST_RELEASE_SOAK.md`](../tasks/POST_RELEASE_SOAK.md)。
 
 所有证据继续分自动／故障注入／脚本／物理输入；环境限制和未执行项不得自动变成“通过”。
+
+## 13. Windows 安装包
+
+安装包使用仓库根目录的 `Innoscripts.iss`。它把 `InputFlow-<版本>-install\` 整份装进 `{autopf64}\InputFlow`，并在安装时按需下载三份 x64 运行库：Visual C++ 2015–2022、.NET Runtime 10.0.12、Windows App Runtime 2.5.1。这三份不放进安装目录。已发布的 v0.9.0 zip 仍由 `scripts/package-release.ps1` 生成，那个脚本是自包含发布，不能用来填这个目录。
+
+版本号和安装目录清单只写在 [`../../installer/release.psd1`](../../installer/release.psd1)。`Version` 决定目录名和 setup 文件名。`PublishFiles` 是 Settings 的框架依赖发布结果；`RustLicenses` 与 `NuGetLicenses` 是按 [ADR-010](../decisions/ADR-010-安装包许可范围.md) 拷贝的许可。脚本另外放入 `inputflow-agent.exe`、`LICENSE.txt` 和 `installer\InputFlow.ico` 不在这份清单里，图标由安装脚本单独拷到安装位置。技术栈不变时，改这份文件即可，不用改 `scripts/package-installer.ps1` 或 `Innoscripts.iss`。
+
+`InputFlow-<版本>-install\` 和 `inno_setup_output\` 是构建产物，已写入 `.gitignore`。在仓库根目录运行：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-installer.ps1 -Force
+```
+
+`-ExecutionPolicy Bypass` 只作用于这一次进程，不改系统的脚本策略。目录或 setup 已存在时保留 `-Force`。脚本核对 Agent 与 Settings 的版本等于 `release.psd1` 的 `Version`，用与 `scripts/build-windows.ps1` 相同的路径重映射做 Release Agent，再按框架依赖发布 Settings（不使用 `win-x64.pubxml`）。然后它按清单组装目录，多一个或少一个文件都会失败，并把 `Version` 传给 Inno Setup。
+
+输出为 `inno_setup_output\InputFlow-<版本>-win-x64-setup.exe`。上传到 Release 的是这个 exe，不是安装目录。程序自身编进二进制的版本仍来自各 Cargo.toml 和 Settings 工程；这两处必须与 `release.psd1` 的 `Version` 相同，否则脚本会停。

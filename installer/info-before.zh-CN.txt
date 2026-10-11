@@ -1,0 +1,11 @@
+InputFlow 会安装到 C:\Program Files\InputFlow。安装程序需要管理员权限。安装完成后，InputFlow 以普通用户身份运行。
+
+如果下面的 Microsoft 组件缺失，安装程序会先询问，再从 Microsoft 下载这一固定版本：
+
+- Microsoft Visual C++ 2015–2022 x64，14.44.35211 或更新版本
+- Microsoft .NET Runtime 10.0.12 x64
+- Windows App Runtime 2.5.1 x64
+
+选择“否”，或者下载、校验失败，安装程序会在复制 InputFlow 之前退出。下载页面会显示进度，取消按钮保持可用。缺少其中任何一个组件时，离线电脑无法完成安装。
+
+配置和日志保留在 %LOCALAPPDATA%\InputFlow。卸载不会删除这个文件夹，也不会卸载这些 Microsoft 运行库。
