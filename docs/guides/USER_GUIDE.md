@@ -4,7 +4,7 @@
 
 InputFlow 是一个本地运行的键盘与鼠标组合工具。`inputflow-agent.exe` 常驻并拥有托盘、输入 Hook、
 配置和 IPC；`InputFlow.Settings.exe` 只在需要配置时运行。首版是公开测试版本，尚未完成 24／72
-小时长时间运行验收。
+小时长时间运行验收。本指南描述已发布的 v0.9.0 zip。0.9.1 安装包是另一条路径，见 [`BUILD_WINDOWS.md`](BUILD_WINDOWS.md) 第 13 节，不在这个 zip 里。
 
 ## 首次运行
 

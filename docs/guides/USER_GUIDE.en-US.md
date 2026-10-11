@@ -5,6 +5,8 @@
 InputFlow is a local keyboard and mouse combination tool. `inputflow-agent.exe` owns the tray icon,
 input hooks, formal configuration, and IPC. `InputFlow.Settings.exe` runs only while you configure the
 application. This first version is a public preview and has not completed 24-hour or 72-hour endurance tests.
+This guide describes the published v0.9.0 zip. The 0.9.1 setup is a separate path, documented in
+[BUILD_WINDOWS.md](BUILD_WINDOWS.md) section 13, and is not inside this zip.
 
 ## First run
 
