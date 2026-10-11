@@ -96,11 +96,11 @@ Rust remapping、Hook、IPC、规则 schema 和配置文件格式均未改变。
 | L05 | PASS | 精确候选 ZIP 在英语 Windows 选择 zh-CN、关闭重开后，真实窗口和抽样 UIA 名称为中文 |
 | L06 | PASS | 精确候选 ZIP 的 zh-CN → en-US → system 三次重开链路通过，最终恢复英语系统匹配 |
 | L07 | PASS | Core 自动覆盖偏好缺失、损坏、结构错误和不支持值；UIA smoke 以偏好不存在开始并正常进入 system，规则文件未触碰 |
-| L08 | NOT TESTED | 未连接 Agent／加载真实未保存规则草稿；语言选择本身不关闭窗口已由 UIA 验证 |
-| L09 | NOT TESTED | Core 保存回归通过，但补丁后真实 Agent 上的规则创建／删除／禁用／保存尚未执行 |
-| L10 | NOT TESTED | 补丁后物理键盘／鼠标 remapping 和旁路尚未重跑 |
-| L11 | NOT TESTED | UI Automation 抽样名称通过；Narrator 与完整键盘浏览未人工执行 |
-| L12 | NOT TESTED | 动态资源读取通过；Narrator 对错误／状态／LiveRegion 的实际朗读未执行 |
+| L08 | PASS | 精确候选连接真实 Agent；切换中文后窗口不自动关闭且草稿仍在，本地化未保存提示的“返回”与“不保存退出”均符合预期，退出后规则文件未改变 |
+| L09 | PASS | 隔离配置上创建、禁用、保存、关闭重开、删除和恢复均符合预期；最终恢复 4 条启用规则，Agent 权威配置一致且语言偏好未进入规则 schema |
+| L10 | PASS | 四方向物理 remapping、距离不足、提前释放、右键取消、F12 暂停／恢复、普通输入和关闭 Settings 后 Agent 继续运行均符合预期；25 个输出批次无失败或丢弃 |
+| L11 | PARTIAL | 中文界面的完整键盘浏览、规则控件名称、状态和重开提示朗读符合预期；英语界面仍待最终候选实测 |
+| L12 | PARTIAL | 原候选未朗读中文规则校验错误；补充 assertive LiveRegion、动态 UIA 名称和 `LiveRegionChanged` 后，本地 Release 复测已正确朗读；最终候选双语复测待完成 |
 | L13 | NOT TESTED | 未在 125%／150% 缩放下完整检查长英文和交互 |
 | L14 | PASS | 两套 `.resw` 静态解析、真实 XAML／ResourceLoader／UIA 探针以及 Debug/Release runtime smoke 通过 |
 | L15 | PASS | `b83f4c3` 干净提交的新 RC ZIP、manifest、PRI、双语指南、精确解压双语运行、Agent 100 轮和 live contract 均通过 |
@@ -110,19 +110,31 @@ Rust remapping、Hook、IPC、规则 schema 和配置文件格式均未改变。
 
 旧 RC 的固定 commit、ZIP 和物理输入结果不因本补丁自动失效为历史事实，但也不能证明新代码通过。当前补丁新增或影响：Settings 启动资源选择、窗口和页面文本、UIA 文本、per-user UI 偏好、普通 Debug/Release 运行布局、发布 PRI 检查和包内文档。
 
-本轮已重新验证资源契约、全部既有自动门槛、四种 Debug/Release 双语运行，并从固定干净提交生成新
-候选。新精确 ZIP 的语言持久化／UIA、Agent 100 轮、双语资源和 live IPC 已通过。尚需只对 SHA
-`DA0DED2C...A82F7` 的候选完成 Narrator、缩放、规则保存和物理 remapping 实机项目。旧 SHA
-`A287...` 和工程 SHA `8DE3...` 都不得作为新最终 SHA。
+本轮已重新验证资源契约、全部既有自动门槛、四种 Debug/Release 双语运行，并从固定干净提交生成过
+候选。SHA `DA0DED2C...A82F7` 的语言持久化／UIA、Agent 100 轮、双语资源、live IPC、规则保存和
+物理 remapping 实机项目已通过，但中文 Narrator 校验错误播报暴露出发布阻断缺陷，因此该 ZIP 已撤销
+最终候选资格。修补后的本地 Release 已完成针对性复测；必须从新的干净提交重建候选，再完成双语
+Narrator 与缩放项目。旧 SHA `A287...`、工程 SHA `8DE3...` 和撤销的 SHA `DA0DED2C...A82F7` 均不得发布。
+
+### 6.1 Narrator 校验错误缺陷与修补
+
+首次中文实测中，规则 ID 为空并选择“写入草稿”后，视觉错误正确出现，但讲述人没有可靠朗读。根因是
+规则编辑器 `EditorInfo` 没有声明 LiveRegion，动态更新后也没有显式通知 UI Automation。修补为：
+
+- 将错误摘要声明为 `Assertive` LiveRegion；
+- 把本地化标题和正文合成为动态 UIA 名称；
+- 显示错误后显式发送 `LiveRegionChanged`；
+- 在本地化契约脚本中固定上述两项无障碍要求。
+
+修补版 Release 中重复空 ID 操作后，讲述人已正确读出中文错误；没有保存草稿或修改正式规则。
 
 ## 7. 剩余问题
 
 ### RC smoke 前阻断最终发布，但不阻断进入 smoke
 
 - L01、L03、L04 所需的中文或第三语言 Windows 环境未提供。
-- Narrator 实际朗读、键盘浏览、LiveRegion、125%／150% 缩放、规则编辑页截图未完成。
-- 精确候选 ZIP 的自动 smoke 已完成；真实 Agent 规则编辑／保存、物理键鼠 remapping、取消边界和 F12
-  旁路仍需人工执行。
+- 新候选尚未重建；最终候选上的英语 Narrator、中文错误回归、125%／150% 缩放和规则编辑页截图未完成。
+- 精确候选 ZIP 的自动 smoke、真实 Agent 规则编辑／保存、物理键鼠 remapping、取消边界和 F12 旁路已完成。
 
 ### 已知非阻断范围
 
@@ -134,28 +146,31 @@ Rust remapping、Hook、IPC、规则 schema 和配置文件格式均未改变。
 
 ## 8. 最终结论
 
-**READY FOR RC SMOKE**
+**NOT READY FOR RELEASE — CANDIDATE REBUILD REQUIRED**
 
-补丁提交和干净候选已经固定；所有剩余人工项目必须针对 commit `b83f4c3` 和 SHA
-`DA0DED2C...A82F7` 执行。当前状态不是 READY FOR RELEASE；代码已推送至 GitHub，但没有创建 tag 或 Release。
+原候选的自动与实机证据保留为历史记录，但 Narrator 缺陷要求产生新的补丁提交与 ZIP。当前没有可发布
+候选，也没有创建 tag 或 Release。
 
 ## 9. 剩余发布前实机清单
 
-唯一候选：
+已撤销候选（仅保留历史证据，不得发布）：
 
 - commit：`b83f4c368321017f3415f9bb71e0c56b39d3eee6`
 - ZIP：`target/distribution-rc01-candidate/InputFlow-0.9.0-win-x64.zip`
 - SHA-256：`DA0DED2CF4162A6A78B12172AAF48AB6FAC799A3C753EDD32F83B44F890A82F7`
 - 已解压自动证据目录：`target/acceptance/rc01-b83f4c3-package/InputFlow-0.9.0-win-x64`
 
+新的唯一候选 commit、ZIP 与 SHA-256 将在修补提交通过完整门槛后写入。
+
 人工测试严格使用该 ZIP 的全新解压副本，按以下顺序记录：
 
-1. **L08 草稿边界**：连接候选 Agent，在规则编辑器形成未保存草稿；切换语言选项后确认窗口不自动关闭、
-   草稿仍在；尝试关闭 Settings，验证本地化的保存／不保存／返回提示，不允许静默丢失。
-2. **L09 配置回归**：在隔离配置副本上创建、禁用、保存、删除规则；关闭并重开 Settings，确认 Agent
-   权威配置和 UI 读回一致，语言偏好不写入规则 schema。
-3. **L10 输入回归**：使用 F8 四方向配置验证 Left／Right／Up／Down、距离不足、提前释放、右键取消、
-   F12 暂停／恢复、关闭 Settings 后 Agent 继续运行和托盘正常退出。
+1. **L08 草稿边界（PASS）**：连接候选 Agent 后形成未保存草稿，切换中文没有关闭窗口且草稿仍在；
+   本地化未保存提示的返回与不保存退出均符合预期，退出后规则文件未改变。
+2. **L09 配置回归（PASS）**：隔离配置副本上的创建、禁用、保存、关闭重开、删除和恢复均符合预期；
+   最终配置恢复为 4 条启用规则，Agent 读回一致，语言偏好没有写入规则 schema。
+3. **L10 输入回归（PASS）**：四方向动作、距离不足、提前释放、右键取消、F12 暂停／恢复、普通输入和
+   关闭 Settings 后 Agent 继续运行均符合预期。消息目标捕获 C／V／Z／Y 与 1 次上下文菜单；Agent
+   `observed_events=362`、`output_batches_sent=25`、`failed=0`、`dropped=0`，最终 `ready` 且未暂停。
 4. **L11／L12 Narrator**：英语和简体中文各浏览导航、规则列表、图标按钮、输入框、错误、连接状态和
    重开提示；记录实际朗读、Tab 顺序和 LiveRegion，不修改系统语音设置。
 5. **L13 布局**：在 125% 和 150% 缩放下检查英文长文案、规则编辑器和设置页，无裁切、重叠或不可达控件；

@@ -5,6 +5,8 @@ using InputFlow.Protocol;
 using InputFlow.Settings.Core;
 using InputFlow_Settings.Controls;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Navigation;
@@ -1158,9 +1160,17 @@ public sealed partial class MainPage : Page
 
     private void ShowEditorError(string message)
     {
-        EditorInfo.Title = AppResources.Get("RuleEditor_ErrorTitle");
+        string title = AppResources.Get("RuleEditor_ErrorTitle");
+        EditorInfo.Title = title;
         EditorInfo.Message = message;
+        AutomationProperties.SetName(EditorInfo, $"{title}. {message}");
         EditorInfo.IsOpen = true;
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            AutomationPeer? peer = FrameworkElementAutomationPeer.FromElement(EditorInfo)
+                ?? FrameworkElementAutomationPeer.CreatePeerForElement(EditorInfo);
+            peer?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
+        });
     }
 
     private string SelectedTriggerType() =>

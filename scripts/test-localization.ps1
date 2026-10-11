@@ -68,6 +68,18 @@ if ($missingDynamicKeys.Count -ne 0) {
     throw "Dynamic localization keys are missing: $($missingDynamicKeys -join ', ')"
 }
 
+$mainPageXamlPath = Join-Path $settingsRoot 'MainPage.xaml'
+$mainPageXaml = Get-Content -LiteralPath $mainPageXamlPath -Raw -Encoding UTF8
+if ($mainPageXaml -notmatch '(?s)<InfoBar(?=[^>]*\bx:Name="EditorInfo")(?=[^>]*\bAutomationProperties\.LiveSetting="Assertive")[^>]*>') {
+    throw 'The rule editor validation summary must be an assertive UI Automation live region.'
+}
+
+$mainPageCodePath = Join-Path $settingsRoot 'MainPage.xaml.cs'
+$mainPageCode = Get-Content -LiteralPath $mainPageCodePath -Raw -Encoding UTF8
+if ($mainPageCode -notmatch 'RaiseAutomationEvent\(AutomationEvents\.LiveRegionChanged\)') {
+    throw 'The rule editor validation summary must explicitly raise LiveRegionChanged after a dynamic update.'
+}
+
 $invalidAutomationKeys = @($resourceKeys | Where-Object {
     $_ -match 'AutomationProperties\.' -and
     $_ -notmatch '\[using:Microsoft\.UI\.Xaml\.Automation\]AutomationProperties\.'

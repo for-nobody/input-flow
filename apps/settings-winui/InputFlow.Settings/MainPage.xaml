@@ -137,7 +137,12 @@
                         <ScrollViewer x:Name="RuleEditorScroll" HorizontalScrollBarVisibility="Disabled">
                             <StackPanel Spacing="12">
                                 <TextBlock x:Name="EditorTitle" x:Uid="EditorTitle" FontSize="20" FontWeight="SemiBold" />
-                                <InfoBar x:Name="EditorInfo" IsClosable="False" IsOpen="False" Severity="Error" />
+                                <InfoBar
+                                    x:Name="EditorInfo"
+                                    AutomationProperties.LiveSetting="Assertive"
+                                    IsClosable="False"
+                                    IsOpen="False"
+                                    Severity="Error" />
                                 <TextBox x:Name="RuleIdBox" x:Uid="RuleIdBox" />
                                 <ToggleSwitch x:Name="EditorEnabled" x:Uid="EditorEnabled" />
                                 <ComboBox x:Name="TriggerTypeCombo" x:Uid="TriggerTypeCombo" SelectionChanged="TriggerTypeCombo_SelectionChanged">
