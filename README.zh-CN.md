@@ -7,9 +7,11 @@ InputFlow 是 Windows 全局键盘与鼠标输入组合引擎。它只暂扣可�
 
 ## 当前状态
 
-InputFlow v0.9.0 已准备好首个公开 Pre-release。最终 RC-01 候选为 WinUI Settings 增加完整英语和简体
-中文资源，并已通过受影响的自动、UI Automation、Narrator、125%／150% 布局、配置和物理输入 smoke。
-固定包已经就绪，但尚未创建 tag 或远端 release。权威进度见[当前状态](docs/status/CURRENT_STATUS.md)。
+InputFlow v0.9.0 已作为公开 GitHub Pre-release 发布。最终 RC-01 构建为 WinUI Settings 增加完整英语
+和简体中文资源，并已通过受影响的自动、UI Automation、Narrator、125%／150% 布局、配置和物理输入
+smoke；公开下载的 ZIP 已重新下载并验证 SHA-256。参见
+[v0.9.0 Release](https://github.com/for-nobody/input-flow/releases/tag/v0.9.0)和
+[当前状态](docs/status/CURRENT_STATUS.md)。
 
 ## 架构与安全边界
 
@@ -83,8 +85,9 @@ cargo build -p inputflow-agent --release
 
 - [文档索引](docs/README.md)
 - [当前状态](docs/status/CURRENT_STATUS.md)
-- [首版发布任务](docs/tasks/FIRST_RELEASE.md)
-- [RC 执行记录](docs/records/FIRST_RELEASE_RC_EXECUTION.md)
+- [发布后长测任务](docs/tasks/POST_RELEASE_SOAK.md)
+- [v0.9.0 发布说明](docs/releases/V0.9.0.md)
+- [首版发布归档记录](docs/archive/first-release/FIRST_RELEASE_RC_EXECUTION.md)
 - [Windows 构建指南](docs/guides/BUILD_WINDOWS.md)
 
 反馈问题时请提供 InputFlow 版本、Windows build、规则类型与参数、复现步骤、目标程序是否提升，以及移除

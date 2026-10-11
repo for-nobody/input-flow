@@ -206,8 +206,8 @@ Phase C 自动 smoke 示例（不含物理输入）：
 
 ## 11. H／RC 发布构建
 
-实施依据：[`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md) 和
-[`../decisions/ADR-009-首版分发与用户生命周期.md`](../decisions/ADR-009-首版分发与用户生命周期.md)。
+首版实施依据已归档于 [`../archive/first-release/FIRST_RELEASE.md`](../archive/first-release/FIRST_RELEASE.md)，
+并遵循 [`../decisions/ADR-009-首版分发与用户生命周期.md`](../decisions/ADR-009-首版分发与用户生命周期.md)。
 首版采用 unpackaged Windows x64 便携目录；独立 installer／MSIX／签名不属于默认首版范围。
 
 统一入口（默认先执行第 8 节完整门槛）：
@@ -250,9 +250,9 @@ Rust 诊断源路径，Release WinUI 项目关闭 CodeView/PDB 路径；打包�
 构建用户目录的绝对路径。Startup 脚本只管理当前用户的 Agent 快捷方式且默认关闭。项目
 `LICENSE.txt`、第三方清单、版本发布说明，以及锁定 Cargo、NuGet、.NET 输入随带的实际法律文件会
 一同打包。H 的分发证据记录在
-[`../records/FIRST_RELEASE_H_EXECUTION.md`](../records/FIRST_RELEASE_H_EXECUTION.md)，RC 的固定提交、
+[`../archive/first-release/FIRST_RELEASE_H_EXECUTION.md`](../archive/first-release/FIRST_RELEASE_H_EXECUTION.md)，RC 的固定提交、
 包大小、SHA-256 和 smoke 记录在
-[`../records/FIRST_RELEASE_RC_EXECUTION.md`](../records/FIRST_RELEASE_RC_EXECUTION.md)；本指南不固化某次运行结果。
+[`../archive/first-release/FIRST_RELEASE_RC_EXECUTION.md`](../archive/first-release/FIRST_RELEASE_RC_EXECUTION.md)；本指南不固化某次运行结果。
 
 ## 12. 验证时长与发布后长测
 

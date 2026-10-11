@@ -1,13 +1,15 @@
-# InputFlow 首个 Release：短时验收、交付与发布任务
+# InputFlow 首个 Release：短时验收、交付与发布任务（归档）
 
-> 文档类型：当前活动任务
+> 文档类型：历史任务归档
 >
-> 状态来源：[`../status/CURRENT_STATUS.md`](../status/CURRENT_STATUS.md)
+> 状态：完成；`v0.9.0` 已于 2026-10-11 发布
+>
+> 状态来源：[`../../status/CURRENT_STATUS.md`](../../status/CURRENT_STATUS.md)
 >
 > 进入条件：Phase F 完成
 >
 > 进入状态：已满足；Phase F 完成证据见
-> [`../archive/phase-f/PHASE_F.md`](../archive/phase-f/PHASE_F.md)
+> [`../phase-f/PHASE_F.md`](../phase-f/PHASE_F.md)
 >
 > 产品约定：首版必须包含鼠标方向；24／72 小时长测和长期 daily-drive 均在首版发布后。
 
@@ -130,7 +132,7 @@ Schema 升级要有迁移与降级说明。旧 Agent／UI 不支持新 Schema �
 
 旧 RC 固定包已经完成本节，但随后加入 RC-01 英语／国际化补丁，因此发布门槛曾重新打开。补丁实现、
 两次 Narrator 修补、最终精确包及实机复验证据见
-[`../releases/patches/RC-01-WinUI3-i18n-en-US-verification.md`](../releases/patches/RC-01-WinUI3-i18n-en-US-verification.md)；
+[`../../releases/patches/RC-01-WinUI3-i18n-en-US-verification.md`](../../releases/patches/RC-01-WinUI3-i18n-en-US-verification.md)；
 最终 `c18a0a8` 候选已完成可用环境下的新精确 ZIP 受影响 smoke，RC 门槛再次关闭。
 
 1. 冻结本版新功能，只处理发布阻断缺陷；记录实际提交和是否有未提交构建输入，不自动丢弃用户改动。
@@ -172,9 +174,10 @@ Schema 升级要有迁移与降级说明。旧 Agent／UI 不支持新 Schema �
 - [x] H 的可分发包、依赖、路径、自启动、升级与移除已按声明范围验证。
 - [x] RC-01 补丁后的固定版本、最终包 smoke、SHA-256、双语说明和许可事项完成；旧 RC 结果仅作历史基线。
 - [x] release 草稿准确标记 Pre-release 和长测未完成。
-- [x] 对实际远端发布已获对应授权并核验结果，或如实交付“发布准备完成、待发布”；当前为后者。
+- [x] 已获远端发布授权；tag、Pre-release、附件和公开下载 SHA-256 均已回读验证。
 
-**本清单不包含 24／72 小时长测。首版实际发布后，进入 [`POST_RELEASE_SOAK.md`](POST_RELEASE_SOAK.md)。**
+**本清单不包含 24／72 小时长测。首版已发布，后续入口为
+[`POST_RELEASE_SOAK.md`](../../tasks/POST_RELEASE_SOAK.md)。**
 
 ## 8. 官方参考
 

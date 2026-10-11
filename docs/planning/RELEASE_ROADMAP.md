@@ -56,7 +56,9 @@ Phase G 的拆分只改变长测时间，不取消可靠性要求。发布前发
 - RC-01 补丁固定后，对新精确包执行双语资源、语言持久化、Narrator／UIA、缩放和受影响输入路径复验；
   实施证据与未测项见 [`../releases/patches/RC-01-WinUI3-i18n-en-US-verification.md`](../releases/patches/RC-01-WinUI3-i18n-en-US-verification.md)。
 
-执行入口：[`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md)。
+首版执行已完成，任务归档于
+[`../archive/first-release/FIRST_RELEASE.md`](../archive/first-release/FIRST_RELEASE.md)；当前入口为
+[`../tasks/POST_RELEASE_SOAK.md`](../tasks/POST_RELEASE_SOAK.md)。
 
 分段短测不必串成连续数小时。没有特定硬件时，保留自动证据和真实可用硬件观察，明确未验证范围，
 不得伪造 1000 Hz、跨屏或特殊键物理结果。

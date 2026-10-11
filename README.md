@@ -8,10 +8,11 @@ the withheld input in order on a best-effort basis.
 
 ## Current status
 
-InputFlow v0.9.0 is ready for its first public pre-release. The final RC-01 candidate adds complete English and
-Simplified Chinese resources to WinUI Settings and has passed the affected automated, UI Automation, Narrator,
-125%/150% layout, configuration, and physical-input smoke tests. The fixed package is ready, but no tag or remote
-release has been published yet. See [the authoritative current status](docs/status/CURRENT_STATUS.md).
+InputFlow v0.9.0 is available as a public GitHub Pre-release. The final RC-01 build adds complete English and
+Simplified Chinese resources to WinUI Settings and passed the affected automated, UI Automation, Narrator,
+125%/150% layout, configuration, and physical-input smoke tests. The published ZIP was downloaded again and its
+SHA-256 verified. See the [v0.9.0 release](https://github.com/for-nobody/input-flow/releases/tag/v0.9.0) and
+[the authoritative current status](docs/status/CURRENT_STATUS.md).
 
 ## Architecture and safety boundaries
 
@@ -90,8 +91,9 @@ key parity, and English/Chinese runtime resource loading. Release packaging is p
 
 - [Documentation index](docs/README.md)
 - [Current status](docs/status/CURRENT_STATUS.md)
-- [First-release task](docs/tasks/FIRST_RELEASE.md)
-- [RC execution record](docs/records/FIRST_RELEASE_RC_EXECUTION.md)
+- [Post-release soak task](docs/tasks/POST_RELEASE_SOAK.md)
+- [v0.9.0 release notes](docs/releases/V0.9.0.md)
+- [Archived first-release record](docs/archive/first-release/FIRST_RELEASE_RC_EXECUTION.md)
 - [Windows build guide](docs/guides/BUILD_WINDOWS.md)
 
 When filing an issue, include the InputFlow version, Windows build, rule type and parameters, reproduction steps,

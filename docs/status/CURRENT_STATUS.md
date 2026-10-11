@@ -4,7 +4,7 @@
 >
 > 最后更新：2026-10-11（Australia/Brisbane）
 >
-> 代码基线：`main`；最终发布候选构建提交为 `c18a0a8...`，当前等待远端发布授权
+> 代码基线：`main`；`v0.9.0` 已作为 GitHub Pre-release 发布，tag 指向 `c18a0a8...`
 
 ## 当前结论
 
@@ -14,22 +14,25 @@ IPC、WinUI、真实边界、普通输入／拖拽、约 16 分钟混合输入�
 
 首版发布任务的 **H 已完成**。便携工程包、依赖、路径、自启动、升级／移除模拟和未来 Schema 降级
 保护已完成；全新 Windows x64 环境也已通过前后端启动、四方向规则命中与重开读回，以及一次真实
-重启登录自启动／禁用验收。旧 `v0.9.0` RC 基线的 MIT License、版本面、许可附件、发布说明、干净构建、
-固定 zip、自动／IPC／Settings 壳层和精确包物理输入 smoke 全部通过。首个 release 尚未发布。
+重启登录自启动／禁用验收。`v0.9.0` 的 MIT License、版本面、许可附件、发布说明、干净构建、固定
+zip、自动／IPC／Settings 壳层和精确包物理输入 smoke 全部通过。首个 release 已发布。
 
 RC-01 英语／国际化实现和两次 Narrator 修补已固定并推送到 GitHub `origin/main`；最终候选构建提交为
 `c18a0a80f004451f98bb80bfb7b90c66255845bb`。Settings 具备 `en-US`／`zh-CN` 资源、system／English／
 简体中文选择和独立持久化。最终精确 ZIP 已通过完整自动门槛、双语运行、UIA 持久化、规则保存、物理
-输入、Narrator、125%／150% 布局、Agent 100 轮和 live IPC，当前结论为 **READY FOR RELEASE**。
-L01／L03／L04 因中文或第三语言 Windows 环境不可得保持非阻断 `NOT TESTED`。远端 tag 和 GitHub
-Release 尚未创建；24／72 小时长测继续安排在首个 release 之后。
+输入、Narrator、125%／150% 布局、Agent 100 轮和 live IPC。2026-10-11 14:46（Australia/Brisbane），
+annotated tag `v0.9.0` 已推送并精确解析到该提交，GitHub Pre-release 已发布；两个附件从公开 Release
+重新下载后哈希一致。L01／L03／L04 因中文或第三语言 Windows 环境不可得保持非阻断 `NOT TESTED`。
+当前结论为 **v0.9.0 RELEASED；进入 G-POST**。
 
-当前唯一执行入口是 [`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md)。Phase F 的完整历史
+当前执行入口是 [`../tasks/POST_RELEASE_SOAK.md`](../tasks/POST_RELEASE_SOAK.md)。首版任务已归档至
+[`../archive/first-release/FIRST_RELEASE.md`](../archive/first-release/FIRST_RELEASE.md)。Phase F 的完整历史
 证据见 [`../archive/phase-f/PHASE_F.md`](../archive/phase-f/PHASE_F.md)；G-PRE 完整结果见
-[`../archive/first-release/G_PRE.md`](../archive/first-release/G_PRE.md)。H 记录见
-[`../records/FIRST_RELEASE_H_EXECUTION.md`](../records/FIRST_RELEASE_H_EXECUTION.md)；当前 RC 记录见
-[`../records/FIRST_RELEASE_RC_EXECUTION.md`](../records/FIRST_RELEASE_RC_EXECUTION.md)。RC-01 的本地实施和
-待复验矩阵见 [`../releases/patches/RC-01-WinUI3-i18n-en-US-verification.md`](../releases/patches/RC-01-WinUI3-i18n-en-US-verification.md)。
+[`../archive/first-release/G_PRE.md`](../archive/first-release/G_PRE.md)。H 与 RC 记录见
+[`../archive/first-release/FIRST_RELEASE_H_EXECUTION.md`](../archive/first-release/FIRST_RELEASE_H_EXECUTION.md)
+和 [`../archive/first-release/FIRST_RELEASE_RC_EXECUTION.md`](../archive/first-release/FIRST_RELEASE_RC_EXECUTION.md)。
+RC-01 的本地实施和复验矩阵见
+[`../releases/patches/RC-01-WinUI3-i18n-en-US-verification.md`](../releases/patches/RC-01-WinUI3-i18n-en-US-verification.md)。
 
 ## 阶段状态
 
@@ -40,10 +43,21 @@ Release 尚未创建；24／72 小时长测继续安排在首个 release 之后�
 | Phase F／M8 | **完成** | F0～F5、F-PHY-01～07、受影响 M6 路径和最终联合构建通过 |
 | G-PRE | **完成** | 自动门槛、15 分 53 秒资源采样、混合输入和 PRE-01～09 可用环境矩阵通过 |
 | H | **完成** | H0～H5 与 DIST-01～07 按声明支持范围通过 |
-| RC／首个 release | **READY FOR RELEASE；等待远端发布授权** | commit `c18a0a8...`、ZIP SHA `D2C1BE61...79D2C` 的可用环境自动与人工门槛全部通过；尚未创建 tag／Release |
-| G-POST | 计划于首版发布后 | 24／72 小时长测和 daily-drive，不阻塞首版 |
+| RC／首个 release | **完成；v0.9.0 已发布** | tag 精确指向 `c18a0a8...`；Pre-release 两个附件已上传并下载复验 |
+| G-POST | **进入条件已满足；待开始** | 按已发布包执行 1～2 小时、24 小时、72 小时和 daily-drive |
 
 ## 最近已验证证据
+
+远端发布结果：
+
+- GitHub Pre-release：`https://github.com/for-nobody/input-flow/releases/tag/v0.9.0`；非 Draft，发布时间
+  为 `2026-10-11T04:46:14Z`。
+- annotated tag object 为 `f348f3a9f28ec4673d05de2ddc2611fa6cbce96c`，peeled commit 为
+  `c18a0a80f004451f98bb80bfb7b90c66255845bb`。
+- `InputFlow-0.9.0-win-x64.zip` 远端大小 94,155,158 bytes，GitHub digest 和重新下载实算 SHA-256
+  均为 `D2C1BE6148E2F3833DEEA9C99D9C882F0BABD2A030A1CFD480D1364387D79D2C`。
+- `SHA256SUMS.txt` 远端大小 95 bytes，下载文件 SHA-256 为
+  `C79158362C43CF88994E9E5D7492BA32EA1B3B4AAEC9E0C96CCBD966ED63F2A9`；其中声明的 ZIP 哈希与实算一致。
 
 RC 固定包结果：
 
@@ -138,15 +152,15 @@ H 本机分发结果：
 - H 工程包、本机与全新 Windows 的分发／自启动证据、升级／移除模拟均已完成。缺少 VC++ runtime
   的真实启动失败没有通过删除系统 DLL 强制制造；首版支持范围明确要求 Windows x64 和 VC++
   Redistributable，并在包名、manifest 与用户指南中给出可理解说明。
-- MIT License 已确定；代码签名不在本版范围，远端 release 仍未执行。RC-01 已从固定干净提交生成并
-  验收唯一候选，尚未创建 tag 或 GitHub Release。
+- MIT License 已确定；代码签名不在本版范围。RC-01 已从固定干净提交生成、验收并作为 GitHub
+  Pre-release 发布。
 - 中文 Windows 的 system 匹配 L01／L04 和第三语言 Windows 回退 L03 因环境不可得保持 `NOT TESTED`；
   不用强制资源覆盖冒充系统匹配。Agent 托盘语言未与 Settings 偏好同步。
 - 24／72 小时长测尚未执行；首版仍定位公开测试版本，不宣称长期稳定。
 
 ## 下一步
 
-保持 commit `c18a0a8...` 和 SHA `D2C1BE61...79D2C` 的候选字节不变，审阅发布标题、正文和附件。
-获得明确远端发布授权后，将 `v0.9.0` tag 精确指向 `c18a0a8`，创建 GitHub Pre-release，附加该 ZIP 与
-`SHA256SUMS.txt` 并回读验证；文档提交即使使 `main` 前进，也不得改变 tag 的候选提交目标。发布前不执行
-G-POST，发布后再进入 24／72 小时长测。
+保持已发布 tag 和附件不变，按 [`../tasks/POST_RELEASE_SOAK.md`](../tasks/POST_RELEASE_SOAK.md) 进入
+G-POST。先准备可跨进程重启、睡眠和多 session 的低频采样工具，再使用真正发布的 ZIP 开始约 1～2
+小时真实工作观察；24／72 小时结果不得提前标记完成。发布后发现的修复进入后续 `v0.9.x`，不改写
+`v0.9.0` tag。

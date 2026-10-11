@@ -1,16 +1,16 @@
-# 首版发布 H 执行记录
+# 首版发布 H 执行记录（归档）
 
-> 文档类型：当前阶段事实记录
+> 文档类型：历史执行记录
 >
 > 状态：已完成
 >
 > 开始时间：2026-10-09（Australia/Brisbane）
 >
-> 任务卡：[`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md)
+> 任务卡：[`FIRST_RELEASE.md`](FIRST_RELEASE.md)
 
 ## 1. 进入条件与基线
 
-- G-PRE 已通过，完整证据归档于 [`../archive/first-release/G_PRE.md`](../archive/first-release/G_PRE.md)。
+- G-PRE 已通过，完整证据归档于 [`G_PRE.md`](G_PRE.md)。
 - H 从 `main` 提交 `001e4ad8dbf1137ed114425e1953a7dceb7469c0` 进入；后续实现与证据由本记录
   列出并随仓库提交。H 工程包 manifest 保留其实际构建时的提交和 dirty 状态，不能把它误写为 RC。
 - 用户已有的 `docs/planning/InputFlow-Touchpad-Expansion-Proposal.md` 是未来提案，不纳入首版分发输入。
@@ -65,7 +65,7 @@ linker 并报 `LNK1104 msvcrt.lib`；这不是测试失败结论。统一入口�
 
 ## 6. H0／H1：方案、发布与依赖
 
-- 分发决定见 [`../decisions/ADR-009-首版分发与用户生命周期.md`](../decisions/ADR-009-首版分发与用户生命周期.md)：
+- 分发决定见 [`../../decisions/ADR-009-首版分发与用户生命周期.md`](../../decisions/ADR-009-首版分发与用户生命周期.md)：
   unpackaged x64 便携目录，Agent 与 Settings 同目录，Settings 的 .NET 与 Windows App SDK 双
   self-contained；不使用 trim、single-file、AOT 或 ReadyToRun。
 - 发布 profile：`apps/settings-winui/InputFlow.Settings/Properties/PublishProfiles/win-x64.pubxml`。

@@ -1,10 +1,12 @@
 # InputFlow G-POST：首版发布后的长时间运行与加固
 
-> 文档类型：发布后任务
+> 文档类型：当前活动任务
 >
 > 状态来源：[`../status/CURRENT_STATUS.md`](../status/CURRENT_STATUS.md)
 >
 > 进入条件：首个 release 已实际发布
+>
+> 进入状态：已满足；`v0.9.0` GitHub Pre-release 已于 2026-10-11 发布
 >
 > 用户决定：本任务不是 Phase F、G-PRE、H、RC 或首版发布的前置条件。
 

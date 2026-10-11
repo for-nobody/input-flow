@@ -1,14 +1,14 @@
-# 首版发布 RC 执行记录
+# 首版发布 RC 执行记录（归档）
 
-> 文档类型：当前阶段事实记录
+> 文档类型：历史执行记录
 >
-> 状态：完成（RC-01 最终固定包 READY FOR RELEASE；远端未发布）
+> 状态：完成（`v0.9.0` GitHub Pre-release 已发布并回读验证）
 >
 > 开始时间：2026-10-10（Australia/Brisbane）
 >
 > 完成时间：2026-10-11（Australia/Brisbane）
 >
-> 任务卡：[`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md)
+> 任务卡：[`FIRST_RELEASE.md`](FIRST_RELEASE.md)
 
 ## 1. 进入条件与用户决定
 
@@ -161,7 +161,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-releas
 
 该候选随后在 Narrator 实测中暴露中文校验错误通知缺陷并被撤销；第一轮修补候选又暴露英语
 Pause／Resume 状态未朗读，同样撤销。完整历史和 L01～L16 状态见
-[`../releases/patches/RC-01-WinUI3-i18n-en-US-verification.md`](../releases/patches/RC-01-WinUI3-i18n-en-US-verification.md)。
+[`../../releases/patches/RC-01-WinUI3-i18n-en-US-verification.md`](../../releases/patches/RC-01-WinUI3-i18n-en-US-verification.md)。
 
 ## 6. RC-01 最终候选收口
 
@@ -226,3 +226,26 @@ gh release create v0.9.0 `
 
 发布后必须回读 tag peeled commit、Pre-release 状态、两个附件名称／大小和下载文件 SHA-256，再进入
 G-POST。没有授权时停在本节，不创建或推送 tag／Release。
+
+### 6.5 实际发布与远端回读
+
+2026-10-11，用户明确授权发布。发布前再次确认工作树干净，项目与候选包许可证均为 MIT，ZIP 实算与
+`SHA256SUMS.txt` 声明均为
+`D2C1BE6148E2F3833DEEA9C99D9C882F0BABD2A030A1CFD480D1364387D79D2C`，本地／远端均不存在同名
+tag 或 Release。随后执行第 6.4 节命令，结果如下：
+
+- annotated tag `v0.9.0` 对象为 `f348f3a9f28ec4673d05de2ddc2611fa6cbce96c`，远端 peeled commit
+  精确为 `c18a0a80f004451f98bb80bfb7b90c66255845bb`；
+- GitHub Release 标题为 `InputFlow v0.9.0`，`isDraft=false`、`isPrerelease=true`，发布时间为
+  `2026-10-11T04:46:14Z`；
+- Release URL：`https://github.com/for-nobody/input-flow/releases/tag/v0.9.0`；
+- ZIP 附件状态 `uploaded`、大小 94,155,158 bytes，GitHub digest 为
+  `sha256:d2c1be6148e2f3833deea9c99d9c882f0babd2a030a1cfd480d1364387d79d2c`；
+- `SHA256SUMS.txt` 状态 `uploaded`、大小 95 bytes，GitHub digest 为
+  `sha256:c79158362c43cf88994e9e5d7492ba32ea1b3b4aaec9e0c96ccbd966ed63f2a9`；
+- 从公开 Release 重新下载两个附件后，ZIP 实算哈希与预期及下载的 checksum 声明完全一致；隔离下载
+  目录已安全删除，仓库工作树保持干净。
+
+首版发布任务至此完成。`v0.9.0` tag 和附件作为不可变发布输入保留；后续文档提交只推进 `main`，不得
+移动 tag 或替换同名附件。下一阶段按
+[`POST_RELEASE_SOAK.md`](../../tasks/POST_RELEASE_SOAK.md) 进入 G-POST。

@@ -2,7 +2,9 @@
 
 > 日期：2026-10-10～2026-10-11（Australia/Brisbane）
 > 范围：Settings `en-US`／`zh-CN`、语言偏好、UI Automation、Narrator、缩放、双语文档和发布资源
-> 当前结论：**READY FOR RELEASE**；等待明确的远端发布授权
+> 当前结论：验证完成；该候选已于 2026-10-11 发布为 `v0.9.0` GitHub Pre-release
+>
+> 发布后的 tag、附件和下载回读证据见归档 RC 执行记录；正文中的“尚未发布”表述保留为测试完成时快照。
 
 ## 1. Git 基线
 
