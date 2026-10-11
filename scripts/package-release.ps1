@@ -51,7 +51,7 @@ $agentVersion = $agentVersionMatch.Matches[0].Groups[1].Value
 $settingsVersionNode = $settingsXml.SelectSingleNode('/Project/PropertyGroup/Version')
 if ($null -eq $settingsVersionNode) { throw 'Unable to read the Settings version.' }
 $settingsVersion = $settingsVersionNode.InnerText.Trim()
-$windowsAppSdkNode = $settingsXml.SelectSingleNode('/Project/ItemGroup/PackageReference[@Include="Microsoft.WindowsAppSDK"]/@Version')
+$windowsAppSdkNode = $settingsXml.SelectSingleNode('/Project/ItemGroup/PackageReference[@Include="Microsoft.WindowsAppSDK.Runtime"]/@Version')
 if ($null -eq $windowsAppSdkNode) { throw 'Unable to read the Windows App SDK version.' }
 $windowsAppSdkVersion = $windowsAppSdkNode.Value.Trim()
 $targetFrameworkNode = $settingsXml.SelectSingleNode('/Project/PropertyGroup/TargetFramework')
@@ -263,12 +263,12 @@ try {
         $packageDirectoryName = ($library.Name -replace '/', '-' -replace '[^A-Za-z0-9._-]', '_')
         $packageLicenseDirectory = Join-Path (Join-Path $licensesRoot 'NuGet') $packageDirectoryName
         $copied = Copy-LegalFiles $packageSource $packageLicenseDirectory
-        if ($library.Name -match '^Microsoft\.WindowsAppSDK/' -and $copied) {
+        if ($library.Name -match '^Microsoft\.WindowsAppSDK\.Runtime/' -and $copied) {
             $windowsAppSdkLegalCopied = $true
         }
     }
     if (-not $windowsAppSdkLegalCopied) {
-        throw 'Microsoft.WindowsAppSDK license and notice files were not copied from the restored package.'
+        throw 'Microsoft.WindowsAppSDK.Runtime license and notice files were not copied from the restored package.'
     }
 
     # Project-reference PDBs are emitted even when the root publish profile has
