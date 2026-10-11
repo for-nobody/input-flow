@@ -2,7 +2,7 @@
 
 > 文档类型：当前进度唯一权威
 >
-> 最后更新：2026-10-11（Australia/Brisbane）
+> 最后更新：2026-10-12
 >
 > 代码基线：`main`；`v0.9.0` 已作为 GitHub Pre-release 发布，tag 指向 `c18a0a8...`
 
@@ -23,7 +23,9 @@ RC-01 英语／国际化实现和两次 Narrator 修补已固定并推送到 Git
 输入、Narrator、125%／150% 布局、Agent 100 轮和 live IPC。2026-10-11 14:46（Australia/Brisbane），
 annotated tag `v0.9.0` 已推送并精确解析到该提交，GitHub Pre-release 已发布；两个附件从公开 Release
 重新下载后哈希一致。L01／L03／L04 因中文或第三语言 Windows 环境不可得保持非阻断 `NOT TESTED`。
-当前结论为 **v0.9.0 RELEASED；进入 G-POST**。
+当前结论为 **v0.9.0 RELEASED；进入 G-POST**。已发布的下载仍是 v0.9.0 zip。源码树另有一条尚未作为
+Release 附件发布的 0.9.1 Windows 安装包，说明见 [`../guides/BUILD_WINDOWS.md`](../guides/BUILD_WINDOWS.md)
+第 13 节；它不改写上面的 v0.9.0 发布证据。
 
 当前执行入口是 [`../tasks/POST_RELEASE_SOAK.md`](../tasks/POST_RELEASE_SOAK.md)。首版任务已归档至
 [`../archive/first-release/FIRST_RELEASE.md`](../archive/first-release/FIRST_RELEASE.md)。Phase F 的完整历史

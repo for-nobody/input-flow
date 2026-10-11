@@ -1,7 +1,7 @@
 # InputFlow 文档索引
 
 > 文档状态：当前索引
-> 最后更新：2026-10-11（Australia/Brisbane）
+> 最后更新：2026-10-12
 
 本文是仓库文档的唯一入口。项目的详细进度只记录在
 [`status/CURRENT_STATUS.md`](status/CURRENT_STATUS.md)；历史文件不能作为当前状态依据。
@@ -18,7 +18,7 @@
 8. [`archive/phase-f/PHASE_F.md`](archive/phase-f/PHASE_F.md)：Phase F 的完整完成记录与限制。
 9. [`planning/PROJECT_PLAN.md`](planning/PROJECT_PLAN.md)：产品范围、架构和不变量。
 10. [`planning/RELEASE_ROADMAP.md`](planning/RELEASE_ROADMAP.md)：发布阶段顺序和门槛。
-11. [`guides/BUILD_WINDOWS.md`](guides/BUILD_WINDOWS.md)：Windows 构建与验证命令。
+11. [`guides/BUILD_WINDOWS.md`](guides/BUILD_WINDOWS.md)：Windows 构建与验证命令。第 13 节是 0.9.1 安装包，不替换已发布的 v0.9.0 zip。
 12. [`guides/USER_GUIDE.en-US.md`](guides/USER_GUIDE.en-US.md)／[`guides/USER_GUIDE.md`](guides/USER_GUIDE.md)：英语／中文用户指南。
 13. [`decisions/`](decisions/)：已接受的架构决策。
 
@@ -43,5 +43,6 @@
 ## 后续任务
 
 - `v0.9.0` 已发布；当前按 [`tasks/POST_RELEASE_SOAK.md`](tasks/POST_RELEASE_SOAK.md) 执行 G-POST。
+- 0.9.1 的 Windows 安装包只存在于源码树，见 [`guides/BUILD_WINDOWS.md`](guides/BUILD_WINDOWS.md) 第 13 节和 [`decisions/ADR-010-安装包许可范围.md`](decisions/ADR-010-安装包许可范围.md)。它还不是 GitHub Release 附件。
 - 首版任务、H 和 RC 记录已移动到 [`archive/first-release/`](archive/first-release/)。
 - 完成的任务卡和记录必须移动到 `archive/`，不得继续留在 `tasks/` 或 `records/`。
