@@ -126,7 +126,7 @@
   <data name="RecoveryBoundaryInfo.Message" xml:space="preserve"><value>当前协议没有配置恢复 API。若显示 recovery_required，请重启 Agent 并重新读取正式配置；此页面不会假装恢复成功。</value></data>
   <data name="AboutPageTitle.Text" xml:space="preserve"><value>关于 InputFlow</value></data>
   <data name="AboutScopeText.Text" xml:space="preserve"><value>支持范围：key_chord、key_mouse_button、hold、hold_mouse_button、mouse_direction 触发器，以及 key_chord 动作。录制一次只观察一个键或鼠标按钮。</value></data>
-  <data name="AboutDistributionText.Text" xml:space="preserve"><value>v0.9.0 x64 便携包采用 unpackaged + 双 self-contained，随包携带 .NET 与 Windows App SDK；系统仍需 Microsoft Visual C++ Redistributable 2015–2022 x64。关闭此窗口不会停止 Rust Agent、Hook 或托盘。</value></data>
+  <data name="AboutDistributionText.Text" xml:space="preserve"><value>InputFlow 0.9.1（Windows x64）为 unpackaged，使用系统中的 Microsoft .NET 10、Windows App Runtime 2.5.1 和 Microsoft Visual C++ Redistributable 2015–2022 x64。关闭此窗口不会停止 Rust Agent、Hook 或托盘。</value></data>
   <data name="AboutLicenseText.Text" xml:space="preserve"><value>项目采用 MIT 许可证；项目许可证和第三方许可文件随发布包提供。登录自启动默认关闭，可由包内 enable、status 和 disable 脚本管理。</value></data>
   <data name="AboutLimitationsText.Text" xml:space="preserve"><value>尚不支持：Fn、任意三键、按应用生效、打开程序/文件夹/网页，以及设置页内的登录启动和系统辅助功能开关。</value></data>
 
