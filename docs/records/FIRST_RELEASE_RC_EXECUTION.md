@@ -208,8 +208,9 @@ Pause／Resume 状态未朗读，同样撤销。完整历史和 L01～L16 状态
 
 ### 6.4 待授权发布命令
 
-2026-10-11 的准备检查确认本地和远端均没有 `v0.9.0` tag；本机尚未安装 `gh`。实际发布前须先确认
-GitHub 连接可用，或安装并登录 GitHub CLI。仅在用户明确授权远端发布后，从仓库根目录执行：
+2026-10-11 的准备检查确认 GitHub CLI `2.102.0` 已安装并以 `for-nobody` 登录，对公开仓库
+`for-nobody/input-flow` 具有 `ADMIN` 权限；本地和远端均没有 `v0.9.0` tag，对应 GitHub Release 也不
+存在。仅在用户明确授权远端发布后，从新终端的仓库根目录执行：
 
 ```powershell
 git tag -a v0.9.0 c18a0a80f004451f98bb80bfb7b90c66255845bb -m "InputFlow v0.9.0"
