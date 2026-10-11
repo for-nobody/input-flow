@@ -2,9 +2,11 @@
 
 > 文档类型：当前阶段事实记录
 >
-> 状态：完成（固定包已通过 RC；远端未发布）
+> 状态：完成（RC-01 最终固定包 READY FOR RELEASE；远端未发布）
 >
 > 开始时间：2026-10-10（Australia/Brisbane）
+>
+> 完成时间：2026-10-11（Australia/Brisbane）
 >
 > 任务卡：[`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md)
 
@@ -157,8 +159,69 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-releas
 正常 `%LOCALAPPDATA%\InputFlow\agent.log`；在获准网络／当前用户文件权限下以相同提交和输入重跑后通过。
 这两项记录为执行环境拒绝，不伪装成产品测试结果。
 
-当前仍未关闭的发布前项目是：未保存草稿和真实规则保存、物理四方向／取消／F12、Narrator／LiveRegion、
-125%／150% 缩放、规则编辑页截图，以及可用时的中文／第三语言 Windows 系统匹配。精确步骤和 L01–L16
-状态见
+该候选随后在 Narrator 实测中暴露中文校验错误通知缺陷并被撤销；第一轮修补候选又暴露英语
+Pause／Resume 状态未朗读，同样撤销。完整历史和 L01～L16 状态见
 [`../releases/patches/RC-01-WinUI3-i18n-en-US-verification.md`](../releases/patches/RC-01-WinUI3-i18n-en-US-verification.md)。
-当前结论仍为 `READY FOR RC SMOKE`，不是 `READY FOR RELEASE`；尚未创建 tag 或 GitHub Release。
+
+## 6. RC-01 最终候选收口
+
+### 6.1 发布阻断缺陷与固定提交
+
+- `71dca0e4cb3b704b486c1906087537fd3e083b59` 为规则校验摘要增加 Assertive LiveRegion、动态 UIA 名称和
+  `LiveRegionChanged`；中文空规则 ID 错误修补后可由 Narrator 正确读出。
+- `c18a0a80f004451f98bb80bfb7b90c66255845bb` 为 Pause／Resume 使用明确 UIA Notification、重要性
+  `ImportantMostRecent` 并恢复操作按钮焦点；最终英语实测正确朗读 “Agent paused”／“Agent resumed”。
+- 两个修补提交均已推送到 `origin/main`。最终候选从干净 `c18a0a8` 构建；后续文档提交不得改变 tag
+  目标或重新打包产物。
+
+### 6.2 唯一最终候选
+
+| 项目 | 最终值 |
+|---|---|
+| 构建提交 | `c18a0a80f004451f98bb80bfb7b90c66255845bb` |
+| ZIP | `target/distribution-rc01-c18a0a8-candidate/InputFlow-0.9.0-win-x64.zip` |
+| SHA-256 | `D2C1BE6148E2F3833DEEA9C99D9C882F0BABD2A030A1CFD480D1364387D79D2C` |
+| ZIP／解压大小 | 94,155,158／245,295,355 bytes |
+| 条目／PRI | 580／2,243,776 bytes |
+| 许可材料 | MIT；50 个 `Licenses/` 文件；`THIRD-PARTY-NOTICES.txt` |
+
+`package-manifest.json` 回读为 `version=0.9.0`、`release_tag=v0.9.0`、
+`release_channel=pre-release`、`project_license=MIT`、`git_commit=c18a0a8...`、
+`worktree_dirty=false`、`build_paths_redacted=true`。ZIP 重新计算哈希与 `SHA256SUMS.txt` 一致；PDB、正式
+配置、日志、running marker 和 `target/` 条目命中数为 0。旧 SHA `A287...`、`DA0D...`、`AB9B...` 均不得发布。
+
+### 6.3 最终精确包回归
+
+- L08 草稿与语言切换边界、L09 创建／禁用／保存／删除／恢复、L10 四方向物理输入与失败／取消／F12、
+  L11 双语键盘浏览、L12 Narrator 均由用户确认通过；隔离配置最终恢复 4 条启用规则。
+- 物理输入记录 `observed_events=362`、`output_batches_sent=25`、`output_failed=0`、
+  `output_dropped=0`，最终 `phase=ready`、`suspended=false`。
+- 125%（120 DPI）和 150%（144 DPI）的中英文长文本、规则编辑器、错误态和设置页均无裁切、重叠、
+  横向滚动或不可达控件；显示缩放已恢复原 200%。四张最终候选截图已固化到补丁证据目录。
+- 最终精确解压副本重新通过 en-US／zh-CN runtime smoke、English → 简体中文 → English → System UIA
+  持久化链路、Agent 100 轮和真实 Named Pipe live contract。停止记录 failed/dropped 均为 0、无
+  hook/logger panic；Settings／Agent 进程为 0，running marker 清除，测试前不存在的语言偏好保持不存在。
+- L01／L04 的中文 Windows system 模式和 L03 的第三语言 Windows 回退因环境不可得保持
+  `NOT TESTED`；不以强制资源覆盖冒充系统匹配，作为本次公开测试版的已记录非阻断限制。
+
+结论为 **READY FOR RELEASE**。远端 tag 和 GitHub Release 尚未创建。
+
+### 6.4 待授权发布命令
+
+2026-10-11 的准备检查确认本地和远端均没有 `v0.9.0` tag；本机尚未安装 `gh`。实际发布前须先确认
+GitHub 连接可用，或安装并登录 GitHub CLI。仅在用户明确授权远端发布后，从仓库根目录执行：
+
+```powershell
+git tag -a v0.9.0 c18a0a80f004451f98bb80bfb7b90c66255845bb -m "InputFlow v0.9.0"
+git push origin v0.9.0
+gh release create v0.9.0 `
+  .\target\distribution-rc01-c18a0a8-candidate\InputFlow-0.9.0-win-x64.zip `
+  .\target\distribution-rc01-c18a0a8-candidate\SHA256SUMS.txt `
+  --title "InputFlow v0.9.0" `
+  --notes-file .\docs\releases\V0.9.0.md `
+  --prerelease `
+  --verify-tag
+```
+
+发布后必须回读 tag peeled commit、Pre-release 状态、两个附件名称／大小和下载文件 SHA-256，再进入
+G-POST。没有授权时停在本节，不创建或推送 tag／Release。

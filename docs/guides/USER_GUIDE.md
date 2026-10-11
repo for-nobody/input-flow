@@ -91,8 +91,8 @@ Schema v4 包含鼠标方向。早于 v4 的旧 Agent／Settings 不支持这些
 - 反馈问题时请提供 InputFlow 版本、Windows build、规则类型与参数、复现动作、目标程序是否提升，
   以及去除敏感信息后的相关日志。不要上传私人配置或完整输入轨迹。
 
-已知未完整验证项包括多屏／跨 DPI 热插拔、部分特殊键硬件、中文 Narrator 实际语音、partial
-`SendInput`、睡眠／唤醒和 24／72 小时长测。
+已知未完整验证项包括多屏／跨 DPI 热插拔、部分特殊键硬件、partial `SendInput`、睡眠／唤醒、
+不同系统的 Narrator 语音可用性和 24／72 小时长测。
 
 ## 许可证
 

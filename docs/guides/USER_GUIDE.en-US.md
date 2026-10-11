@@ -86,7 +86,7 @@ is retained by default. Delete it manually only if you no longer need its config
   steps, whether the target process is elevated, and relevant logs with sensitive data removed.
 
 Known gaps include real multi-monitor/cross-DPI hot-plug testing, some special-key hardware, Narrator voice
-availability, partial `SendInput`, sleep/resume evidence, and 24-hour/72-hour endurance tests.
+availability on other systems, partial `SendInput`, sleep/resume evidence, and 24-hour/72-hour endurance tests.
 
 ## License
 

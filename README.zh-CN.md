@@ -7,9 +7,9 @@ InputFlow 是 Windows 全局键盘与鼠标输入组合引擎。它只暂扣可�
 
 ## 当前状态
 
-InputFlow v0.9.0 正在准备首个公开 Pre-release。英语补丁前的 RC 包已通过自动、桌面与物理输入 smoke；
-当前 RC-01 补丁为 WinUI Settings 增加完整英语和简体中文资源，发布前必须重新生成包、固定 SHA-256 并
-完成受影响 RC smoke。远端 release 尚未发布。权威进度见[当前状态](docs/status/CURRENT_STATUS.md)。
+InputFlow v0.9.0 已准备好首个公开 Pre-release。最终 RC-01 候选为 WinUI Settings 增加完整英语和简体
+中文资源，并已通过受影响的自动、UI Automation、Narrator、125%／150% 布局、配置和物理输入 smoke。
+固定包已经就绪，但尚未创建 tag 或远端 release。权威进度见[当前状态](docs/status/CURRENT_STATUS.md)。
 
 ## 架构与安全边界
 
@@ -43,8 +43,8 @@ Redistributable 2015–2022 x64。首版未签名。
 3. 运行 `inputflow-agent.exe`，再从托盘图标打开 Settings。
 4. 使用 `F12` 紧急暂停或恢复；需要退出时从托盘正常退出 Agent。
 
-RC-01 重新构建并验收前，新的精确公开附件尚不存在，因此本文不虚构下载地址。完整操作、升级、自启动
-和移除说明见[中文用户指南](docs/guides/USER_GUIDE.md)。
+精确 RC 附件已在本地固定；只有 GitHub Pre-release 实际发布后才会补充公开下载地址。完整操作、升级、
+自启动和移除说明见[中文用户指南](docs/guides/USER_GUIDE.md)。
 
 ## 显示语言与辅助功能
 
@@ -75,7 +75,7 @@ cargo build -p inputflow-agent --release
 - 真实跨屏、跨 DPI 和热插拔尚未在代表性硬件完成验证。
 - `SendInput` 受 UIPI、焦点和修饰键状态影响，不能保证对所有目标完整回放。
 - 进程被强杀时，已暂扣的历史输入无法保证恢复。
-- 特殊键硬件、partial `SendInput`、睡眠／唤醒和 Narrator 实际音色仍依赖环境或未完整验证。
+- 特殊键硬件、partial `SendInput`、睡眠／唤醒和其他系统的 Narrator 语音可用性仍依赖环境或未完整验证。
 - 公开测试版不宣称已完成 24／72 小时长测。
 - Fn、任意三键、按应用生效及 URL／程序／文件夹动作尚未实现。
 

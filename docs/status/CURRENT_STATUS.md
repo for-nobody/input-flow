@@ -2,9 +2,9 @@
 
 > 文档类型：当前进度唯一权威
 >
-> 最后更新：2026-10-10（Australia/Brisbane）
+> 最后更新：2026-10-11（Australia/Brisbane）
 >
-> 代码基线：`main`；H 和旧 RC 基线已完成，当前执行项为 RC-01 英语／国际化补丁复验
+> 代码基线：`main`；最终发布候选构建提交为 `c18a0a8...`，当前等待远端发布授权
 
 ## 当前结论
 
@@ -17,12 +17,12 @@ IPC、WinUI、真实边界、普通输入／拖拽、约 16 分钟混合输入�
 重启登录自启动／禁用验收。旧 `v0.9.0` RC 基线的 MIT License、版本面、许可附件、发布说明、干净构建、
 固定 zip、自动／IPC／Settings 壳层和精确包物理输入 smoke 全部通过。首个 release 尚未发布。
 
-RC-01 英语／国际化补丁已固定为 commit `b83f4c368321017f3415f9bb71e0c56b39d3eee6` 并推送到
-GitHub `origin/main`。Settings 具备 `en-US`／`zh-CN` 资源、system／English／简体中文选择和独立持久化，
-双语 UIA 文本、双语 README／用户指南及发布资源检查已接入。已从该干净提交生成新精确 RC ZIP；完整
-自动门槛、双语运行、真实 UIA 持久化、Agent 100 轮和 live IPC 均通过，当前结论为 **READY FOR RC
-SMOKE**。Narrator、缩放、真实 Agent 规则／物理输入仍须对新候选人工验证，不能继承旧包结果。
-24／72 小时长测继续安排在首个 release 之后。
+RC-01 英语／国际化实现和两次 Narrator 修补已固定并推送到 GitHub `origin/main`；最终候选构建提交为
+`c18a0a80f004451f98bb80bfb7b90c66255845bb`。Settings 具备 `en-US`／`zh-CN` 资源、system／English／
+简体中文选择和独立持久化。最终精确 ZIP 已通过完整自动门槛、双语运行、UIA 持久化、规则保存、物理
+输入、Narrator、125%／150% 布局、Agent 100 轮和 live IPC，当前结论为 **READY FOR RELEASE**。
+L01／L03／L04 因中文或第三语言 Windows 环境不可得保持非阻断 `NOT TESTED`。远端 tag 和 GitHub
+Release 尚未创建；24／72 小时长测继续安排在首个 release 之后。
 
 当前唯一执行入口是 [`../tasks/FIRST_RELEASE.md`](../tasks/FIRST_RELEASE.md)。Phase F 的完整历史
 证据见 [`../archive/phase-f/PHASE_F.md`](../archive/phase-f/PHASE_F.md)；G-PRE 完整结果见
@@ -40,7 +40,7 @@ SMOKE**。Narrator、缩放、真实 Agent 规则／物理输入仍须对新候�
 | Phase F／M8 | **完成** | F0～F5、F-PHY-01～07、受影响 M6 路径和最终联合构建通过 |
 | G-PRE | **完成** | 自动门槛、15 分 53 秒资源采样、混合输入和 PRE-01～09 可用环境矩阵通过 |
 | H | **完成** | H0～H5 与 DIST-01～07 按声明支持范围通过 |
-| RC／首个 release | **RC-01 候选已固定；等待剩余人工 smoke；未发布** | 新 commit `b83f4c3...` 和 ZIP SHA `DA0DED2C...A82F7` 的自动／UIA smoke 通过；Narrator、缩放、规则和物理输入待测 |
+| RC／首个 release | **READY FOR RELEASE；等待远端发布授权** | commit `c18a0a8...`、ZIP SHA `D2C1BE61...79D2C` 的可用环境自动与人工门槛全部通过；尚未创建 tag／Release |
 | G-POST | 计划于首版发布后 | 24／72 小时长测和 daily-drive，不阻塞首版 |
 
 ## 最近已验证证据
@@ -65,13 +65,18 @@ RC-01 本地补丁证据：
 - `scripts/build-windows.ps1 -SkipRestore` 通过：Rust **172／172**、C# protocol **7／7**、Settings Core
   **14／14**，WinUI Debug／Release 均 0 warning、0 error；四种 Debug／Release × en-US／zh-CN
   runtime smoke 均退出 0。
-- 英语 Windows 上的真实 UIA 链路通过 English → 简体中文 → English → System 的保存和重开；测试后
-  恢复原偏好，Agent 不参与。Narrator 实际朗读与完整键盘浏览未执行。
-- 干净候选 `InputFlow-0.9.0-win-x64.zip` 为 94,154,465 bytes，SHA-256
-  `DA0DED2CF4162A6A78B12172AAF48AB6FAC799A3C753EDD32F83B44F890A82F7`；manifest 提交匹配、
-  `worktree_dirty=false`，目录 245,294,323 bytes，总文件数 580，PRI 2,243,768 bytes。
-- 新精确 ZIP 的全新解压副本通过 Agent 100 轮、Settings en-US／zh-CN、真实 Named Pipe live contract
-  和 English → 简体中文 → English → System UIA 持久化链路；进程均已退出，测试后语言偏好恢复。
+- 最终干净候选 `InputFlow-0.9.0-win-x64.zip` 为 94,155,158 bytes，SHA-256
+  `D2C1BE6148E2F3833DEEA9C99D9C882F0BABD2A030A1CFD480D1364387D79D2C`；manifest 指向 `c18a0a8`，
+  `worktree_dirty=false`、MIT、Pre-release、私有路径已重映射，解压 245,295,355 bytes、580 个条目、
+  PRI 2,243,776 bytes、50 个第三方许可文件且禁止条目为 0。
+- 最终精确 ZIP 通过 Settings en-US／zh-CN、English → 简体中文 → English → System UIA 链路、Agent
+  100 轮与真实 Named Pipe live contract；停止记录 `output_failed=0`、`output_dropped=0`，无
+  hook/logger panic，进程、running marker 和测试语言偏好均已清理。
+- 用户在最终候选上确认 L08 草稿边界、L09 创建／禁用／保存／删除／恢复、L10 四方向与取消／F12、
+  L11 双语键盘浏览、L12 中文错误和英语 Pause／Resume Narrator 通知均符合预期；最终规则恢复 4 条启用，
+  Agent 物理输入记录为 `observed_events=362`、`output_batches_sent=25`、failed/dropped 均为 0。
+- 125%（120 DPI）和 150%（144 DPI）的中英文设置页、规则编辑器、错误态和长文本无裁切、重叠、横向
+  滚动或不可达控件；四张最终候选截图已保存到补丁证据目录。原显示缩放和语言偏好均已恢复。
 
 G-PRE 固定提交的自动与联合门槛：
 
@@ -128,20 +133,20 @@ H 本机分发结果：
 - G-PRE 样本的 stats RTT p99=151.274 ms、max=1064.207 ms，超过本机参考线；callback 累计
   p99=0.340 ms、max=17.265 ms，在参考线内。尖峰后 Hook 与完整输出继续增长；G-POST 继续观察，
   不隐藏样本也不调高参考线。
-- keypad Enter、独立播放键、中文 Narrator 实际语音和 partial `SendInput` 保持既有硬件／环境限制。
+- keypad Enter、独立播放键、不同系统的 Narrator 语音可用性和 partial `SendInput` 保持既有硬件／环境限制。
 - G-PRE 本轮未新增睡眠／唤醒和提升完整性目标的物理证据；现有确定性边界继续有效。
 - H 工程包、本机与全新 Windows 的分发／自启动证据、升级／移除模拟均已完成。缺少 VC++ runtime
   的真实启动失败没有通过删除系统 DLL 强制制造；首版支持范围明确要求 Windows x64 和 VC++
   Redistributable，并在包名、manifest 与用户指南中给出可理解说明。
-- MIT License 已确定；签名和远端 release 仍未完成。RC-01 已从固定干净提交生成候选，尚未创建 tag
-  或 GitHub Release；当前候选只有在剩余人工 smoke 通过后才能作为发布附件。
-- RC-01 的中文／第三语言 Windows 系统匹配、Narrator 朗读、125%／150% 缩放、规则编辑页截图，以及
-  补丁后真实规则保存和物理 remapping 尚未执行；Agent 托盘语言未与 Settings 偏好同步。
+- MIT License 已确定；代码签名不在本版范围，远端 release 仍未执行。RC-01 已从固定干净提交生成并
+  验收唯一候选，尚未创建 tag 或 GitHub Release。
+- 中文 Windows 的 system 匹配 L01／L04 和第三语言 Windows 回退 L03 因环境不可得保持 `NOT TESTED`；
+  不用强制资源覆盖冒充系统匹配。Agent 托盘语言未与 Settings 偏好同步。
 - 24／72 小时长测尚未执行；首版仍定位公开测试版本，不宣称长期稳定。
 
 ## 下一步
 
-只使用 commit `b83f4c3...`、SHA `DA0DED2C...A82F7` 的候选执行验证记录第 9 节剩余人工 smoke：未保存
-草稿／规则保存、真实物理方向与取消、F12 旁路、Narrator／LiveRegion、125%／150% 缩放和规则编辑页
-截图；中文／第三语言 Windows 不可得时继续明确记为 NOT TESTED。通过后再更新 READY FOR RELEASE
-结论。没有对应远端发布授权前，不创建／推送 tag 或 release；不提前执行发布后 G-POST。
+保持 commit `c18a0a8...` 和 SHA `D2C1BE61...79D2C` 的候选字节不变，审阅发布标题、正文和附件。
+获得明确远端发布授权后，将 `v0.9.0` tag 精确指向 `c18a0a8`，创建 GitHub Pre-release，附加该 ZIP 与
+`SHA256SUMS.txt` 并回读验证；文档提交即使使 `main` 前进，也不得改变 tag 的候选提交目标。发布前不执行
+G-POST，发布后再进入 24／72 小时长测。

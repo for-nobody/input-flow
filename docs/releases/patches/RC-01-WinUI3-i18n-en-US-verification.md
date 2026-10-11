@@ -1,17 +1,19 @@
 # RC-01 WinUI 3 i18n/en-US 实施与验证记录
 
-> 日期：2026-10-10（Australia/Brisbane）
-> 范围：Settings `en-US`／`zh-CN`、语言偏好、UI Automation、双语文档和发布资源
-> 当前结论：**READY FOR RC SMOKE**；不是 READY FOR RELEASE
+> 日期：2026-10-10～2026-10-11（Australia/Brisbane）
+> 范围：Settings `en-US`／`zh-CN`、语言偏好、UI Automation、Narrator、缩放、双语文档和发布资源
+> 当前结论：**READY FOR RELEASE**；等待明确的远端发布授权
 
 ## 1. Git 基线
 
 - 分支：`main`。
 - start commit：`4efe5b9e143bbc8c497d1876502d18483e01465d`。
-- 实现／候选 commit：`b83f4c368321017f3415f9bb71e0c56b39d3eee6`（`feat: localize WinUI settings for RC`）。
+- i18n 实现 commit：`b83f4c368321017f3415f9bb71e0c56b39d3eee6`（`feat: localize WinUI settings for RC`）。
+- Narrator 校验错误修补 commit：`71dca0e4cb3b704b486c1906087537fd3e083b59`。
+- 最终候选 commit：`c18a0a80f004451f98bb80bfb7b90c66255845bb`（补充 Pause／Resume 明确通知与焦点恢复）。
 - 开始时工作树仅有未跟踪的 `docs/releases/patches/`（用户提供的任务文档）；没有覆盖或丢弃该内容。仓库内未发现 `AGENTS.md`。
-- 全部 34 个补丁文件已直接提交到 `main` 并推送至 GitHub `origin/main`；推送范围为本地连续的 5 个 RC 相关提交，远端从 `adf2f3e` 前进至 `b83f4c3`。没有创建 merge commit、tag 或 Release。
-- 候选构建前已确认 `HEAD == origin/main == b83f4c3...` 且工作树干净；候选 manifest 记录 `worktree_dirty=false`。
+- i18n 实现和两次无障碍修补均已直接提交到 `main` 并推送至 GitHub `origin/main`；没有创建 merge commit、tag 或 Release。
+- 最终候选构建前已确认 `HEAD == origin/main == c18a0a8...` 且工作树干净；候选 manifest 记录 `worktree_dirty=false`。
 - 补丁前已验证 RC 基线仍是 commit `bc48c36d73b94106d53fe192175dc005f756fe25`、ZIP SHA-256 `A287489C5224DE45685B2B89D799C44472384CF22B12C98E13B3C318BC004537`。它只作为历史对照，不继承为补丁后的 PASS。
 
 ## 2. 改动文件与理由
@@ -51,18 +53,23 @@ Rust remapping、Hook、IPC、规则 schema 和配置文件格式均未改变。
 - 选择 English 并重开，再选择 System default 并重开：UIA 名称回到英语系统匹配；
 - 全程不要求 Agent，偏好文件按测试前状态逐字节恢复；同一链路随后又针对精确 RC ZIP 的解压副本通过。
 
-本机注册了 English (United States) 的 David／Mark／Zira 和 Chinese (Simplified, PRC) 的 Huihui／Kangkang／Yaoyao OneCore 语音，但本轮**没有启动 Narrator、没有验证实际朗读顺序或 LiveRegion 发声，也没有切换或修改系统 TTS 声音**。因此 Narrator 人工项目保持 NOT TESTED。
+本机注册了 English (United States) 的 David／Mark／Zira 和 Chinese (Simplified, PRC) 的 Huihui／Kangkang／Yaoyao OneCore 语音。本轮使用 Narrator 完成中英文键盘浏览、控件名称、错误 LiveRegion、语言重开提示和 Pause／Resume 状态通知实测；两项首轮缺陷修补后均由最终精确候选回归通过。测试没有切换或修改系统 TTS 声音。
 
 截图：
 
 - [English Settings](assets/RC-01-settings-en-US.png)
 - [简体中文 Settings](assets/RC-01-settings-zh-CN.png)
+- [最终候选 125% 英文规则错误态](assets/RC-01-c18a0a8-125-en-rule-editor-error.png)
+- [最终候选 125% 英文设置页](assets/RC-01-c18a0a8-125-en-settings.png)
+- [最终候选 150% 英文设置页](assets/RC-01-c18a0a8-150-en-settings.png)
+- [最终候选 150% 中文规则错误态](assets/RC-01-c18a0a8-150-zh-rule-editor-error.png)
 
-两张图均来自真实 Debug Settings 窗口。规则编辑页和 Narrator 反馈截图尚未取得，不能由 Settings 页面截图代替。
+前两张图来自真实 Debug Settings 窗口；后四张来自 commit `c18a0a8` 的精确 ZIP 解压副本，窗口分别由
+120 DPI（125%）和 144 DPI（150%）确认。Narrator 结论来自实际朗读，不用视觉截图替代听觉结果。
 
 ## 5. 测试结果
 
-环境：Windows NT `10.0.26300.0` x64；系统 locale、当前 culture 和 UI culture 均为 `en-US`；unpackaged WinUI 3、Windows App SDK 2.5.1；固定候选 commit 为 `b83f4c3...`。
+环境：Windows NT `10.0.26300.0` x64；系统 locale、当前 culture 和 UI culture 均为 `en-US`；unpackaged WinUI 3、Windows App SDK 2.5.1；最终固定候选 commit 为 `c18a0a8...`。
 
 ### 5.1 自动、运行时和发布工程验证
 
@@ -78,12 +85,15 @@ Rust remapping、Hook、IPC、规则 schema 和配置文件格式均未改变。
 | 干净候选回读 | PASS：目录 245,294,323 bytes；ZIP 94,154,465 bytes；总文件数 580；PRI 2,243,768 bytes；manifest commit 匹配且 `worktree_dirty=false` |
 | 精确 ZIP 解压副本自动 smoke | PASS：Agent 100 轮退出 0；Settings en-US／zh-CN 各退出 0；真实 Named Pipe live contract 通过并由 Agent 限时干净退出 0 |
 | 精确 ZIP 解压副本 UIA smoke | PASS：English → 简体中文 → English → System；持久化、重开、窗口／导航／控件 UIA 名称均通过，原偏好恢复 |
+| `package-release.ps1 -RequireClean -OutputRoot .\target\distribution-rc01-c18a0a8-candidate` | PASS：从 `c18a0a8` 干净提交完成 Rust 172/172、Protocol 7/7、Settings Core 14/14、WinUI Debug/Release 0 warning／0 error及四种双语 runtime smoke |
+| 最终候选 ZIP 回读 | PASS：94,155,158 bytes；SHA-256 `D2C1BE6148E2F3833DEEA9C99D9C882F0BABD2A030A1CFD480D1364387D79D2C`；580 个条目、245,295,355 bytes、PRI 2,243,776 bytes、50 个第三方许可文件、禁止条目 0 |
+| 最终精确 ZIP 自动回归 | PASS：Settings en-US／zh-CN、English → 简体中文 → English → System UIA、Agent 100 轮及真实 Named Pipe live contract 均退出 0；偏好、进程和 running marker 清理完成 |
 
-早期工程包 manifest 如实记录 `git_commit=4efe5b9e...`、`worktree_dirty=true`，只保留为开发证据。新的干净候选为
-`target/distribution-rc01-candidate/InputFlow-0.9.0-win-x64.zip`，SHA-256：
-`DA0DED2CF4162A6A78B12172AAF48AB6FAC799A3C753EDD32F83B44F890A82F7`。首次完整候选构建的 NuGet restore
-和首次精确包 Agent 日志写入分别被沙箱网络／文件权限阻止；用相同代码、命令和获准权限重跑后通过，
-没有将环境拒绝记录为产品 PASS 或 FAIL。
+早期工程包 manifest 如实记录 `git_commit=4efe5b9e...`、`worktree_dirty=true`，只保留为开发证据。`b83f4c3`
+和 `71dca0e` 的两个干净候选因实测 Narrator 缺陷撤销。唯一最终候选为
+`target/distribution-rc01-c18a0a8-candidate/InputFlow-0.9.0-win-x64.zip`，SHA-256：
+`D2C1BE6148E2F3833DEEA9C99D9C882F0BABD2A030A1CFD480D1364387D79D2C`。测试封装或沙箱权限造成的失败均以
+修正后的同输入重跑确认，没有记录为产品 PASS 或 FAIL。
 
 ### 5.2 L01–L16 矩阵
 
@@ -100,10 +110,10 @@ Rust remapping、Hook、IPC、规则 schema 和配置文件格式均未改变。
 | L09 | PASS | 隔离配置上创建、禁用、保存、关闭重开、删除和恢复均符合预期；最终恢复 4 条启用规则，Agent 权威配置一致且语言偏好未进入规则 schema |
 | L10 | PASS | 四方向物理 remapping、距离不足、提前释放、右键取消、F12 暂停／恢复、普通输入和关闭 Settings 后 Agent 继续运行均符合预期；25 个输出批次无失败或丢弃 |
 | L11 | PASS | 中英文完整键盘浏览、导航、规则控件名称、输入框和重开提示均符合预期；后续修补只触及动态操作通知和操作按钮焦点恢复 |
-| L12 | PARTIAL | 中文校验错误的首轮缺陷已修补并在 `71dca0e` 精确候选通过；该候选的英语 Pause/Resume 状态未朗读，增加 UIA Notification 与焦点恢复后本地复测通过，最终候选仍待回归 |
-| L13 | NOT TESTED | 未在 125%／150% 缩放下完整检查长英文和交互 |
+| L12 | PASS | 最终 `c18a0a8` 精确候选中，中文空规则 ID 错误及英语 Pause／Resume 状态均被 Narrator 正确朗读；焦点不再跳入规则列表 |
+| L13 | PASS | 125%／150% 下中英文设置页、规则编辑器、错误态和长文本无裁切、重叠或横向滚动；所有控件与底部按钮经滚动可达，证据截图已保存 |
 | L14 | PASS | 两套 `.resw` 静态解析、真实 XAML／ResourceLoader／UIA 探针以及 Debug/Release runtime smoke 通过 |
-| L15 | PARTIAL | 两个干净 ZIP 的 manifest、PRI、双语指南和静态回读通过，但均因 Narrator 缺陷撤销；修补后最终 ZIP 待重建 |
+| L15 | PASS | `c18a0a8` 最终 ZIP 的 checksum、manifest、PRI、双语指南、许可、禁止条目、双语运行、UIA、Agent 100 轮与 live IPC 全部回读通过 |
 | L16 | PASS | 双语 README／用户指南、版本、依赖、命令、限制和互链已审查；未加入虚构下载 URL |
 
 ## 6. 与已有 Smoke 的对比
@@ -115,9 +125,9 @@ Rust remapping、Hook、IPC、规则 schema 和配置文件格式均未改变。
 物理 remapping 实机项目已通过，但中文 Narrator 校验错误播报暴露出发布阻断缺陷，因此该 ZIP 已撤销
 最终候选资格。第一项修补提交 `71dca0e` 生成的 ZIP SHA
 `AB9B5E0D...5658AB8` 通过了中文错误播报回归，但英语 Pause/Resume 状态没有被朗读，因此也已撤销。
-第二项修补后的本地 Release 已通过针对性复测；必须从新的干净提交再次重建候选，再完成精确包状态播报
-与缩放项目。旧 SHA `A287...`、工程 SHA `8DE3...`、`DA0DED2C...A82F7` 和 `AB9B5E0D...5658AB8`
-均不得发布。
+第二项修补固定为 `c18a0a8` 后已从干净提交重建候选；精确包状态播报、125%／150% 缩放、双语运行、
+UIA、Agent 100 轮和 live IPC 均通过。旧 SHA `A287...`、工程 SHA `8DE3...`、`DA0DED2C...A82F7` 和
+`AB9B5E0D...5658AB8` 均不得发布。
 
 ### 6.1 Narrator 校验错误缺陷与修补
 
@@ -148,11 +158,10 @@ Rust remapping、Hook、IPC、规则 schema 和配置文件格式均未改变。
 
 ## 7. 剩余问题
 
-### RC smoke 前阻断最终发布，但不阻断进入 smoke
+### 环境不可得项目（非阻断）
 
-- L01、L03、L04 所需的中文或第三语言 Windows 环境未提供。
-- 新候选尚未再次重建；最终候选上的 Pause/Resume 通知回归、125%／150% 缩放和规则编辑页截图未完成。
-- 精确候选 ZIP 的自动 smoke、真实 Agent 规则编辑／保存、物理键鼠 remapping、取消边界和 F12 旁路已完成。
+- L01／L04 保留 `NOT TESTED`：没有中文 Windows 系统显示语言环境。
+- L03 保留 `NOT TESTED`：没有非中英 Windows 系统显示语言环境。
 
 ### 已知非阻断范围
 
@@ -160,16 +169,16 @@ Rust remapping、Hook、IPC、规则 schema 和配置文件格式均未改变。
 - 语言切换设计为重开 Settings 生效，不做运行中整页热切换。
 - 本轮没有修改系统 Narrator 语音，也没有新增 TTS 引擎。
 
-未发现会阻止构建、启动、资源解析、语言持久化或进入下一轮 RC smoke 的实现缺陷。
+未发现会阻止构建、启动、资源解析、语言持久化或发布的实现缺陷。
 
 ## 8. 最终结论
 
-**NOT READY FOR RELEASE — CANDIDATE REBUILD REQUIRED**
+**READY FOR RELEASE — AWAITING REMOTE PUBLISH AUTHORIZATION**
 
-原候选的自动与实机证据保留为历史记录，但 Narrator 缺陷要求产生新的补丁提交与 ZIP。当前没有可发布
-候选，也没有创建 tag 或 Release。
+最终 `c18a0a8` 候选已完成全部可用环境发布前检查。L01、L03、L04 因系统语言环境不可得保持
+`NOT TESTED`，不以强制资源覆盖冒充系统匹配，也不阻断本次公开测试版。当前没有创建 tag 或 Release。
 
-## 9. 剩余发布前实机清单
+## 9. 最终候选与发布边界
 
 已撤销候选（仅保留历史证据，不得发布）：
 
@@ -185,9 +194,16 @@ Rust remapping、Hook、IPC、规则 schema 和配置文件格式均未改变。
 - SHA-256：`AB9B5E0DA1E1A8084B8A0B3181E816051B8350514A4BDAD8E9503777C5658AB8`
 - 原因：英语 Pause/Resume 操作结果没有被讲述人朗读
 
-新的唯一候选 commit、ZIP 与 SHA-256 将在修补提交通过完整门槛后写入。
+唯一可发布候选：
 
-人工测试严格使用该 ZIP 的全新解压副本，按以下顺序记录：
+- commit：`c18a0a80f004451f98bb80bfb7b90c66255845bb`
+- ZIP：`target/distribution-rc01-c18a0a8-candidate/InputFlow-0.9.0-win-x64.zip`
+- SHA-256：`D2C1BE6148E2F3833DEEA9C99D9C882F0BABD2A030A1CFD480D1364387D79D2C`
+- checksum：`target/distribution-rc01-c18a0a8-candidate/SHA256SUMS.txt`
+- 精确解压副本：`target/acceptance/rc01-c18a0a8-package/InputFlow-0.9.0-win-x64`
+- ZIP／解压大小／条目数／PRI：94,155,158／245,295,355 bytes／580／2,243,776 bytes
+
+人工测试严格使用候选 ZIP 的全新解压副本，结果如下：
 
 1. **L08 草稿边界（PASS）**：连接候选 Agent 后形成未保存草稿，切换中文没有关闭窗口且草稿仍在；
    本地化未保存提示的返回与不保存退出均符合预期，退出后规则文件未改变。
@@ -196,12 +212,13 @@ Rust remapping、Hook、IPC、规则 schema 和配置文件格式均未改变。
 3. **L10 输入回归（PASS）**：四方向动作、距离不足、提前释放、右键取消、F12 暂停／恢复、普通输入和
    关闭 Settings 后 Agent 继续运行均符合预期。消息目标捕获 C／V／Z／Y 与 1 次上下文菜单；Agent
    `observed_events=362`、`output_batches_sent=25`、`failed=0`、`dropped=0`，最终 `ready` 且未暂停。
-4. **L11（PASS）／L12（待最终候选回归）**：英语和简体中文的导航、规则列表、图标按钮、输入框、错误
-   和重开提示已完成；两个实测缺陷的本地修补均通过。新候选只需复核 Pause/Resume 通知，不修改系统语音设置。
-5. **L13 布局**：在 125% 和 150% 缩放下检查英文长文案、规则编辑器和设置页，无裁切、重叠或不可达控件；
-   补充两种语言的规则编辑／无障碍反馈截图。
+4. **L11／L12（PASS）**：英语和简体中文的完整键盘浏览、UIA 名称、错误提示、重开提示以及最终候选
+   Pause／Resume 通知均符合预期；没有修改系统语音设置。
+5. **L13（PASS）**：125% 和 150% 下英文长文案、中文错误态、规则编辑器和设置页无裁切、重叠或不可达
+   控件；没有横向滚动，四张最终候选截图已固化。
 6. **环境项**：有中文 Windows 时执行 L01／L04；有第三语言 Windows 时执行 L03。环境不可得则保持
    `NOT TESTED` 并写明系统 build／显示语言，不用强制资源覆盖冒充系统匹配。
 
-完成后记录进程清理、running marker、Agent 日志的 `output_failed`／`output_dropped`／panic 字段，并只在
-全部发布前阻断项关闭后把结论提升为 READY FOR RELEASE。
+最终自动回归后 Settings／Agent 进程均为 0，语言偏好恢复为测试前不存在，running marker 已清除；Agent
+100 轮与 live contract 的停止记录均为 `output_failed=0`、`output_dropped=0`、无 hook/logger panic。
+发布时 tag `v0.9.0` 必须精确指向 `c18a0a8`，附件只使用上列 ZIP 和 `SHA256SUMS.txt`，并标记 Pre-release。

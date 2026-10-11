@@ -8,9 +8,9 @@ the withheld input in order on a best-effort basis.
 
 ## Current status
 
-InputFlow v0.9.0 is preparing its first public pre-release. The pre-i18n RC package passed automated, desktop,
-and physical-input smoke tests. The current RC-01 patch adds complete English and Simplified Chinese resources
-to WinUI Settings; it must receive a new package hash and affected RC smoke evidence before release. No remote
+InputFlow v0.9.0 is ready for its first public pre-release. The final RC-01 candidate adds complete English and
+Simplified Chinese resources to WinUI Settings and has passed the affected automated, UI Automation, Narrator,
+125%/150% layout, configuration, and physical-input smoke tests. The fixed package is ready, but no tag or remote
 release has been published yet. See [the authoritative current status](docs/status/CURRENT_STATUS.md).
 
 ## Architecture and safety boundaries
@@ -46,8 +46,8 @@ Visual C++ Redistributable 2015–2022 x64 is still required. The first release 
 3. Run `inputflow-agent.exe`, then open Settings from the tray icon.
 4. Use `F12` to pause or resume immediately. Exit the Agent normally from its tray menu.
 
-The exact public artifact does not exist until RC-01 is rebuilt and revalidated; this repository does not invent
-a download URL. Detailed operation, upgrade, autostart, and removal instructions are in the
+The exact RC artifact is fixed locally; a public download URL will only be added after the GitHub pre-release is
+published. Detailed operation, upgrade, autostart, and removal instructions are in the
 [English user guide](docs/guides/USER_GUIDE.en-US.md).
 
 ## Display language and accessibility
@@ -81,8 +81,8 @@ key parity, and English/Chinese runtime resource loading. Release packaging is p
 - Real cross-monitor, cross-DPI, and hot-plug behavior has not been verified on representative hardware.
 - `SendInput` is affected by UIPI, focus, and modifier state; perfect replay into every target is not guaranteed.
 - Force-ending the Agent cannot guarantee recovery of historical input already withheld.
-- Some special-key hardware, partial `SendInput`, sleep/resume, and actual Narrator voice availability remain
-  environment-dependent or not fully tested.
+- Some special-key hardware, partial `SendInput`, sleep/resume, and Narrator voice availability on other systems
+  remain environment-dependent or not fully tested.
 - The public preview does not claim 24-hour or 72-hour endurance evidence.
 - Fn, arbitrary three-key chords, per-application rules, and URL/program/folder actions are not implemented.
 
