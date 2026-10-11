@@ -99,11 +99,11 @@ Rust remapping、Hook、IPC、规则 schema 和配置文件格式均未改变。
 | L08 | PASS | 精确候选连接真实 Agent；切换中文后窗口不自动关闭且草稿仍在，本地化未保存提示的“返回”与“不保存退出”均符合预期，退出后规则文件未改变 |
 | L09 | PASS | 隔离配置上创建、禁用、保存、关闭重开、删除和恢复均符合预期；最终恢复 4 条启用规则，Agent 权威配置一致且语言偏好未进入规则 schema |
 | L10 | PASS | 四方向物理 remapping、距离不足、提前释放、右键取消、F12 暂停／恢复、普通输入和关闭 Settings 后 Agent 继续运行均符合预期；25 个输出批次无失败或丢弃 |
-| L11 | PARTIAL | 中文界面的完整键盘浏览、规则控件名称、状态和重开提示朗读符合预期；英语界面仍待最终候选实测 |
-| L12 | PARTIAL | 原候选未朗读中文规则校验错误；补充 assertive LiveRegion、动态 UIA 名称和 `LiveRegionChanged` 后，本地 Release 复测已正确朗读；最终候选双语复测待完成 |
+| L11 | PASS | 中英文完整键盘浏览、导航、规则控件名称、输入框和重开提示均符合预期；后续修补只触及动态操作通知和操作按钮焦点恢复 |
+| L12 | PARTIAL | 中文校验错误的首轮缺陷已修补并在 `71dca0e` 精确候选通过；该候选的英语 Pause/Resume 状态未朗读，增加 UIA Notification 与焦点恢复后本地复测通过，最终候选仍待回归 |
 | L13 | NOT TESTED | 未在 125%／150% 缩放下完整检查长英文和交互 |
 | L14 | PASS | 两套 `.resw` 静态解析、真实 XAML／ResourceLoader／UIA 探针以及 Debug/Release runtime smoke 通过 |
-| L15 | PASS | `b83f4c3` 干净提交的新 RC ZIP、manifest、PRI、双语指南、精确解压双语运行、Agent 100 轮和 live contract 均通过 |
+| L15 | PARTIAL | 两个干净 ZIP 的 manifest、PRI、双语指南和静态回读通过，但均因 Narrator 缺陷撤销；修补后最终 ZIP 待重建 |
 | L16 | PASS | 双语 README／用户指南、版本、依赖、命令、限制和互链已审查；未加入虚构下载 URL |
 
 ## 6. 与已有 Smoke 的对比
@@ -113,8 +113,11 @@ Rust remapping、Hook、IPC、规则 schema 和配置文件格式均未改变。
 本轮已重新验证资源契约、全部既有自动门槛、四种 Debug/Release 双语运行，并从固定干净提交生成过
 候选。SHA `DA0DED2C...A82F7` 的语言持久化／UIA、Agent 100 轮、双语资源、live IPC、规则保存和
 物理 remapping 实机项目已通过，但中文 Narrator 校验错误播报暴露出发布阻断缺陷，因此该 ZIP 已撤销
-最终候选资格。修补后的本地 Release 已完成针对性复测；必须从新的干净提交重建候选，再完成双语
-Narrator 与缩放项目。旧 SHA `A287...`、工程 SHA `8DE3...` 和撤销的 SHA `DA0DED2C...A82F7` 均不得发布。
+最终候选资格。第一项修补提交 `71dca0e` 生成的 ZIP SHA
+`AB9B5E0D...5658AB8` 通过了中文错误播报回归，但英语 Pause/Resume 状态没有被朗读，因此也已撤销。
+第二项修补后的本地 Release 已通过针对性复测；必须从新的干净提交再次重建候选，再完成精确包状态播报
+与缩放项目。旧 SHA `A287...`、工程 SHA `8DE3...`、`DA0DED2C...A82F7` 和 `AB9B5E0D...5658AB8`
+均不得发布。
 
 ### 6.1 Narrator 校验错误缺陷与修补
 
@@ -128,12 +131,27 @@ Narrator 与缩放项目。旧 SHA `A287...`、工程 SHA `8DE3...` 和撤销的
 
 修补版 Release 中重复空 ID 操作后，讲述人已正确读出中文错误；没有保存草稿或修改正式规则。
 
+### 6.2 Pause/Resume 状态通知缺陷与修补
+
+`71dca0e` 精确候选的英语测试中，Pause 和 Resume 操作本身成功，但讲述人转而朗读规则列表，没有朗读
+“Agent paused”或“Agent resumed”。原因是 `OperationBar` 在标题和正文更新前先被打开，普通
+`LiveRegionChanged` 仍可能被异步操作导致的焦点变化覆盖。修补为：
+
+- 先更新标题、正文、严重级别和动态 UIA 名称，再显示消息；
+- 操作结束后重新启用并恢复原暂停／恢复按钮焦点；
+- 使用 `RaiseNotificationEvent` 的 `ActionCompleted`／`ActionAborted` 与 `ImportantMostRecent`，向屏幕
+  阅读器发送明确的操作结果；
+- 语言重开提示也显式发送 LiveRegion 事件，并在本地化契约中固定操作通知要求。
+
+修补版英语 Release 中，讲述人已依次正确朗读暂停与恢复结果，焦点不再跳入规则列表，Agent 最终恢复
+`ready` 且 `suspended=false`。
+
 ## 7. 剩余问题
 
 ### RC smoke 前阻断最终发布，但不阻断进入 smoke
 
 - L01、L03、L04 所需的中文或第三语言 Windows 环境未提供。
-- 新候选尚未重建；最终候选上的英语 Narrator、中文错误回归、125%／150% 缩放和规则编辑页截图未完成。
+- 新候选尚未再次重建；最终候选上的 Pause/Resume 通知回归、125%／150% 缩放和规则编辑页截图未完成。
 - 精确候选 ZIP 的自动 smoke、真实 Agent 规则编辑／保存、物理键鼠 remapping、取消边界和 F12 旁路已完成。
 
 ### 已知非阻断范围
@@ -160,6 +178,13 @@ Narrator 与缩放项目。旧 SHA `A287...`、工程 SHA `8DE3...` 和撤销的
 - SHA-256：`DA0DED2CF4162A6A78B12172AAF48AB6FAC799A3C753EDD32F83B44F890A82F7`
 - 已解压自动证据目录：`target/acceptance/rc01-b83f4c3-package/InputFlow-0.9.0-win-x64`
 
+第二个已撤销候选：
+
+- commit：`71dca0e4cb3b704b486c1906087537fd3e083b59`
+- ZIP：`target/distribution-rc01-71dca0e-candidate/InputFlow-0.9.0-win-x64.zip`
+- SHA-256：`AB9B5E0DA1E1A8084B8A0B3181E816051B8350514A4BDAD8E9503777C5658AB8`
+- 原因：英语 Pause/Resume 操作结果没有被讲述人朗读
+
 新的唯一候选 commit、ZIP 与 SHA-256 将在修补提交通过完整门槛后写入。
 
 人工测试严格使用该 ZIP 的全新解压副本，按以下顺序记录：
@@ -171,8 +196,8 @@ Narrator 与缩放项目。旧 SHA `A287...`、工程 SHA `8DE3...` 和撤销的
 3. **L10 输入回归（PASS）**：四方向动作、距离不足、提前释放、右键取消、F12 暂停／恢复、普通输入和
    关闭 Settings 后 Agent 继续运行均符合预期。消息目标捕获 C／V／Z／Y 与 1 次上下文菜单；Agent
    `observed_events=362`、`output_batches_sent=25`、`failed=0`、`dropped=0`，最终 `ready` 且未暂停。
-4. **L11／L12 Narrator**：英语和简体中文各浏览导航、规则列表、图标按钮、输入框、错误、连接状态和
-   重开提示；记录实际朗读、Tab 顺序和 LiveRegion，不修改系统语音设置。
+4. **L11（PASS）／L12（待最终候选回归）**：英语和简体中文的导航、规则列表、图标按钮、输入框、错误
+   和重开提示已完成；两个实测缺陷的本地修补均通过。新候选只需复核 Pause/Resume 通知，不修改系统语音设置。
 5. **L13 布局**：在 125% 和 150% 缩放下检查英文长文案、规则编辑器和设置页，无裁切、重叠或不可达控件；
    补充两种语言的规则编辑／无障碍反馈截图。
 6. **环境项**：有中文 Windows 时执行 L01／L04；有第三语言 Windows 时执行 L03。环境不可得则保持

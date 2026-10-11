@@ -419,27 +419,37 @@ public sealed partial class MainPage : Page
     private async void PauseResume_Click(object sender, RoutedEventArgs e)
     {
         if (_coordinator?.LatestStatus is not AgentStatus status || _busy) return;
+        string title;
+        string message;
+        InfoBarSeverity severity;
         SetBusy(true);
         try
         {
             AgentStatus confirmed = status.Suspended
                 ? await _coordinator.ResumeAsync(_pageLifetime.Token)
                 : await _coordinator.PauseAsync(_pageLifetime.Token);
-            ShowMessage(
-                confirmed.Suspended
-                    ? AppResources.Get("Runtime_PausedTitle")
-                    : AppResources.Get("Runtime_ResumedTitle"),
-                AppResources.Get("Runtime_ControlConfirmedMessage"),
-                InfoBarSeverity.Success);
+            title = confirmed.Suspended
+                ? AppResources.Get("Runtime_PausedTitle")
+                : AppResources.Get("Runtime_ResumedTitle");
+            message = AppResources.Get("Runtime_ControlConfirmedMessage");
+            severity = InfoBarSeverity.Success;
         }
         catch (Exception error)
         {
-            ShowMessage(AppResources.Get("Runtime_ControlFailedTitle"), FriendlyError(error), InfoBarSeverity.Error);
+            title = AppResources.Get("Runtime_ControlFailedTitle");
+            message = FriendlyError(error);
+            severity = InfoBarSeverity.Error;
         }
         finally
         {
             SetBusy(false);
         }
+
+        if (sender is Control invokingControl)
+        {
+            invokingControl.Focus(FocusState.Programmatic);
+        }
+        ShowMessage(title, message, severity);
     }
 
     private async void RefreshStats_Click(object sender, RoutedEventArgs e)
@@ -479,9 +489,12 @@ public sealed partial class MainPage : Page
         try
         {
             App.LanguagePreferenceStore.Save(language);
-            LanguageRestartBar.Title = AppResources.Get("Language_RestartTitle");
-            LanguageRestartBar.Message = AppResources.Get("Language_RestartMessage");
+            string title = AppResources.Get("Language_RestartTitle");
+            string message = AppResources.Get("Language_RestartMessage");
+            LanguageRestartBar.Title = title;
+            LanguageRestartBar.Message = message;
             LanguageRestartBar.IsOpen = true;
+            AnnounceLiveRegion(LanguageRestartBar, $"{title}. {message}");
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
@@ -1152,10 +1165,32 @@ public sealed partial class MainPage : Page
 
     private void ShowMessage(string title, string message, InfoBarSeverity severity)
     {
-        OperationBar.IsOpen = true;
         OperationBar.Title = title;
         OperationBar.Message = message;
         OperationBar.Severity = severity;
+        OperationBar.IsOpen = true;
+        AnnounceOperation($"{title}. {message}", severity);
+    }
+
+    private void AnnounceOperation(string announcement, InfoBarSeverity severity)
+    {
+        AutomationProperties.SetName(OperationBar, announcement);
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            AutomationProperties.SetName(OperationBar, announcement);
+            AutomationPeer? peer = FrameworkElementAutomationPeer.FromElement(OperationBar)
+                ?? FrameworkElementAutomationPeer.CreatePeerForElement(OperationBar);
+            peer?.RaiseNotificationEvent(
+                severity switch
+                {
+                    InfoBarSeverity.Success => AutomationNotificationKind.ActionCompleted,
+                    InfoBarSeverity.Error => AutomationNotificationKind.ActionAborted,
+                    _ => AutomationNotificationKind.Other,
+                },
+                AutomationNotificationProcessing.ImportantMostRecent,
+                announcement,
+                "InputFlow.Operation");
+        });
     }
 
     private void ShowEditorError(string message)
@@ -1163,12 +1198,18 @@ public sealed partial class MainPage : Page
         string title = AppResources.Get("RuleEditor_ErrorTitle");
         EditorInfo.Title = title;
         EditorInfo.Message = message;
-        AutomationProperties.SetName(EditorInfo, $"{title}. {message}");
         EditorInfo.IsOpen = true;
+        AnnounceLiveRegion(EditorInfo, $"{title}. {message}");
+    }
+
+    private void AnnounceLiveRegion(FrameworkElement element, string announcement)
+    {
+        AutomationProperties.SetName(element, announcement);
         DispatcherQueue.TryEnqueue(() =>
         {
-            AutomationPeer? peer = FrameworkElementAutomationPeer.FromElement(EditorInfo)
-                ?? FrameworkElementAutomationPeer.CreatePeerForElement(EditorInfo);
+            AutomationProperties.SetName(element, announcement);
+            AutomationPeer? peer = FrameworkElementAutomationPeer.FromElement(element)
+                ?? FrameworkElementAutomationPeer.CreatePeerForElement(element);
             peer?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
         });
     }

@@ -79,6 +79,13 @@ $mainPageCode = Get-Content -LiteralPath $mainPageCodePath -Raw -Encoding UTF8
 if ($mainPageCode -notmatch 'RaiseAutomationEvent\(AutomationEvents\.LiveRegionChanged\)') {
     throw 'The rule editor validation summary must explicitly raise LiveRegionChanged after a dynamic update.'
 }
+if ($mainPageCode -notmatch 'RaiseNotificationEvent\(' -or
+    $mainPageCode -notmatch 'AutomationNotificationProcessing\.ImportantMostRecent') {
+    throw 'Dynamic operation results must raise an important UI Automation notification.'
+}
+if ($mainPageCode -notmatch 'AnnounceLiveRegion\(LanguageRestartBar,') {
+    throw 'Language restart guidance must explicitly announce its live region.'
+}
 
 $invalidAutomationKeys = @($resourceKeys | Where-Object {
     $_ -match 'AutomationProperties\.' -and
