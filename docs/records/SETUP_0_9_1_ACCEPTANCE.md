@@ -41,6 +41,15 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-instal
 | SET-07 | 开始菜单、托盘 Open Settings 和双击图标都能打开设置程序 | 通过 |
 | SET-08 | 卸载保留 `%LOCALAPPDATA%\InputFlow`，也不卸载三份 Microsoft 运行库 | 通过 |
 
-## 3. 结论
+## 3. 图标开关
 
-安装程序能够在上述环境中构建出来。SET-01～SET-08 在沙盒中通过。
+2026-10-12，提交者在沙盒中按 `docs/guides/BUILD_WINDOWS.md` 第 13 节的两条命令分别打包并安装。图标控制与预期一致。
+
+| 编号 | 命令 | 预期 | 结果 |
+|---|---|---|---|
+| ICON-01 | `package-installer.ps1 -Force` | Agent 文件图标、窗口、通知区域、安装程序和快捷方式都是系统默认图标；安装目录中没有 `InputFlow.ico` | 通过 |
+| ICON-02 | `package-installer.ps1 -Force -UseProductIcon` | 上述位置使用 `installer\InputFlow.ico`，安装目录中有该文件 | 通过 |
+
+## 4. 结论
+
+安装程序能够在上述环境中构建出来。SET-01～SET-08 在沙盒中通过。图标开关 ICON-01、ICON-02 在沙盒中通过。
