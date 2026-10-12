@@ -43,6 +43,6 @@
 ## 后续任务
 
 - `v0.9.0` 已发布；当前按 [`tasks/POST_RELEASE_SOAK.md`](tasks/POST_RELEASE_SOAK.md) 执行 G-POST。
-- 0.9.1 的 Windows 安装包只存在于源码树，见 [`guides/BUILD_WINDOWS.md`](guides/BUILD_WINDOWS.md) 第 13 节和 [`decisions/ADR-010-安装包许可范围.md`](decisions/ADR-010-安装包许可范围.md)。它还不是 GitHub Release 附件。
+- 0.9.1 的 Windows 安装程序只存在于源码树，见 [`guides/BUILD_WINDOWS.md`](guides/BUILD_WINDOWS.md) 第 13 节和 [`decisions/ADR-010-安装包许可范围.md`](decisions/ADR-010-安装包许可范围.md)。构建与安装分项记录见 [`records/SETUP_0_9_1_ACCEPTANCE.md`](records/SETUP_0_9_1_ACCEPTANCE.md)。它还不是 GitHub Release 附件。
 - 首版任务、H 和 RC 记录已移动到 [`archive/first-release/`](archive/first-release/)。
 - 完成的任务卡和记录必须移动到 `archive/`，不得继续留在 `tasks/` 或 `records/`。
