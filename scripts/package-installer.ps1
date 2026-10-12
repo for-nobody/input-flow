@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [switch]$Force
+    [switch]$Force,
+    [switch]$UseProductIcon
 )
 
 $ErrorActionPreference = 'Stop'
@@ -206,10 +207,19 @@ if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
     $encodedFlags += "--remap-path-prefix=$($env:USERPROFILE)=<user-profile>"
 }
 
+$originalProductIcon = $env:INPUTFLOW_PRODUCT_ICON
 Push-Location $repoRoot
 try {
     try {
         $env:CARGO_ENCODED_RUSTFLAGS = $encodedFlags -join $separator
+        if ($UseProductIcon) {
+            $env:INPUTFLOW_PRODUCT_ICON = '1'
+            Write-Host '==> Product icon: installer\InputFlow.ico'
+        }
+        else {
+            Remove-Item Env:INPUTFLOW_PRODUCT_ICON -ErrorAction SilentlyContinue
+            Write-Host '==> Product icon: system default'
+        }
         Invoke-Checked { cargo build -p inputflow-agent --release --locked } 'Release agent build'
     }
     finally {
@@ -218,6 +228,12 @@ try {
         }
         else {
             $env:CARGO_ENCODED_RUSTFLAGS = $originalEncodedFlags
+        }
+        if ($null -eq $originalProductIcon) {
+            Remove-Item Env:INPUTFLOW_PRODUCT_ICON -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:INPUTFLOW_PRODUCT_ICON = $originalProductIcon
         }
     }
 
@@ -375,7 +391,9 @@ if (Test-Path -LiteralPath $setupPath) {
 $iscc = Find-Iscc
 Push-Location $repoRoot
 try {
-    Invoke-Checked { & $iscc "/DMyAppVersion=$Version" $issPath } 'Inno Setup compile'
+    $isccArgs = @("/DMyAppVersion=$Version")
+    if ($UseProductIcon) { $isccArgs += '/DUseProductIcon' }
+    Invoke-Checked { & $iscc @isccArgs $issPath } 'Inno Setup compile'
 }
 finally {
     Pop-Location

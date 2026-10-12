@@ -266,7 +266,7 @@ Rust 诊断源路径，Release WinUI 项目关闭 CodeView/PDB 路径；打包�
 
 安装包使用仓库根目录的 `Innoscripts.iss`。它把 `InputFlow-<版本>-install\` 整份装进 `{autopf64}\InputFlow`，并在安装时按需下载三份 x64 运行库：Visual C++ 2015–2022、.NET Runtime 10.0.12、Windows App Runtime 2.5.1。这三份不放进安装目录。已发布的 v0.9.0 zip 仍由 `scripts/package-release.ps1` 生成，那个脚本是自包含发布，不能用来填这个目录。
 
-版本号和安装目录清单只写在 [`../../installer/release.psd1`](../../installer/release.psd1)。`Version` 决定目录名和 setup 文件名。`PublishFiles` 是 Settings 的框架依赖发布结果；`RustLicenses` 与 `NuGetLicenses` 是按 [ADR-010](../decisions/ADR-010-安装包许可范围.md) 拷贝的许可。脚本另外放入 `inputflow-agent.exe`、`LICENSE.txt` 和 `installer\InputFlow.ico` 不在这份清单里，图标由安装脚本单独拷到安装位置。技术栈不变时，改这份文件即可，不用改 `scripts/package-installer.ps1` 或 `Innoscripts.iss`。
+版本号和安装目录清单只写在 [`../../installer/release.psd1`](../../installer/release.psd1)。`Version` 决定目录名和 setup 文件名。`PublishFiles` 是 Settings 的框架依赖发布结果；`RustLicenses` 与 `NuGetLicenses` 是按 [ADR-010](../decisions/ADR-010-安装包许可范围.md) 拷贝的许可。脚本另外放入 `inputflow-agent.exe` 和 `LICENSE.txt`。`installer\InputFlow.ico` 留在仓库里。技术栈不变时，改这份文件即可，不用改 `scripts/package-installer.ps1` 或 `Innoscripts.iss`。
 
 `InputFlow-<版本>-install\` 和 `inno_setup_output\` 是构建产物，已写入 `.gitignore`。
 
@@ -283,6 +283,14 @@ Rust 诊断源路径，Release WinUI 项目关闭 CodeView/PDB 路径；打包�
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-installer.ps1 -Force
 ```
 
-`-ExecutionPolicy Bypass` 只作用于这一次进程，不改系统的脚本策略。目录或 setup 已存在时保留 `-Force`。脚本核对 Agent 与 Settings 的版本等于 `release.psd1` 的 `Version`，用与 `scripts/build-windows.ps1` 相同的路径重映射做 Release Agent，再按框架依赖发布 Settings（不使用 `win-x64.pubxml`）。然后它按清单组装目录，多一个或少一个文件都会失败，并把 `Version` 传给 Inno Setup。
+`-ExecutionPolicy Bypass` 只作用于这一次进程，不改系统的脚本策略。目录或 setup 已存在时保留 `-Force`。这条命令不传 `-UseProductIcon`，Agent、安装程序和快捷方式使用系统默认图标，安装目录里也没有 `InputFlow.ico`。
+
+要让 Agent 的文件图标、窗口、通知区域、安装程序和快捷方式使用仓库里的 `installer\InputFlow.ico`，在仓库根目录运行：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-installer.ps1 -Force -UseProductIcon
+```
+
+`-UseProductIcon` 不写进 `release.psd1`。不传这个参数时就是系统默认图标。脚本核对 Agent 与 Settings 的版本等于 `release.psd1` 的 `Version`，用与 `scripts/build-windows.ps1` 相同的路径重映射做 Release Agent，再按框架依赖发布 Settings（不使用 `win-x64.pubxml`）。然后它按清单组装目录，多一个或少一个文件都会失败，并把 `Version` 传给 Inno Setup。
 
 输出为 `inno_setup_output\InputFlow-<版本>-win-x64-setup.exe`。上传到 Release 的是这个 exe，不是安装目录。程序自身编进二进制的版本仍来自各 Cargo.toml 和 Settings 工程；这两处必须与 `release.psd1` 的 `Version` 相同，否则脚本会停。

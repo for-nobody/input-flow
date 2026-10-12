@@ -31,7 +31,9 @@ VersionInfoVersion={#MyAppVersionQuad}
 VersionInfoDescription=InputFlow {#MyAppVersion} setup
 VersionInfoCopyright=Copyright (c) 2026 for-nobody
 DefaultDirName={autopf64}\{#MyAppName}
+#ifdef UseProductIcon
 UninstallDisplayIcon={app}\InputFlow.ico
+#endif
 ArchitecturesAllowed=x64os
 ArchitecturesInstallIn64BitMode=x64os
 SetupArchitecture=x64
@@ -46,7 +48,9 @@ AppMutex=Local\InputFlow.Agent.v1
 LicenseFile={#PayloadDir}\LICENSE.txt
 OutputDir=inno_setup_output
 OutputBaseFilename=InputFlow-{#MyAppVersion}-win-x64-setup
+#ifdef UseProductIcon
 SetupIconFile=installer\InputFlow.ico
+#endif
 SolidCompression=yes
 WizardStyle=modern dynamic
 
@@ -68,15 +72,24 @@ Name: "autostart"; Description: "{cm:AutoStart}"; GroupDescription: "{cm:Additio
 
 [Files]
 Source: "{#PayloadDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+#ifdef UseProductIcon
 Source: "installer\InputFlow.ico"; DestDir: "{app}"; Flags: ignoreversion
+#endif
 Source: "installer\verify-authenticode.ps1"; Flags: dontcopy
 ; Uninstall keeps %LOCALAPPDATA%\InputFlow and does not remove the Microsoft runtimes.
 
 [Icons]
+#ifdef UseProductIcon
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\InputFlow.ico"
 Name: "{autoprograms}\InputFlow Settings"; Filename: "{app}\InputFlow.Settings.exe"; WorkingDir: "{app}"; IconFilename: "{app}\InputFlow.ico"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\InputFlow.ico"; Tasks: desktopicon
 Name: "{userstartup}\InputFlow Agent"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\InputFlow.ico"; Tasks: autostart
+#else
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
+Name: "{autoprograms}\InputFlow Settings"; Filename: "{app}\InputFlow.Settings.exe"; WorkingDir: "{app}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{userstartup}\InputFlow Agent"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: autostart
+#endif
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#DoubleAmp(MyAppName)}}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent runasoriginaluser

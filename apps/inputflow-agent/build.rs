@@ -7,12 +7,15 @@ fn main() {
     println!("cargo:rerun-if-changed={}", manifest.display());
 
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        println!("cargo:rerun-if-env-changed=INPUTFLOW_PRODUCT_ICON");
         println!("cargo:rustc-link-arg-bin=inputflow-agent=/MANIFEST:EMBED");
         println!(
             "cargo:rustc-link-arg-bin=inputflow-agent=/MANIFESTINPUT:{}",
             manifest.display()
         );
-        link_application_icon();
+        if std::env::var("INPUTFLOW_PRODUCT_ICON").ok().as_deref() == Some("1") {
+            link_application_icon();
+        }
     }
 }
 
