@@ -16,12 +16,15 @@
 - 配置保持向后兼容或提供显式迁移；不自动提升权限、不安装驱动、不修改系统输入设置。
 - 每个阶段完成后归档任务卡和记录，再更新当前状态；不要在多个规划文件同步复制状态。
 
-## 剩余顺序
+## 稳定阶段顺序
+
+以下列表定义完整发布路线的相对顺序，不表示所列阶段仍未完成。完成情况和唯一当前入口始终以
+[`../status/CURRENT_STATUS.md`](../status/CURRENT_STATUS.md) 为准。
 
 1. **G-PRE**：按归档的 [`../archive/first-release/FIRST_RELEASE.md`](../archive/first-release/FIRST_RELEASE.md) 完成有限自动回归、混合输入和恢复边界。
 2. **H**：固定 x64 分发模式，完成依赖、路径、自启动、升级、移除和干净环境验收。
 3. **RC**：固定提交和最终包，完成发布 smoke、版本、许可、说明和 SHA-256。
-4. **首个 release**：版本 `v0.9.0`，发布平台标记 Pre-release；实际远端动作仍需要对应授权。
+4. **首个 release**：版本 `v0.9.0`，发布平台标记 Pre-release；任何新的远端发布动作仍需要对应授权。
 5. **G-POST**：首版实际发布后按
    [`../tasks/POST_RELEASE_SOAK.md`](../tasks/POST_RELEASE_SOAK.md) 执行 24／72 小时长测和加固。
 

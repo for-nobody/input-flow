@@ -12,7 +12,8 @@ InputFlow v0.9.0 is available as a public GitHub Pre-release. The final RC-01 bu
 Simplified Chinese resources to WinUI Settings and passed the affected automated, UI Automation, Narrator,
 125%/150% layout, configuration, and physical-input smoke tests. The published ZIP was downloaded again and its
 SHA-256 verified. See the [v0.9.0 release](https://github.com/for-nobody/input-flow/releases/tag/v0.9.0) and
-[the authoritative current status](docs/status/CURRENT_STATUS.md).
+[the authoritative current status](docs/status/CURRENT_STATUS.md). G-POST is now the active task; its sampling-tool
+work and formal 1–2 hour, 24-hour, and 72-hour soak sessions have not started.
 
 ## Architecture and safety boundaries
 
@@ -47,8 +48,8 @@ Visual C++ Redistributable 2015–2022 x64 is still required. The first release 
 3. Run `inputflow-agent.exe`, then open Settings from the tray icon.
 4. Use `F12` to pause or resume immediately. Exit the Agent normally from its tray menu.
 
-The exact RC artifact is fixed locally; a public download URL will only be added after the GitHub pre-release is
-published. Detailed operation, upgrade, autostart, and removal instructions are in the
+The exact published RC artifact is fixed locally and available from the GitHub pre-release linked above. Detailed
+operation, upgrade, autostart, and removal instructions are in the
 [English user guide](docs/guides/USER_GUIDE.en-US.md).
 
 ## Display language and accessibility

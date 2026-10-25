@@ -2,9 +2,9 @@
 
 > 文档类型：当前进度唯一权威
 >
-> 最后更新：2026-10-11（Australia/Brisbane）
+> 最后更新：2026-10-26（Australia/Brisbane）
 >
-> 代码基线：`main`；`v0.9.0` 已作为 GitHub Pre-release 发布，tag 指向 `c18a0a8...`
+> 代码基线：`main`（`515e2f7...`）；`v0.9.0` 已作为 GitHub Pre-release 发布，tag 指向 `c18a0a8...`
 
 ## 当前结论
 
@@ -23,7 +23,14 @@ RC-01 英语／国际化实现和两次 Narrator 修补已固定并推送到 Git
 输入、Narrator、125%／150% 布局、Agent 100 轮和 live IPC。2026-10-11 14:46（Australia/Brisbane），
 annotated tag `v0.9.0` 已推送并精确解析到该提交，GitHub Pre-release 已发布；两个附件从公开 Release
 重新下载后哈希一致。L01／L03／L04 因中文或第三语言 Windows 环境不可得保持非阻断 `NOT TESTED`。
-当前结论为 **v0.9.0 RELEASED；进入 G-POST**。
+当前结论为 **v0.9.0 RELEASED；G-POST 为当前活动任务，执行尚未开始**。
+
+2026-10-26 对当前检出内容完成了一次发布后文档／代码一致性复核：复核开始时工作区干净，`main` 与本地
+`origin/main` 均为 `515e2f7...`；`main` 相比 `v0.9.0` 只有 3 个文档提交，非文档代码与 tag 一致。
+使用本机已有依赖重新运行 `scripts/build-windows.ps1 -SkipRestore`，Rust **172／172**、C# protocol
+**7／7**、Settings Core **14／14**、严格 Clippy、Release Agent、WinUI Debug／Release 和四组双语
+runtime smoke 全部通过，WinUI 构建均为 0 warning、0 error。本次复核不计作 G-POST 时长证据；
+G-POST 是当前活动任务，但采样工具改进和正式长测尚未开始。
 
 当前执行入口是 [`../tasks/POST_RELEASE_SOAK.md`](../tasks/POST_RELEASE_SOAK.md)。首版任务已归档至
 [`../archive/first-release/FIRST_RELEASE.md`](../archive/first-release/FIRST_RELEASE.md)。Phase F 的完整历史
@@ -44,9 +51,21 @@ RC-01 的本地实施和复验矩阵见
 | G-PRE | **完成** | 自动门槛、15 分 53 秒资源采样、混合输入和 PRE-01～09 可用环境矩阵通过 |
 | H | **完成** | H0～H5 与 DIST-01～07 按声明支持范围通过 |
 | RC／首个 release | **完成；v0.9.0 已发布** | tag 精确指向 `c18a0a8...`；Pre-release 两个附件已上传并下载复验 |
-| G-POST | **进入条件已满足；待开始** | 按已发布包执行 1～2 小时、24 小时、72 小时和 daily-drive |
+| G-POST | **当前活动任务；执行尚未开始** | 按已发布包改进采样工具并执行 1～2 小时、24 小时、72 小时和 daily-drive |
 
 ## 最近已验证证据
+
+2026-10-26 当前检出内容复核：
+
+- `HEAD` 与本地 `origin/main` 均为 `515e2f73087499927e96271860ee128226c67c71`，复核开始时工作区干净；
+  `v0.9.0..HEAD` 的 3 个提交均只修改文档或文档证据，非文档代码差异为 0。
+- `scripts/build-windows.ps1 -SkipRestore` 退出码 0：Rust **172／172**、C# protocol **7／7**、
+  Settings Core **14／14**；格式、严格 Clippy、probe、Release Agent 和本地化契约通过。
+- WinUI Debug／Release 均 0 warning、0 error；293 个双语资源键、85 个 `x:Uid` 和
+  Debug／Release × `en-US`／`zh-CN` 四组 runtime smoke 通过。
+- 本地最终候选 `target/distribution-rc01-c18a0a8-candidate/InputFlow-0.9.0-win-x64.zip`
+  仍为 94,155,158 bytes，实算 SHA-256 仍为
+  `D2C1BE6148E2F3833DEEA9C99D9C882F0BABD2A030A1CFD480D1364387D79D2C`。
 
 远端发布结果：
 
@@ -160,7 +179,7 @@ H 本机分发结果：
 
 ## 下一步
 
-保持已发布 tag 和附件不变，按 [`../tasks/POST_RELEASE_SOAK.md`](../tasks/POST_RELEASE_SOAK.md) 进入
-G-POST。先准备可跨进程重启、睡眠和多 session 的低频采样工具，再使用真正发布的 ZIP 开始约 1～2
-小时真实工作观察；24／72 小时结果不得提前标记完成。发布后发现的修复进入后续 `v0.9.x`，不改写
-`v0.9.0` tag。
+保持已发布 tag 和附件不变，按 [`../tasks/POST_RELEASE_SOAK.md`](../tasks/POST_RELEASE_SOAK.md) 执行
+当前活动任务 G-POST。先准备可跨进程重启、睡眠和多 session 的低频采样工具，再使用真正发布的 ZIP
+开始约 1～2 小时真实工作观察；24／72 小时结果不得提前标记完成。发布后发现的修复进入后续
+`v0.9.x`，不改写 `v0.9.0` tag。

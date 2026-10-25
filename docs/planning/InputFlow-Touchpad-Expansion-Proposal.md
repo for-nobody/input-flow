@@ -4,6 +4,7 @@
 > Purpose: Preserve and formalise the current product ideas for future InputFlow development.  
 > Scope: Windows Precision Touchpad enhancement, touch-based click semantics, presentation interaction, virtual numpad, and general touchpad layers.  
 > Important: This document is a **future roadmap / design proposal**, not a requirement for the first public release.
+> Repository status reviewed: 2026-10-26. InputFlow v0.9.0 has been released; G-POST is the current active task, and no touchpad production implementation exists.
 
 ---
 
@@ -949,16 +950,17 @@ This statement should be treated as a product hypothesis, not a marketing fact, 
 
 These features should **NOT** block the first InputFlow release.
 
-Current priority remains:
+Current repository priority is:
 
 ```text
-Existing InputFlow core
--> finish current Phase F
--> complete current release requirements
--> first stable release
+Published InputFlow v0.9.0 public preview
+-> execute G-POST sampling and soak work
+-> assess keyboard/mouse core stability and follow-up fixes
+-> explicitly schedule the touchpad feasibility prototype
 ```
 
-The touchpad subsystem should begin only after the current keyboard/mouse core reaches a sufficiently stable state.
+The touchpad subsystem should begin only after the current keyboard/mouse core has sufficient G-POST evidence and
+the feasibility work is explicitly activated as a separate task.
 
 Reason:
 
@@ -977,7 +979,7 @@ Adding it immediately would greatly expand the current project scope.
 
 ## Stage 0 — Documentation Only
 
-Current stage.
+Current touchpad-development stage. No Stage 1 prototype or production integration exists in this repository.
 
 Goals:
 
@@ -1300,13 +1302,13 @@ For now:
 ```text
 DO:
 - preserve this proposal
-- finish the current InputFlow release
-- stabilise the existing core
+- complete the current G-POST reliability work
+- stabilise the existing core using soak evidence and user feedback
 - study the current Rust / Win32 implementation
-- revisit touchpad work after the current release
+- revisit touchpad work after the current reliability task
 
 DO NOT:
-- add the full touchpad subsystem to the current release
+- rewrite the published v0.9.0 release or mix touchpad experiments into its G-POST evidence
 - change current stable input behaviour for experimental features
 - begin with a kernel driver
 - implement multiple touchpad features simultaneously

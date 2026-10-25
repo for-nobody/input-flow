@@ -8,8 +8,8 @@
 
 ## 1. 存储边界
 
-- 仓库根目录只保留一个 Markdown 文件：`README.md`。
-- 其他 Markdown 文档一律存放在 `docs/` 的职责目录中。
+- 仓库根目录只保留双语入口 `README.md` 和 `README.zh-CN.md`。
+- 除这两个入口外，其他 Markdown 文档一律存放在 `docs/` 的职责目录中。
 - 源码、fixture 和脚本目录不放说明性 Markdown；对应说明分别放入 `docs/reference/` 或
   `docs/guides/`，并使用仓库根相对路径指向实际文件。
 - 不再创建 `check-fix-debug-list/`、根目录交接文档或同一内容的双份规划。
@@ -33,7 +33,7 @@
 
 [`../status/CURRENT_STATUS.md`](../status/CURRENT_STATUS.md) 是详细项目进度的唯一权威。
 
-- 根 `README.md` 只给一段摘要并链接到当前状态。
+- 根目录的双语 README 只给摘要并链接到当前状态。
 - planning、tasks 和 guides 不复制测试数量、HEAD、阶段状态表或“下一步”段落。
 - 当前阶段的测试命令和证据写入 `records/`；`CURRENT_STATUS.md` 只引用其结论。
 - 同一状态发生变化时，先更新当前记录，再更新 `CURRENT_STATUS.md` 和根 README 摘要。
@@ -67,8 +67,11 @@
 ```powershell
 rg --files -g "*.md"
 git diff --check
-rg -n "check-fix-debug-list|00_InputFlow|InputFlow-项目规划|Steps\.md" README.md docs
+rg -n "check-fix-debug-list|00_InputFlow|InputFlow-项目规划|Steps\.md" README.md README.zh-CN.md docs `
+  -g "!docs/archive/**" `
+  -g "!docs/releases/patches/**" `
+  -g "!docs/governance/DOCUMENTATION_POLICY.md"
 ```
 
-预期结果：除根 `README.md` 外，所有 Markdown 都在 `docs/`；活动文档没有旧路径；
+预期结果：除根目录双语 README 外，所有 Markdown 都在 `docs/`；活动文档没有旧路径；
 `git diff --check` 无错误。若 archive 正文保留历史路径，必须由 archive 提示说明其上下文。

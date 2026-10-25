@@ -11,7 +11,8 @@ InputFlow v0.9.0 已作为公开 GitHub Pre-release 发布。最终 RC-01 构建
 和简体中文资源，并已通过受影响的自动、UI Automation、Narrator、125%／150% 布局、配置和物理输入
 smoke；公开下载的 ZIP 已重新下载并验证 SHA-256。参见
 [v0.9.0 Release](https://github.com/for-nobody/input-flow/releases/tag/v0.9.0)和
-[当前状态](docs/status/CURRENT_STATUS.md)。
+[当前状态](docs/status/CURRENT_STATUS.md)。G-POST 现为当前活动任务；采样工具改进及正式的 1～2 小时、
+24 小时和 72 小时长测尚未开始。
 
 ## 架构与安全边界
 
@@ -45,8 +46,8 @@ Redistributable 2015–2022 x64。首版未签名。
 3. 运行 `inputflow-agent.exe`，再从托盘图标打开 Settings。
 4. 使用 `F12` 紧急暂停或恢复；需要退出时从托盘正常退出 Agent。
 
-精确 RC 附件已在本地固定；只有 GitHub Pre-release 实际发布后才会补充公开下载地址。完整操作、升级、
-自启动和移除说明见[中文用户指南](docs/guides/USER_GUIDE.md)。
+精确 RC 附件已在本地固定，并可从上方链接的 GitHub Pre-release 公开下载。完整操作、升级、自启动和
+移除说明见[中文用户指南](docs/guides/USER_GUIDE.md)。
 
 ## 显示语言与辅助功能
 

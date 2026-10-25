@@ -9,7 +9,7 @@
 ## 当前阅读顺序
 
 1. [`status/CURRENT_STATUS.md`](status/CURRENT_STATUS.md)：当前阶段、已验证证据、未完成项和下一步。
-2. [`tasks/POST_RELEASE_SOAK.md`](tasks/POST_RELEASE_SOAK.md)：当前 G-POST 长测与加固任务卡。
+2. [`tasks/POST_RELEASE_SOAK.md`](tasks/POST_RELEASE_SOAK.md)：当前 G-POST 长测与加固任务卡；执行尚未开始。
 3. [`releases/V0.9.0.md`](releases/V0.9.0.md)：已发布版本的用户说明。
 4. [`releases/patches/RC-01-WinUI3-i18n-en-US-verification.md`](releases/patches/RC-01-WinUI3-i18n-en-US-verification.md)：英语／国际化补丁与最终候选验证证据。
 5. [`archive/first-release/FIRST_RELEASE_RC_EXECUTION.md`](archive/first-release/FIRST_RELEASE_RC_EXECUTION.md)：`v0.9.0` 构建、包、smoke 与远端发布归档记录。
@@ -42,6 +42,6 @@
 
 ## 后续任务
 
-- `v0.9.0` 已发布；当前按 [`tasks/POST_RELEASE_SOAK.md`](tasks/POST_RELEASE_SOAK.md) 执行 G-POST。
+- `v0.9.0` 已发布；G-POST 是当前活动任务，采样工具改进和正式长测尚未开始。
 - 首版任务、H 和 RC 记录已移动到 [`archive/first-release/`](archive/first-release/)。
 - 完成的任务卡和记录必须移动到 `archive/`，不得继续留在 `tasks/` 或 `records/`。
