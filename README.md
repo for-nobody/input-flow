@@ -66,12 +66,28 @@ does not install voices or modify system Narrator settings.
 
 Prerequisites and exact toolchain details are in the [Windows build guide](docs/guides/BUILD_WINDOWS.md).
 
+If the isolated InputFlow toolchain has been set up for this checkout, run the launcher from PowerShell. It opens
+a shell at the repository root with the project's Rust and .NET tools available for that session.
+
+```powershell
+& "$env:LOCALAPPDATA\InputFlow.DevTools\Open-InputFlowDev.cmd"
+```
+
+Use `--verify` to run the complete Windows build and tests directly. This mode runs Rust tests serially because
+some configuration tests share a temporary file.
+
+```powershell
+& "$env:LOCALAPPDATA\InputFlow.DevTools\Open-InputFlowDev.cmd" --verify
+```
+
+With the required tools active, you can also run these commands from the repository root.
+
 ```powershell
 cargo fmt --all -- --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo build -p inputflow-agent --release
-./scripts/build-windows.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
 ```
 
 The complete script validates Rust, the protocol and Settings Core runners, WinUI Debug/Release builds, resource

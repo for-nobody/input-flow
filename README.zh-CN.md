@@ -62,12 +62,27 @@ Settings 默认跟随 Windows 显示语言，无匹配时回退英语。可在 *
 
 工具链和准确前置条件见 [Windows 构建指南](docs/guides/BUILD_WINDOWS.md)。
 
+如果当前工作副本已配置 InputFlow 独立工具链，在 PowerShell 中运行以下命令。启动器会打开一个位于仓库根目录的
+PowerShell 会话，并在该会话中启用本项目的 Rust 和 .NET 工具。
+
+```powershell
+& "$env:LOCALAPPDATA\InputFlow.DevTools\Open-InputFlowDev.cmd"
+```
+
+添加 `--verify` 可直接运行完整的 Windows 构建与测试。部分配置测试共用临时文件，此模式会串行运行 Rust 测试。
+
+```powershell
+& "$env:LOCALAPPDATA\InputFlow.DevTools\Open-InputFlowDev.cmd" --verify
+```
+
+工具链启用后，也可以在仓库根目录运行以下命令。
+
 ```powershell
 cargo fmt --all -- --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo build -p inputflow-agent --release
-./scripts/build-windows.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
 ```
 
 完整脚本验证 Rust、协议与 Settings Core runners、WinUI Debug／Release 构建、资源键一致性，以及英语／
