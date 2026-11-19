@@ -1,9 +1,9 @@
 use std::collections::BTreeSet;
 
-use inputflow_engine::{Action, Key, PresentationAction, Rule, Trigger};
+use inputflow_engine::{Action, Key, PresentationAction, Rule};
 use serde::{Deserialize, Serialize};
 
-use crate::config::{ConfigError, KeyConfig, TriggerConfig, resolve_trigger};
+use crate::config::{ConfigError, KeyConfig, TriggerConfig, resolve_mode_rule};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -222,36 +222,17 @@ impl PresentationConfig {
                 PresentationAction::Select(preset.id.clone()),
             ));
         }
-        let mut rules = Vec::new();
-        for (field, binding, action) in bindings {
-            let Some(binding) = binding else { continue };
-            match resolve_trigger(binding) {
-                Ok(trigger) => {
-                    let (first, second) = match trigger {
-                        Trigger::KeyChord { first, second } => (first, Some(second)),
-                        Trigger::DoubleTap { key }
-                        | Trigger::Hold { key, .. }
-                        | Trigger::HoldMouseButton { key, .. }
-                        | Trigger::KeyMouseButton { key, .. }
-                        | Trigger::MouseDirection { key, .. } => (key, None),
-                    };
-                    if emergency
-                        .is_some_and(|emergency| [Some(first), second].contains(&Some(emergency)))
-                        || [Some(first), second].contains(&Some(Key::Escape))
-                    {
-                        errors.push(ConfigError(format!(
-                            "{field} collides with emergency_bypass_key or the session Escape key"
-                        )));
-                    }
-                    rules.push(Rule {
-                        id: field,
-                        trigger,
-                        action: Action::Presentation(action),
-                    });
-                }
-                Err(error) => errors.push(ConfigError(format!("{field}: {error}"))),
-            }
-        }
-        rules
+        bindings
+            .into_iter()
+            .filter_map(|(field, binding, action)| {
+                resolve_mode_rule(
+                    field,
+                    binding?,
+                    Action::Presentation(action),
+                    emergency,
+                    errors,
+                )
+            })
+            .collect()
     }
 }

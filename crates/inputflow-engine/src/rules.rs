@@ -84,6 +84,13 @@ pub enum Action {
     /// Synthesize a keyboard chord (all keys pressed together, then released).
     KeyChord(Vec<Key>),
     Presentation(PresentationAction),
+    Numpad(NumpadAction),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NumpadAction {
+    Start,
+    Stop,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -98,14 +105,24 @@ pub enum PresentationAction {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ChordScope {
     Ordinary,
-    PresentationOnly,
+    ModeOnly,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub struct ModeAvailability {
+    pub presentation_ready: bool,
+    pub presentation_active: bool,
+    pub numpad_ready: bool,
+    pub numpad_active: bool,
 }
 
 impl Action {
-    pub(crate) fn available(&self, presentation_ready: bool, presenting: bool) -> bool {
+    pub(crate) fn available(&self, modes: ModeAvailability) -> bool {
         match self {
-            Self::Presentation(PresentationAction::Start) => presentation_ready,
-            Self::Presentation(_) => presentation_ready && presenting,
+            Self::Presentation(PresentationAction::Start) => modes.presentation_ready,
+            Self::Presentation(_) => modes.presentation_ready && modes.presentation_active,
+            Self::Numpad(NumpadAction::Start) => modes.numpad_ready,
+            Self::Numpad(NumpadAction::Stop) => modes.numpad_active,
             Self::KeyChord(_) => true,
         }
     }
@@ -347,7 +364,7 @@ impl RuleIndex {
         self.double_taps.get(&key)
     }
 
-    pub(crate) fn chord_scope(&self, key: Key, ready: bool, active: bool) -> Option<ChordScope> {
+    pub(crate) fn chord_scope(&self, key: Key, modes: ModeAvailability) -> Option<ChordScope> {
         if !self.first_keys.contains(&key) {
             return None;
         }
@@ -361,8 +378,8 @@ impl RuleIndex {
         for (_, action) in chords.chain(mouse_chords) {
             match action {
                 Action::KeyChord(_) => return Some(ChordScope::Ordinary),
-                Action::Presentation(_) if action.available(ready, active) => {
-                    scope = Some(ChordScope::PresentationOnly);
+                _ if action.available(modes) => {
+                    scope = Some(ChordScope::ModeOnly);
                 }
                 _ => {}
             }

@@ -11,7 +11,7 @@ namespace InputFlow_Settings;
 
 public sealed partial class MainPage
 {
-    private enum PresentationOperation { Start, Stop, Mouse, Clear, Preset }
+    private enum PresentationOperation { Start, Stop, Mouse, Clear, Preset, NumpadStart, NumpadStop }
     private sealed record BindingEdit(PresentationOperation Operation, string? PresetId, string Label, bool Optional);
 
     private BindingEdit? _presentationBinding;
@@ -58,6 +58,7 @@ public sealed partial class MainPage
             ("drawing", _) => "Presentation_DrawingStatus",
             ("mouse", _) => "Presentation_MouseStatus",
             (_, "overlay_failed" or "cursor_unavailable") => "Presentation_OverlayStatus",
+            (_, "numpad_active") => "Presentation_NumpadActive",
             (_, "paused") => "Presentation_PausedStatus",
             (_, "display_unavailable" or "display_changed") => "Presentation_DisplayStatus",
             (_, "device_unavailable" or "device_removed") => "Presentation_DeviceStatus",
@@ -197,17 +198,20 @@ public sealed partial class MainPage
         string binding = value is null ? AppResources.Get("Presentation_Unbound") : RuleRow.TriggerLabel(value);
         var button = new Button { Content = slot.Operation == PresentationOperation.Preset ? binding : $"{slot.Label} · {binding}" };
         AutomationProperties.SetName(button, AppResources.Format("Presentation_EditBindingFormat", slot.Label, binding));
-        button.Click += (_, _) =>
-        {
-            SetBindingEditor(slot);
-            EditorTitle.Text = AppResources.Format("Presentation_BindingTitleFormat", slot.Label);
-            PopulateTriggerControls(value ?? new DoubleTapTrigger(KeyIdentity.Logical("A")));
-            EditorInfo.IsOpen = false;
-            RuleEditor.Visibility = Visibility.Visible;
-            UpdateResponsiveEditor();
-            TriggerTypeCombo.Focus(FocusState.Programmatic);
-        };
+        button.Click += (_, _) => OpenBindingEditor(slot, value);
         return button;
+    }
+
+    private void OpenBindingEditor(BindingEdit slot, RuleTrigger? value)
+    {
+        if (_busy || RuleEditor.Visibility == Visibility.Visible) return;
+        SetBindingEditor(slot);
+        EditorTitle.Text = AppResources.Format("Presentation_BindingTitleFormat", slot.Label);
+        PopulateTriggerControls(value ?? new DoubleTapTrigger(KeyIdentity.Logical("A")));
+        EditorInfo.IsOpen = false;
+        RuleEditor.Visibility = Visibility.Visible;
+        UpdateResponsiveEditor();
+        TriggerTypeCombo.Focus(FocusState.Programmatic);
     }
 
     private void SetBindingEditor(BindingEdit? binding)
@@ -221,6 +225,16 @@ public sealed partial class MainPage
     private void SavePresentationBinding(RuleTrigger? trigger)
     {
         if (_presentationBinding is not { } slot) return;
+        if (slot.Operation is PresentationOperation.NumpadStart or PresentationOperation.NumpadStop)
+        {
+            if (trigger is not null)
+            {
+                NumpadDocument numpad = _draft.Draft.Numpad;
+                _draft.SetNumpad(slot.Operation == PresentationOperation.NumpadStart
+                    ? numpad with { Start = trigger } : numpad with { Stop = trigger });
+            }
+            return;
+        }
         PresentationDocument draft = _draft.Draft.Presentation;
         _draft.SetPresentation(slot.Operation switch
         {

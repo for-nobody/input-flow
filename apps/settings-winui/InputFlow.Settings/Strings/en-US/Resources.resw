@@ -490,4 +490,34 @@
   <data name="Presentation_DrawingStatus" xml:space="preserve"><value>Drawing mode. Lift your finger to finish a stroke.</value></data>
   <data name="PresentationMoveUp.Content" xml:space="preserve"><value>Move up</value></data>
   <data name="PresentationMoveDown.Content" xml:space="preserve"><value>Move down</value></data>
+  <data name="NumpadEnabled.Header" xml:space="preserve"><value>Touchpad numpad</value></data>
+  <data name="NumpadEnabled.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Allow the touchpad numpad</value></data>
+  <data name="NumpadTitle.Text" xml:space="preserve"><value>Touchpad numpad</value></data>
+  <data name="NumpadGuideChoice.Header" xml:space="preserve"><value>On-screen guide</value></data>
+  <data name="NumpadGuideChoice.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Numpad on-screen guide</value></data>
+  <data name="NumpadGuideAlways.Content" xml:space="preserve"><value>Always show</value></data>
+  <data name="NumpadGuideTwoSeconds.Content" xml:space="preserve"><value>Show for 2 seconds</value></data>
+  <data name="NumpadGuideFirstInput.Content" xml:space="preserve"><value>Show until the first successful input</value></data>
+  <data name="NumpadGuideNever.Content" xml:space="preserve"><value>Hide</value></data>
+  <data name="Numpad_Start" xml:space="preserve"><value>Enter numpad</value></data>
+  <data name="Numpad_Stop" xml:space="preserve"><value>Exit numpad</value></data>
+  <data name="Numpad_Ready" xml:space="preserve"><value>Ready. Use the entry shortcut to start the numpad.</value></data>
+  <data name="Numpad_Active" xml:space="preserve"><value>Numpad active. Use the exit shortcut or Esc to stop.</value></data>
+  <data name="Numpad_Disabled" xml:space="preserve"><value>The agent has not enabled the numpad.</value></data>
+  <data name="Numpad_NativeTap" xml:space="preserve"><value>Turn off Windows single-finger tap-to-click to use the numpad.</value></data>
+  <data name="Numpad_NativeTapUnknown" xml:space="preserve"><value>The agent could not verify the Windows single-finger tap setting. Digit output is disabled.</value></data>
+  <data name="Numpad_PresentationActive" xml:space="preserve"><value>Exit the presentation pointer before starting the numpad.</value></data>
+  <data name="Numpad_FocusUnavailable" xml:space="preserve"><value>Focus a target input control to enter digits.</value></data>
+  <data name="Numpad_FocusWatchUnavailable" xml:space="preserve"><value>Windows focus monitoring is unavailable. Digit output is disabled.</value></data>
+  <data name="Numpad_OverlayFailed" xml:space="preserve"><value>The numpad guide could not be opened or drawn.</value></data>
+  <data name="Numpad_OutputFault" xml:space="preserve"><value>Digit output failed. Reapply the configuration or restart the agent after resolving the error.</value></data>
+  <data name="Numpad_DeviceUnavailable" xml:space="preserve"><value>The numpad requires a compatible Precision Touchpad with observable button state.</value></data>
+  <data name="Numpad_Paused" xml:space="preserve"><value>The agent is paused. Resume it to use the numpad.</value></data>
+  <data name="Numpad_Recording" xml:space="preserve"><value>Finish shortcut recording before starting the numpad.</value></data>
+  <data name="Numpad_RecoveryWaiting" xml:space="preserve"><value>Resume the agent to complete recovery before using the numpad.</value></data>
+  <data name="Numpad_SessionInactive" xml:space="preserve"><value>Unlock or wake Windows before starting the numpad.</value></data>
+  <data name="Numpad_Unavailable" xml:space="preserve"><value>The numpad is unavailable in the current session.</value></data>
+  <data name="Numpad_Counts" xml:space="preserve"><value>Confirmed contacts {0} · Cancellations {1} · Inserted key events {2}</value></data>
+  <data name="Touchpad_NumpadActive" xml:space="preserve"><value>Touch Click is paused while the numpad is active.</value></data>
+  <data name="Presentation_NumpadActive" xml:space="preserve"><value>Exit the numpad before starting the presentation pointer.</value></data>
 </root>

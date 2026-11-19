@@ -305,6 +305,7 @@ public sealed partial class MainPage : Page
     private void RefreshTouchpadControls()
     {
         RefreshPresentationControls();
+        RefreshNumpadControls();
         ConfigDocument? confirmed = _coordinator?.LatestConfig;
         bool supported = _coordinator?.Handshake?.Capabilities.Contains("touch_click", StringComparer.Ordinal) == true
             && _draft.IsLoaded
@@ -356,6 +357,7 @@ public sealed partial class MainPage : Page
         "ready" => "Touchpad_Ready",
         "paused" => "Touchpad_Paused",
         "presentation_active" => "Touchpad_PresentationActive",
+        "numpad_active" => "Touchpad_NumpadActive",
         "recording" => "Touchpad_Recording",
         "observe_only" => "Touchpad_ObserveOnly",
         "native_tap_enabled" => "Touchpad_NativeTap",
@@ -783,7 +785,9 @@ public sealed partial class MainPage : Page
         UpdateResponsiveEditor();
     }
 
-    private void CancelEdit_Click(object sender, RoutedEventArgs e)
+    private void CancelEdit_Click(object sender, RoutedEventArgs e) => CancelRuleEdit();
+
+    private void CancelRuleEdit()
     {
         StopDirectionPreview(AppResources.Get("Preview_CancelledShort"), resetProgress: false);
         RuleEditor.Visibility = Visibility.Collapsed;

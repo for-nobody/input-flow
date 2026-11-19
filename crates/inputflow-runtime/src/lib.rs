@@ -18,8 +18,9 @@ use inputflow_config::{
     Config, SCHEMA_VERSION, SaveReport, load, save_with_report, to_json_pretty, validate_config,
 };
 use inputflow_engine::{Key, Matcher, RuleIndex, SystemClock};
-use inputflow_windows::platform::{presentation, touchpad, windows};
+use inputflow_windows::platform::{numpad, presentation, touchpad, windows};
 
+pub use inputflow_windows::platform::numpad::NumpadStatus;
 pub use inputflow_windows::platform::presentation::PresentationStatus;
 pub use inputflow_windows::platform::touchpad::TouchpadStatus;
 pub use inputflow_windows::platform::windows::{
@@ -37,6 +38,7 @@ pub struct RuntimeOptions {
     pub crash_marker_path: PathBuf,
     pub debug_input: bool,
     pub observe_touchpad: bool,
+    pub observe_numpad: bool,
     pub pending_capacity: usize,
     pub diagnostic_sink: DiagnosticSink,
 }
@@ -49,6 +51,7 @@ impl RuntimeOptions {
             crash_marker_path: data_dir.join("running"),
             debug_input: false,
             observe_touchpad: false,
+            observe_numpad: false,
             pending_capacity: DEFAULT_PENDING_CAPACITY,
             diagnostic_sink,
         }
@@ -82,6 +85,7 @@ pub struct RuntimeStatus {
     pub last_error: Option<String>,
     pub touchpad: TouchpadStatus,
     pub presentation: PresentationStatus,
+    pub numpad: NumpadStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -184,7 +188,7 @@ impl Runtime {
                 loaded
                     .rules
                     .iter()
-                    .chain(&loaded.presentation_rules)
+                    .chain(&loaded.mode_rules)
                     .cloned()
                     .collect(),
             )
@@ -252,9 +256,14 @@ impl Runtime {
             loaded.config.touchpad.experimental_enabled,
             loaded.config.presentation.clone(),
         );
+        numpad::configure(
+            loaded.config.touchpad.experimental_enabled,
+            &loaded.config.numpad,
+        );
         let touchpad = touchpad::TouchpadThread::start(
             loaded.config.touchpad,
             options.observe_touchpad,
+            options.observe_numpad,
             previous_abnormal_termination,
         )
         .inspect_err(|error| (options.diagnostic_sink)(format!("touchpad startup failed: {error}")))
@@ -327,6 +336,7 @@ impl Runtime {
             last_error: metadata.last_error.clone(),
             touchpad: touchpad::status(),
             presentation: presentation::status(),
+            numpad: numpad::status(),
         }
     }
 
@@ -702,7 +712,7 @@ fn apply_transaction<P>(
         validated
             .rules
             .into_iter()
-            .chain(validated.presentation_rules)
+            .chain(validated.mode_rules)
             .collect(),
     ) {
         Ok(index) => index,
@@ -817,6 +827,7 @@ fn apply_live_config(
 ) {
     let touchpad_config = config.touchpad;
     let presentation_config = config.presentation.clone();
+    numpad::configure(touchpad_config.experimental_enabled, &config.numpad);
     let validated = validate_config(&config).ok();
     let enabled_rule_count = validated
         .as_ref()

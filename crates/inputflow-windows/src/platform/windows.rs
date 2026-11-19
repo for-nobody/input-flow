@@ -31,8 +31,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use inputflow_engine::{
-    Action, Command, Decision, InputEvent, InputSource, Key, Matcher, MouseButton, MouseKind,
-    PercentileSnapshot, PercentileSummary, PercentileTracker, Resolution,
+    Action, Command, Decision, InputEvent, InputSource, Key, Matcher, ModeAvailability,
+    MouseButton, MouseKind, PercentileSnapshot, PercentileSummary, PercentileTracker, Resolution,
 };
 
 use windows_sys::Win32::Foundation::{
@@ -128,7 +128,7 @@ static DIRECTION_RULES_ENABLED: AtomicBool = AtomicBool::new(false);
 /// candidate. Ordinary move/wheel events can bypass the matcher lock when false.
 static DIRECTION_CANDIDATE_ACTIVE: AtomicBool = AtomicBool::new(false);
 static DOUBLE_TAP_TARGET: AtomicUsize = AtomicUsize::new(0);
-static PRESENTATION_ESCAPE_OWNED: AtomicBool = AtomicBool::new(false);
+static MODE_ESCAPE_OWNED: AtomicBool = AtomicBool::new(false);
 /// Latest cursor point reported by `MSLLHOOKSTRUCT`. The packed pair preserves
 /// one coherent x/y observation across the keyboard and mouse hook callbacks.
 static LAST_HOOK_MOUSE_POINT: AtomicU64 = AtomicU64::new(0);
@@ -411,6 +411,7 @@ fn set_bypassed(bypassed: bool) {
     if BYPASS.swap(bypassed, Ordering::AcqRel) != bypassed {
         if bypassed {
             super::presentation::request_stop();
+            super::numpad::request_stop();
         }
         super::touchpad::invalidate();
         STATE_REVISION.fetch_add(1, Ordering::AcqRel);
@@ -564,7 +565,7 @@ fn flush_held_events_on_hook_thread() -> PauseReport {
 }
 
 fn matcher_has_release_tombstones() -> bool {
-    PRESENTATION_ESCAPE_OWNED.load(Ordering::Acquire)
+    MODE_ESCAPE_OWNED.load(Ordering::Acquire)
         || MATCHER
             .get()
             .and_then(|matcher| matcher.lock().ok())
@@ -660,6 +661,7 @@ fn begin_capture_on_hook_thread(timeout: Duration) -> Result<CaptureSession, Str
         response,
     });
     CAPTURE_ACTIVE.store(true, Ordering::Release);
+    super::numpad::request_stop();
     super::touchpad::invalidate();
     drop(state);
     if let Some(matcher) = MATCHER.get() {
@@ -1599,12 +1601,19 @@ fn decision_after_output_failure(
 /// inserted before the hook returns, so a subsequent pass-through event cannot
 /// overtake it (M6 P1 #4), and there is no queue to drop or block on (#5).
 fn dispatch_command(command: &Command) -> OutputReport {
-    if let Command::Emit {
-        action: Action::Presentation(action),
-        ..
-    } = command
+    if let Command::Emit { action, .. } = command
+        && match action {
+            Action::Presentation(action) => {
+                super::presentation::enqueue(action.clone());
+                true
+            }
+            Action::Numpad(action) => {
+                super::numpad::enqueue(*action);
+                true
+            }
+            Action::KeyChord(_) => false,
+        }
     {
-        super::presentation::enqueue(action.clone());
         record_hold_delay();
         return OutputReport {
             requested: 0,
@@ -1684,10 +1693,12 @@ fn drive_timeouts_with_dispatch(
 
 fn sync_matcher_context(matcher: &mut Matcher) {
     matcher.set_recording(is_capture_active());
-    matcher.set_presentation_state(
-        super::presentation::is_ready(),
-        super::presentation::is_active(),
-    );
+    matcher.set_mode_availability(ModeAvailability {
+        presentation_ready: super::presentation::is_ready() && !super::numpad::is_active(),
+        presentation_active: super::presentation::is_active(),
+        numpad_ready: super::numpad::is_ready(),
+        numpad_active: super::numpad::is_active(),
+    });
     if matcher.has_active_double_tap() {
         // SAFETY: This handle is compared as a value. It is not dereferenced.
         let foreground = unsafe { GetForegroundWindow() } as usize;
@@ -1712,7 +1723,7 @@ fn build_inputs(command: &Command) -> Vec<INPUT> {
                 }
                 inputs
             }
-            Action::Presentation(_) => Vec::new(),
+            Action::Presentation(_) | Action::Numpad(_) => Vec::new(),
         },
     }
 }
@@ -1844,15 +1855,49 @@ fn make_mouse_input(button: MouseButton, down: bool) -> INPUT {
     input
 }
 
-pub(super) fn wake_touchpad_output() -> bool {
+pub(super) fn wake_touchpad_output(message: u32) -> bool {
     let thread_id = HOOK_THREAD_ID.load(Ordering::Acquire);
     // SAFETY: The hook thread publishes its ID only after creating its queue.
-    thread_id != 0
-        && unsafe { PostThreadMessageW(thread_id, super::touchpad::CLICK_READY, 0, 0) } != 0
+    thread_id != 0 && unsafe { PostThreadMessageW(thread_id, message, 0, 0) } != 0
 }
 
 pub(super) fn send_touchpad_click(
     button: MouseButton,
+    still_allowed: impl FnOnce() -> bool,
+) -> Option<inputflow_touchpad::output::InsertResult> {
+    send_touchpad_pair(
+        make_mouse_input(button, true),
+        make_mouse_input(button, false),
+        still_allowed,
+    )
+}
+
+pub(super) fn send_touchpad_digit(
+    digit: u8,
+    still_allowed: impl FnOnce() -> bool,
+) -> Option<inputflow_touchpad::output::InsertResult> {
+    let key = [
+        Key::Numpad0,
+        Key::Numpad1,
+        Key::Numpad2,
+        Key::Numpad3,
+        Key::Numpad4,
+        Key::Numpad5,
+        Key::Numpad6,
+        Key::Numpad7,
+        Key::Numpad8,
+        Key::Numpad9,
+    ][usize::from(digit)];
+    send_touchpad_pair(
+        make_logical_key_input(key, false),
+        make_logical_key_input(key, true),
+        still_allowed,
+    )
+}
+
+fn send_touchpad_pair(
+    down: INPUT,
+    up: INPUT,
     still_allowed: impl FnOnce() -> bool,
 ) -> Option<inputflow_touchpad::output::InsertResult> {
     let blocked = foreground_uipi_block().is_some();
@@ -1879,11 +1924,7 @@ pub(super) fn send_touchpad_click(
         };
         (inserted, error)
     };
-    let report = inputflow_touchpad::output::insert_pair(
-        make_mouse_input(button, true),
-        make_mouse_input(button, false),
-        send,
-    );
+    let report = inputflow_touchpad::output::insert_pair(down, up, send);
     if report.inserted == 2 {
         OUTPUT_SENT.fetch_add(1, Ordering::Relaxed);
     } else {
@@ -2103,6 +2144,10 @@ unsafe fn run_message_loop() {
             super::touchpad::process_clicks();
             continue;
         }
+        if msg.message == super::numpad::DIGIT_READY {
+            super::numpad::process_digits();
+            continue;
+        }
         // SAFETY: `msg` was just retrieved and is valid.
         unsafe {
             TranslateMessage(&msg);
@@ -2155,6 +2200,9 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
             let result = unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
             return finish_callback(callback_start, result);
         }
+        if !up {
+            super::numpad::input_changed();
+        }
 
         // Low-level hooks expose no repeat bit; derive auto-repeat from the
         // maintained physical held-key set (M6 P0 #2).
@@ -2205,15 +2253,23 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
         }
 
         if key == Key::Escape && !injected {
-            if PRESENTATION_ESCAPE_OWNED.load(Ordering::Acquire) {
+            if MODE_ESCAPE_OWNED.load(Ordering::Acquire) {
                 if up {
-                    PRESENTATION_ESCAPE_OWNED.store(false, Ordering::Release);
+                    MODE_ESCAPE_OWNED.store(false, Ordering::Release);
                 }
                 return finish_callback(callback_start, 1);
             }
-            if !up && !repeat && !is_capture_active() && super::presentation::is_active() {
-                PRESENTATION_ESCAPE_OWNED.store(true, Ordering::Release);
-                super::presentation::request_stop();
+            if !up
+                && !repeat
+                && !is_capture_active()
+                && (super::presentation::is_active() || super::numpad::is_active())
+            {
+                MODE_ESCAPE_OWNED.store(true, Ordering::Release);
+                if super::numpad::is_active() {
+                    super::numpad::request_stop();
+                } else {
+                    super::presentation::request_stop();
+                }
                 return finish_callback(callback_start, 1);
             }
         }
@@ -2294,6 +2350,12 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
             let result = unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
             return finish_callback(callback_start, result);
         };
+        if matches!(
+            kind,
+            MouseKind::ButtonDown(_) | MouseKind::Wheel { .. } | MouseKind::HorizontalWheel { .. }
+        ) {
+            super::numpad::input_changed();
+        }
 
         // Mouse move/wheel observation is needed only while direction rules are
         // installed. Preserve the old zero-matcher-work fast path otherwise;

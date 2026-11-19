@@ -2,9 +2,9 @@
 
 > 文档类型：当前进度唯一权威
 >
-> 最后更新：2026-11-19（Australia/Brisbane）
+> 最后更新：2026-11-20（Australia/Brisbane）
 >
-> 代码基线：`main`（`c5497a8`）及 Stage 4 开发工作树。`v0.9.0` 已作为 GitHub Pre-release 发布，tag 指向 `c18a0a8...`
+> 代码基线：`main`（`124c7e5`）及 Stage 5 开发工作树。`v0.9.0` 已作为 GitHub Pre-release 发布，tag 指向 `c18a0a8...`
 
 ## 当前结论
 
@@ -48,6 +48,11 @@ Stage 4 已接入普通规则同键双击，以及默认关闭的演示激光笔
 本机记事本验证了普通双击规则的通过字符、相对定位和临时鼠标返回、清屏和退出，以及绝对落点和断笔。
 Windows 鼠标箭头仍随触控板移动。扩展屏、会议共享和生命周期矩阵仍待实测。
 过程及实测范围见[触控板 Stage 4 记录](../records/TOUCHPAD_STAGE_4_PRESENTATION_POINTER.md)。
+
+Stage 5 开发工作树已接入实验性触控板数字键盘、Schema v7 和 Settings 双语配置，默认关闭。
+原生单指轻点开启的只读双框实测已观察到焦点从左框移到指针所在的右框，正式输出以可确认的原生轻点关闭为条件。
+关闭后，单机双框实测在 Settings 关闭时由左框收到 `505`，右框保持空白，焦点留在左框。操作者确认 `5 → 6 → 5` 折返，目标没有新增数字。
+进度、自动测试和实际目标送达范围见[Stage 5 记录](../records/TOUCHPAD_STAGE_5_NUMPAD.md)。
 
 ## 阶段状态
 
@@ -186,6 +191,8 @@ H 本机分发结果：
 - 24／72 小时长测尚未执行；首版仍定位公开测试版本，不宣称长期稳定。
 
 ## 下一步
+
+开发工作树继续按[触控板 Stage 5 任务](../tasks/TOUCHPAD_STAGE_5_NUMPAD.md)验证数字送达、模式生命周期和盲输。
 
 保持已发布 tag 和附件不变，按 [`../tasks/POST_RELEASE_SOAK.md`](../tasks/POST_RELEASE_SOAK.md) 执行
 当前活动任务 G-POST。先准备可跨进程重启、睡眠和多 session 的低频采样工具，再使用真正发布的 ZIP

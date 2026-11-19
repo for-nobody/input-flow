@@ -7,7 +7,7 @@ pub(super) const MAX_SEGMENTS: usize = 16_384;
 type Pixel = (i32, i32);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Rect {
+pub(in crate::platform) struct Rect {
     pub left: i32,
     pub top: i32,
     pub right: i32,

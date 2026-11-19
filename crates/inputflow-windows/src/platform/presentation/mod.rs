@@ -1,6 +1,6 @@
 //! Agent-owned presentation state. Only the touchpad message thread owns windows.
-mod overlay;
-mod session;
+pub(super) mod overlay;
+pub(super) mod session;
 
 use std::collections::VecDeque;
 use std::sync::Mutex;
@@ -438,6 +438,8 @@ impl Presenter {
             reason
         } else if !value.enabled {
             "disabled"
+        } else if super::numpad::is_active() {
+            "numpad_active"
         } else if blocked {
             "paused"
         } else if !device_available {

@@ -6,8 +6,10 @@
 //! human-readable problems, so the caller can start in bypass (NFR-03).
 
 mod config;
+mod numpad;
 mod presentation;
 
+pub use numpad::{NumpadConfig, NumpadGuide};
 pub use presentation::{MovementMode, PresentationConfig, Preset, Style, parse_color};
 
 pub use config::{

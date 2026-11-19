@@ -67,7 +67,7 @@ unsafe extern "system" fn add_display(
 const CLASS: windows_sys::core::PCWSTR = w!("InputFlowPresentationOverlay");
 const MAX_PIXELS: usize = 16 * 1024 * 1024;
 
-pub(super) struct Overlay {
+pub(in crate::platform) struct Overlay {
     window: HWND,
     dc: HDC,
     bitmap: HBITMAP,
@@ -172,7 +172,7 @@ impl Overlay {
         Ok(overlay)
     }
 
-    pub fn render(
+    pub(super) fn render(
         &mut self,
         dirty: Rect,
         ink: &[Segment],
@@ -218,33 +218,54 @@ impl Overlay {
         canvas.fill_rect(clip, 0xd0101010);
         let digits = number.to_string();
         for (column, digit) in digits.bytes().enumerate() {
-            const MASKS: [u8; 10] = [0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f];
-            let mask = MASKS[usize::from(digit - b'0')];
             let x = (self.width - digits.len() as i32 * 26) / 2 + column as i32 * 26;
             let y = (self.height - 38) / 2;
-            for (i, (left, top, right, bottom)) in [
-                (3, 0, 20, 4),
-                (19, 3, 23, 19),
-                (19, 19, 23, 35),
-                (3, 34, 20, 38),
-                (0, 19, 4, 35),
-                (0, 3, 4, 19),
-                (3, 17, 20, 21),
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                if mask & (1 << i) != 0 {
-                    canvas.fill_rect(
-                        Rect {
-                            left: x + left,
-                            top: y + top,
-                            right: x + right,
-                            bottom: y + bottom,
-                        },
-                        0xffffffff,
-                    );
-                }
+            canvas.digit(digit - b'0', x, y);
+        }
+        self.present(clip)
+    }
+
+    pub(in crate::platform) fn numpad(&mut self, highlight: Option<u8>) -> io::Result<()> {
+        use inputflow_touchpad::numpad::{DIGITS, HEIGHT, WIDTH, cell_bounds};
+
+        let clip = Rect {
+            left: 0,
+            top: 0,
+            right: self.width,
+            bottom: self.height,
+        };
+        // SAFETY: The DIB buffer belongs to this overlay and is bounded at creation.
+        let pixels =
+            unsafe { slice::from_raw_parts_mut(self.bits, (self.width * self.height) as usize) };
+        let mut canvas = Canvas {
+            pixels,
+            width: self.width as usize,
+            clip,
+        };
+        canvas.fill_rect(clip, 0xf0131720);
+        for (row, digits) in DIGITS.iter().enumerate() {
+            for (column, &digit) in digits.iter().enumerate() {
+                let Some(digit) = digit else { continue };
+                let [left, top, right, bottom] = cell_bounds(row, column);
+                let x = |unit| 8 + unit * (self.width - 16) / WIDTH;
+                let y = |unit| 8 + unit * (self.height - 16) / HEIGHT;
+                let rect = Rect {
+                    left: x(left),
+                    top: y(top),
+                    right: x(right),
+                    bottom: y(bottom),
+                };
+                let color = if highlight == Some(digit) {
+                    0xff185ab9
+                } else {
+                    0xff313847
+                };
+                canvas.fill_rect(rect, color);
+                canvas.digit(
+                    digit,
+                    (rect.left + rect.right - 23) / 2,
+                    (rect.top + rect.bottom - 38) / 2,
+                );
             }
         }
         self.present(clip)
@@ -346,6 +367,35 @@ struct Canvas<'a> {
 }
 
 impl Canvas<'_> {
+    fn digit(&mut self, digit: u8, x: i32, y: i32) {
+        const MASKS: [u8; 10] = [0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f];
+        let mask = MASKS[usize::from(digit)];
+        for (i, (left, top, right, bottom)) in [
+            (3, 0, 20, 4),
+            (19, 3, 23, 19),
+            (19, 19, 23, 35),
+            (3, 34, 20, 38),
+            (0, 19, 4, 35),
+            (0, 3, 4, 19),
+            (3, 17, 20, 21),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if mask & (1 << i) != 0 {
+                self.fill_rect(
+                    Rect {
+                        left: x + left,
+                        top: y + top,
+                        right: x + right,
+                        bottom: y + bottom,
+                    },
+                    0xffffffff,
+                );
+            }
+        }
+    }
+
     fn fill_rect(&mut self, bounds: Rect, color: u32) {
         let Some(bounds) = bounds.intersect(self.clip) else {
             return;

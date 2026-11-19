@@ -128,10 +128,11 @@ impl ProtocolHandler for AgentProtocolHandler {
             schema_version: current_schema_version(),
             capabilities: vec![
                 "status".to_string(),
-                "config_v6".to_string(),
+                format!("config_v{}", current_schema_version()),
                 "touch_click".to_string(),
                 "key_double_tap".to_string(),
                 "presentation_pointer".to_string(),
+                "touchpad_numpad".to_string(),
                 "validate_apply".to_string(),
                 "pause_resume".to_string(),
                 "stats".to_string(),
@@ -408,6 +409,17 @@ fn status_dto(status: &RuntimeStatus) -> StatusResult {
         apply_reconciliation: apply_reconciliation.to_string(),
         reconciliation_request_id,
         last_error: status.last_error.clone(),
+        numpad: Some(inputflow_protocol::NumpadStatusResult {
+            configured: status.numpad.configured,
+            phase: status.numpad.phase.to_owned(),
+            reason: status.numpad.reason.to_owned(),
+            reports: status.numpad.reports,
+            confirmed: status.numpad.confirmed,
+            cancelled: status.numpad.cancelled,
+            requested_inputs: status.numpad.requested_inputs,
+            inserted_inputs: status.numpad.inserted_inputs,
+            last_cancel: status.numpad.last_cancel.map(str::to_owned),
+        }),
         touchpad: Some(inputflow_protocol::TouchpadStatusResult {
             experimental_enabled: status.touchpad.experimental_enabled,
             click_enabled: status.touchpad.click_enabled,
@@ -581,6 +593,7 @@ mod tests {
             last_error: None,
             touchpad: Default::default(),
             presentation: Default::default(),
+            numpad: Default::default(),
         };
         let wire = status_dto(&status);
         assert_eq!(wire.phase, "ready");

@@ -171,6 +171,22 @@ pub struct StatusResult {
     pub touchpad: Option<TouchpadStatusResult>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub presentation: Option<PresentationStatusResult>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub numpad: Option<NumpadStatusResult>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NumpadStatusResult {
+    pub configured: bool,
+    pub phase: String,
+    pub reason: String,
+    pub reports: u64,
+    pub confirmed: u64,
+    pub cancelled: u64,
+    pub requested_inputs: u64,
+    pub inserted_inputs: u64,
+    pub last_cancel: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

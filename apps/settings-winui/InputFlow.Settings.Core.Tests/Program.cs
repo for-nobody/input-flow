@@ -88,6 +88,30 @@ Run("draft never mutates formal snapshot", () =>
     Assert(session.FormalSnapshot.Rules[0].Enabled, "formal snapshot was mutated through the draft");
 });
 
+Run("numpad v7 edits survive hiding and v6 keeps its wire shape", () =>
+{
+    ConfigDocument legacy = ParseFixture(root, "v4-valid.json") with { SchemaVersion = 6 };
+    var session = new DraftSession();
+    session.Load(legacy);
+    session.SetNumpad(NumpadDocument.CreateDefault() with { Enabled = true });
+    Assert(!session.IsDirty && !ConfigCodec.ToJsonElement(session.Draft).TryGetProperty("numpad", out _),
+        "Settings must not send a v7 field to a v6 Agent");
+    var configured = NumpadDocument.CreateDefault() with
+    {
+        Enabled = true,
+        Start = new DoubleTapTrigger(KeyIdentity.Physical(67, false)),
+        Guide = NumpadGuide.Always,
+    };
+    session.Load(legacy with { SchemaVersion = 7, Touchpad = new TouchpadDocument { ExperimentalEnabled = true } });
+    session.SetNumpad(configured);
+    session.SetTouchpad(session.Draft.Touchpad with { ExperimentalEnabled = false });
+    session.SetRuleEnabled(legacy.Rules[0].Id, false);
+    var readback = Parse(ConfigCodec.ToJsonElement(session.Draft));
+    Assert(readback.Numpad == configured, "hidden numpad configuration was lost");
+    Assert(readback.EnabledRuleCount == legacy.EnabledRuleCount - 1, "numpad bindings changed ordinary rule count");
+    Assert(!session.FormalSnapshot.Numpad.Enabled, "editing the numpad mutated the formal snapshot");
+});
+
 await RunAsync("save validates, applies, and reads back", async () =>
 {
     ConfigDocument baseline = ParseFixture(root, "v3-valid.json");

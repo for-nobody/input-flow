@@ -17,7 +17,9 @@ use std::time::Instant;
 
 use crate::event::{InputEvent, InputSource, Key, MouseButton, MouseKind};
 use crate::pending::PendingQueue;
-use crate::rules::{Action, ChordScope, MouseDirection, MouseDirectionGroup, RuleIndex};
+use crate::rules::{
+    Action, ChordScope, ModeAvailability, MouseDirection, MouseDirectionGroup, RuleIndex,
+};
 use crate::state::{KeyState, MouseState};
 
 /// How to handle the current event.
@@ -197,8 +199,7 @@ pub struct Matcher {
     index: RuleIndex,
     active: Option<Active>,
     double_tap: Option<DoubleTap>,
-    presentation_ready: bool,
-    presenting: bool,
+    modes: ModeAvailability,
     recording: bool,
     paused: bool,
     bypassed: bool,
@@ -215,8 +216,7 @@ impl Matcher {
             index,
             active: None,
             double_tap: None,
-            presentation_ready: false,
-            presenting: false,
+            modes: ModeAvailability::default(),
             recording: false,
             paused: false,
             bypassed: false,
@@ -531,23 +531,21 @@ impl Matcher {
         }
     }
 
-    pub fn set_presentation_state(&mut self, ready: bool, active: bool) {
-        if (self.presentation_ready, self.presenting) != (ready, active) {
+    pub fn set_mode_availability(&mut self, modes: ModeAvailability) {
+        if self.modes != modes {
             if self.double_tap.is_some_and(|tap| {
                 self.index.double_tap(tap.key).is_some_and(|(_, action)| {
-                    action.available(self.presentation_ready, self.presenting)
-                        && !action.available(ready, active)
+                    action.available(self.modes) && !action.available(modes)
                 })
             }) {
                 self.discard_double_tap();
             }
-            self.presentation_ready = ready;
-            self.presenting = active;
+            self.modes = modes;
         }
     }
 
     fn action_available(&self, action: &Action) -> bool {
-        action.available(self.presentation_ready, self.presenting)
+        action.available(self.modes)
     }
 
     /// Set or clear the internal overflow-bypass flag. Setting it true also
@@ -691,7 +689,7 @@ impl Matcher {
             return Some(self.start_direction(key, tracking_key, event, x, y, group));
         }
         self.index
-            .chord_scope(key, self.presentation_ready, self.presenting)
+            .chord_scope(key, self.modes)
             .map(|scope| self.start_chord(key, tracking_key, scope, event))
     }
 
@@ -931,7 +929,7 @@ impl Matcher {
         tracking_key: Key,
         event: InputEvent,
     ) -> (Decision, Resolution) {
-        if self.presentation_chord_buffer_full() {
+        if self.mode_chord_buffer_full() {
             return self.cancel_active_and_pass(event);
         }
         if event.is_key_up() {
@@ -1159,7 +1157,7 @@ impl Matcher {
     /// first-key events followed by this input, in order, so the target sees the
     /// original order.
     fn fail_active(&mut self, event: InputEvent) -> (Decision, Resolution) {
-        if self.presentation_chord_buffer_full() {
+        if self.mode_chord_buffer_full() {
             return self.cancel_active_and_pass(event);
         }
         if self.pending.push(event).is_err() {
@@ -1176,14 +1174,14 @@ impl Matcher {
         )
     }
 
-    fn presentation_chord_buffer_full(&self) -> bool {
-        // A held presentation modifier can generate a long series of repeats.
+    fn mode_chord_buffer_full(&self) -> bool {
+        // A modifier bound to a mode can generate a long series of repeats.
         // Release only this candidate before it would suspend the whole Agent.
         self.pending.is_full()
             && matches!(
                 self.active,
                 Some(Active::Chording(ActiveChord {
-                    scope: ChordScope::PresentationOnly,
+                    scope: ChordScope::ModeOnly,
                     ..
                 }))
             )
@@ -1348,6 +1346,60 @@ mod tests {
     }
 
     #[test]
+    fn numpad_entry_needs_readiness_and_exit_needs_an_active_session() {
+        use crate::NumpadAction;
+
+        let clock = ManualClock::new(0);
+        let mode_rule = |key, operation| Rule {
+            id: format!("numpad.{operation:?}"),
+            trigger: Trigger::DoubleTap { key },
+            action: Action::Numpad(operation),
+        };
+        let mut matcher = matcher_with(
+            clock.clone(),
+            vec![
+                mode_rule(Key::F9, NumpadAction::Start),
+                mode_rule(Key::F10, NumpadAction::Stop),
+            ],
+            16,
+        );
+        assert_eq!(
+            matcher.on_event(down(1, 0, Key::F9)).0,
+            Decision::PassThrough
+        );
+        matcher.on_event(up(2, 10, Key::F9));
+        matcher.set_mode_availability(ModeAvailability {
+            numpad_ready: true,
+            ..Default::default()
+        });
+        assert_eq!(
+            matcher.on_event(down(3, 20, Key::F10)).0,
+            Decision::PassThrough
+        );
+        matcher.on_event(up(4, 30, Key::F10));
+        for (key, active) in [(Key::F9, false), (Key::F10, true)] {
+            matcher.set_mode_availability(ModeAvailability {
+                numpad_ready: true,
+                numpad_active: active,
+                ..Default::default()
+            });
+            assert!(matches!(
+                matcher.on_event(down(5, 40, key)).0,
+                Decision::Suppress { .. }
+            ));
+            clock.advance(20);
+            matcher.on_event(up(6, 60, key));
+            clock.advance(30);
+            matcher.on_event(down(7, 90, key));
+            clock.advance(20);
+            assert!(matches!(
+                matcher.on_event(up(8, 110, key)).1,
+                Resolution::Matched { .. }
+            ));
+        }
+    }
+
+    #[test]
     fn presentation_only_prefixes_pass_before_the_session_and_capture_cancels_candidates() {
         let clock = ManualClock::new(0);
         let mut matcher = matcher_with(
@@ -1369,7 +1421,10 @@ mod tests {
             ],
             16,
         );
-        matcher.set_presentation_state(true, false);
+        matcher.set_mode_availability(ModeAvailability {
+            presentation_ready: true,
+            ..Default::default()
+        });
         assert_eq!(
             matcher.on_event(down(1, 0, Key::LeftAlt)).0,
             Decision::PassThrough
@@ -1389,7 +1444,11 @@ mod tests {
         );
         matcher.on_event(up(6, 20, Key::LeftCtrl));
         matcher.set_recording(false);
-        matcher.set_presentation_state(true, true);
+        matcher.set_mode_availability(ModeAvailability {
+            presentation_ready: true,
+            presentation_active: true,
+            ..Default::default()
+        });
         assert!(matches!(
             matcher.on_event(down(7, 25, Key::LeftAlt)).0,
             Decision::Suppress { .. }
@@ -1414,7 +1473,11 @@ mod tests {
             }],
             2,
         );
-        matcher.set_presentation_state(true, true);
+        matcher.set_mode_availability(ModeAvailability {
+            presentation_ready: true,
+            presentation_active: true,
+            ..Default::default()
+        });
         let alt = down(1, 0, Key::LeftAlt);
         let first_repeat = repeat(2, 300, Key::LeftAlt);
         matcher.on_event(alt);

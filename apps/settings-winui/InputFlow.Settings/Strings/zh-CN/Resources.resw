@@ -490,4 +490,34 @@
   <data name="Presentation_DrawingStatus" xml:space="preserve"><value>正在绘画。抬手结束当前一笔。</value></data>
   <data name="PresentationMoveUp.Content" xml:space="preserve"><value>上移</value></data>
   <data name="PresentationMoveDown.Content" xml:space="preserve"><value>下移</value></data>
+  <data name="NumpadEnabled.Header" xml:space="preserve"><value>触控板数字键盘</value></data>
+  <data name="NumpadEnabled.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>允许使用触控板数字键盘</value></data>
+  <data name="NumpadTitle.Text" xml:space="preserve"><value>触控板数字键盘</value></data>
+  <data name="NumpadGuideChoice.Header" xml:space="preserve"><value>屏幕提示</value></data>
+  <data name="NumpadGuideChoice.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>数字键盘屏幕提示</value></data>
+  <data name="NumpadGuideAlways.Content" xml:space="preserve"><value>始终显示</value></data>
+  <data name="NumpadGuideTwoSeconds.Content" xml:space="preserve"><value>显示 2 秒</value></data>
+  <data name="NumpadGuideFirstInput.Content" xml:space="preserve"><value>显示到第一次成功输入</value></data>
+  <data name="NumpadGuideNever.Content" xml:space="preserve"><value>不显示</value></data>
+  <data name="Numpad_Start" xml:space="preserve"><value>进入数字键盘</value></data>
+  <data name="Numpad_Stop" xml:space="preserve"><value>退出数字键盘</value></data>
+  <data name="Numpad_Ready" xml:space="preserve"><value>已就绪。使用进入快捷键开启数字键盘。</value></data>
+  <data name="Numpad_Active" xml:space="preserve"><value>数字键盘运行中。用退出快捷键或 Esc 结束。</value></data>
+  <data name="Numpad_Disabled" xml:space="preserve"><value>Agent 尚未启用数字键盘。</value></data>
+  <data name="Numpad_NativeTap" xml:space="preserve"><value>请关闭 Windows「单指轻点以单击」后使用数字键盘。</value></data>
+  <data name="Numpad_NativeTapUnknown" xml:space="preserve"><value>Agent 无法确认 Windows 单指轻点设置，数字输出已停用。</value></data>
+  <data name="Numpad_PresentationActive" xml:space="preserve"><value>请先退出演示激光笔，再进入数字键盘。</value></data>
+  <data name="Numpad_FocusUnavailable" xml:space="preserve"><value>请将键盘焦点放在要输入数字的控件上。</value></data>
+  <data name="Numpad_FocusWatchUnavailable" xml:space="preserve"><value>Windows 焦点监测不可用，数字输出已停用。</value></data>
+  <data name="Numpad_OverlayFailed" xml:space="preserve"><value>无法打开或绘制数字键盘提示。</value></data>
+  <data name="Numpad_OutputFault" xml:space="preserve"><value>数字输出失败。排查后可重新应用配置或重启 Agent。</value></data>
+  <data name="Numpad_DeviceUnavailable" xml:space="preserve"><value>数字键盘需要可观察物理按压状态的兼容精确式触控板。</value></data>
+  <data name="Numpad_Paused" xml:space="preserve"><value>Agent 已暂停。恢复后可使用数字键盘。</value></data>
+  <data name="Numpad_Recording" xml:space="preserve"><value>请结束快捷键录制后再进入数字键盘。</value></data>
+  <data name="Numpad_RecoveryWaiting" xml:space="preserve"><value>请先恢复 Agent，完成恢复流程后再使用数字键盘。</value></data>
+  <data name="Numpad_SessionInactive" xml:space="preserve"><value>请解锁或唤醒 Windows 后使用数字键盘。</value></data>
+  <data name="Numpad_Unavailable" xml:space="preserve"><value>当前会话无法使用数字键盘。</value></data>
+  <data name="Numpad_Counts" xml:space="preserve"><value>确认接触 {0} · 取消 {1} · 插入按键事件 {2}</value></data>
+  <data name="Touchpad_NumpadActive" xml:space="preserve"><value>数字键盘工作期间暂停触控点击。</value></data>
+  <data name="Presentation_NumpadActive" xml:space="preserve"><value>请先退出数字键盘，再开启演示激光笔。</value></data>
 </root>

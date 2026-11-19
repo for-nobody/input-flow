@@ -5,7 +5,7 @@ edition = "2024"
 license = "MIT"
 
 [dependencies]
-windows-sys = { workspace = true, features = ["Win32_System_Registry", "Win32_UI_Input"] }
+windows-sys = { workspace = true, features = ["Win32_System_Registry", "Win32_UI_Accessibility", "Win32_UI_Input"] }
 inputflow-engine = { path = "../inputflow-engine" }
 inputflow-config = { path = "../inputflow-config" }
 inputflow-touchpad = { path = "../inputflow-touchpad" }

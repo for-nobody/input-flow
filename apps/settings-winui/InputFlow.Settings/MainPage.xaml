@@ -106,6 +106,7 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         <Border x:Name="TouchClickSection" Padding="12" Margin="0,0,0,8" Visibility="Collapsed" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="6">
@@ -137,7 +138,25 @@
                                 <Button x:Uid="PresentationEditButton" Grid.Column="1" Click="PresentationEdit_Click" />
                             </Grid>
                         </Border>
-                        <ListView x:Name="RulesList" x:Uid="RulesList" Grid.Row="2" IsItemClickEnabled="False" SelectionMode="None">
+                        <Border x:Name="NumpadCard" Grid.Row="2" Visibility="Collapsed" Padding="12" Margin="0,0,0,8"
+                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6">
+                            <StackPanel Spacing="6">
+                                <TextBlock x:Uid="NumpadTitle" FontWeight="SemiBold" />
+                                <TextBlock x:Name="NumpadState" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+                                <TextBlock x:Name="NumpadCounts" TextWrapping="Wrap" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button x:Name="NumpadStart" Click="NumpadBinding_Click" />
+                                    <Button x:Name="NumpadStop" Click="NumpadBinding_Click" />
+                                </StackPanel>
+                                <ComboBox x:Name="NumpadGuideChoice" x:Uid="NumpadGuideChoice" SelectionChanged="NumpadGuide_Changed">
+                                    <ComboBoxItem x:Uid="NumpadGuideAlways" />
+                                    <ComboBoxItem x:Uid="NumpadGuideTwoSeconds" />
+                                    <ComboBoxItem x:Uid="NumpadGuideFirstInput" />
+                                    <ComboBoxItem x:Uid="NumpadGuideNever" />
+                                </ComboBox>
+                            </StackPanel>
+                        </Border>
+                        <ListView x:Name="RulesList" x:Uid="RulesList" Grid.Row="3" IsItemClickEnabled="False" SelectionMode="None">
                             <ListView.ItemTemplate>
                                 <DataTemplate>
                                     <Border Margin="0,0,0,8" Padding="12" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6">
@@ -164,8 +183,8 @@
                                 </DataTemplate>
                             </ListView.ItemTemplate>
                         </ListView>
-                        <TextBlock x:Name="EmptyRulesText" x:Uid="EmptyRulesText" Grid.Row="2" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="Collapsed" />
-                        <ScrollViewer x:Name="PresentationEditor" Grid.RowSpan="3" Visibility="Collapsed"
+                        <TextBlock x:Name="EmptyRulesText" x:Uid="EmptyRulesText" Grid.Row="3" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="Collapsed" />
+                        <ScrollViewer x:Name="PresentationEditor" Grid.RowSpan="4" Visibility="Collapsed"
                                       Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" HorizontalScrollBarVisibility="Disabled">
                             <StackPanel Spacing="10" Padding="6">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
@@ -306,6 +325,7 @@
                             <TextBlock x:Uid="TouchpadExperimentTitle" FontSize="18" FontWeight="SemiBold" />
                             <ToggleSwitch x:Name="TouchpadExperimentEnabled" x:Uid="TouchpadExperimentEnabled" Toggled="TouchpadExperimentEnabled_Toggled" />
                             <ToggleSwitch x:Name="PresentationEnabled" x:Uid="PresentationEnabled" Visibility="Collapsed" Toggled="PresentationEnabled_Toggled" />
+                            <ToggleSwitch x:Name="NumpadEnabled" x:Uid="NumpadEnabled" Visibility="Collapsed" Toggled="NumpadEnabled_Toggled" />
                             <TextBlock x:Uid="TouchpadExperimentHelp" TextWrapping="Wrap" />
                             <TextBlock x:Name="TouchpadExperimentStatus" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
                             <Button x:Name="TouchpadSaveButton" x:Uid="TouchpadSaveButton" Click="Save_Click" HorizontalAlignment="Left" />

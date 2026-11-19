@@ -116,6 +116,16 @@ public sealed class DraftSession
         }
     }
 
+    public void SetNumpad(NumpadDocument numpad)
+    {
+        EnsureLoaded();
+        if (_draft!.SchemaVersion >= 7 && _draft.Numpad != numpad)
+        {
+            _draft = _draft with { Numpad = numpad };
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
     private void EnsureLoaded()
     {
         if (!IsLoaded)

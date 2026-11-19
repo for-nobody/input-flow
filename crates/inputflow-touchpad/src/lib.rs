@@ -2,5 +2,6 @@
 pub mod contact;
 pub mod gesture;
 pub mod hid;
+pub mod numpad;
 pub mod output;
 pub mod raw;

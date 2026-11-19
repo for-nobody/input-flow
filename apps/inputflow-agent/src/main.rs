@@ -28,6 +28,7 @@ struct Args {
     settings_path: Option<PathBuf>,
     debug_input: bool,
     observe_touchpad: bool,
+    observe_numpad: bool,
     no_tray: bool,
     run_for: Option<Duration>,
     smoke_iterations: Option<usize>,
@@ -138,6 +139,7 @@ fn run_agent(args: Args, log: &Arc<AgentLog>) -> Result<(), String> {
     options.config_path = args.config_path;
     options.debug_input = args.debug_input;
     options.observe_touchpad = args.observe_touchpad;
+    options.observe_numpad = args.observe_numpad;
 
     let (runtime, start) = Runtime::start(options)?;
     let runtime = Arc::new(runtime);
@@ -180,6 +182,11 @@ fn run_agent(args: Args, log: &Arc<AgentLog>) -> Result<(), String> {
         std::thread::sleep(duration);
     }
 
+    if args.observe_numpad {
+        let status = runtime.status().numpad;
+        log.write("INFO", &format!("numpad_observe_summary reports={} confirmed={} cancelled={} requested={} inserted={}",
+            status.reports, status.confirmed, status.cancelled, status.requested_inputs, status.inserted_inputs));
+    }
     ipc.shutdown()?;
     let shutdown = runtime.shutdown();
     log.write(
@@ -315,6 +322,7 @@ fn parse_args(arguments: impl IntoIterator<Item = String>) -> Result<ParseResult
     let mut settings_path = None;
     let mut debug_input = false;
     let mut observe_touchpad = false;
+    let mut observe_numpad = false;
     let mut no_tray = false;
     let mut run_for = None;
     let mut smoke_iterations = None;
@@ -340,6 +348,7 @@ fn parse_args(arguments: impl IntoIterator<Item = String>) -> Result<ParseResult
             }
             "--debug-input" => debug_input = true,
             "--observe-touchpad" => observe_touchpad = true,
+            "--observe-numpad" => observe_numpad = true,
             "--no-tray" => no_tray = true,
             "--run-for-ms" => {
                 index += 1;
@@ -371,6 +380,7 @@ fn parse_args(arguments: impl IntoIterator<Item = String>) -> Result<ParseResult
         settings_path,
         debug_input,
         observe_touchpad,
+        observe_numpad,
         no_tray,
         run_for,
         smoke_iterations,
@@ -396,6 +406,7 @@ fn print_usage() {
     println!("usage: inputflow-agent [--config PATH] [--settings PATH] [--debug-input] [--help]");
     println!("  --debug-input             opt in to per-input local diagnostics");
     println!("  --observe-touchpad        read-only touchpad recognition diagnostics");
+    println!("  --observe-numpad          read-only digit recognition diagnostics");
     println!("  --run-for-ms N            exit after N milliseconds (verification)");
     println!("  --smoke[-iterations N]    exercise lifecycle operations (verification)");
     println!("  --no-tray                 verification only; requires a bounded run mode");

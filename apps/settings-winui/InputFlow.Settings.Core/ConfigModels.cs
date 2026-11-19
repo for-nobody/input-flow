@@ -173,7 +173,7 @@ public sealed record TouchpadDocument
 
 public sealed record ConfigDocument
 {
-    public const uint CurrentSchemaVersion = 6;
+    public const uint CurrentSchemaVersion = 7;
     public const uint CompatibleSchemaVersion = 4;
 
     public uint SchemaVersion { get; init; } = CurrentSchemaVersion;
@@ -183,6 +183,7 @@ public sealed record ConfigDocument
     public required List<RuleDocument> Rules { get; init; }
     public TouchpadDocument Touchpad { get; init; } = new();
     public PresentationDocument Presentation { get; init; } = PresentationDocument.CreateDefault();
+    public NumpadDocument Numpad { get; init; } = NumpadDocument.CreateDefault();
 
     public ConfigDocument DeepCopy() => new()
     {
@@ -191,6 +192,7 @@ public sealed record ConfigDocument
         Rules = Rules.Select(rule => rule.DeepCopy()).ToList(),
         Touchpad = Touchpad,
         Presentation = Presentation.DeepCopy(),
+        Numpad = Numpad,
     };
 
     public int EnabledRuleCount => Rules.Count(rule => rule.Enabled);
@@ -247,6 +249,8 @@ public static class ConfigCodec
             Touchpad = touchpad,
             Presentation = sourceVersion >= 6 && root.TryGetProperty("presentation", out JsonElement presentation)
                 ? PresentationCodec.Parse(presentation) : PresentationDocument.CreateDefault(),
+            Numpad = sourceVersion >= 7 && root.TryGetProperty("numpad", out JsonElement numpad)
+                ? NumpadDocument.Parse(numpad) : NumpadDocument.CreateDefault(),
         };
     }
 
@@ -306,6 +310,11 @@ public static class ConfigCodec
         {
             writer.WritePropertyName("presentation");
             PresentationCodec.Write(writer, config.Presentation);
+        }
+        if (config.SchemaVersion >= 7)
+        {
+            writer.WritePropertyName("numpad");
+            config.Numpad.Write(writer);
         }
         writer.WriteEndObject();
         writer.Flush();

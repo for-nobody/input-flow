@@ -1,7 +1,7 @@
 # InputFlow 文档索引
 
 > 文档状态：当前索引
-> 最后更新：2026-11-19（Australia/Brisbane）
+> 最后更新：2026-11-20（Australia/Brisbane）
 
 本文是仓库文档的唯一入口。项目的详细进度只记录在
 [`status/CURRENT_STATUS.md`](status/CURRENT_STATUS.md)；历史文件不能作为当前状态依据。
@@ -23,6 +23,7 @@
 13. [`decisions/`](decisions/)：已接受的架构决策。
 14. [触控板 Touch Click 集成任务](tasks/TOUCHPAD_STAGE_3_TOUCH_CLICK_INTEGRATION.md)与[实机记录](records/TOUCHPAD_STAGE_3_TOUCH_CLICK.md)。
 15. [触控板演示激光笔、同键双击任务](tasks/TOUCHPAD_STAGE_4_PRESENTATION_POINTER.md)与[验证记录](records/TOUCHPAD_STAGE_4_PRESENTATION_POINTER.md)。
+16. [触控板数字键盘任务](tasks/TOUCHPAD_STAGE_5_NUMPAD.md)与[实施和验证记录](records/TOUCHPAD_STAGE_5_NUMPAD.md)。
 
 ## 目录职责
 

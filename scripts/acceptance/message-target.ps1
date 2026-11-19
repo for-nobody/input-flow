@@ -2,7 +2,10 @@
 param(
     [Parameter(Mandatory)]
     [string]$LogPath,
-    [string]$Title = 'InputFlow Acceptance Target'
+    [string]$Title = 'InputFlow Acceptance Target',
+    [switch]$Numpad,
+    [ValidateRange(0, 3600000)]
+    [int]$RunForMilliseconds = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -46,9 +49,12 @@ public sealed class InputFlowAcceptanceTarget : Form
     private readonly StreamWriter log;
     private readonly Label lastEvent;
     private readonly bool elevated;
+    private readonly TextBox leftBox;
+    private readonly TextBox rightBox;
+    private bool trial;
     private long sequence;
 
-    private InputFlowAcceptanceTarget(string logPath, string title, bool elevated)
+    private InputFlowAcceptanceTarget(string logPath, string title, bool elevated, bool numpad, int runForMilliseconds)
     {
         this.elevated = elevated;
         Text = title;
@@ -99,6 +105,34 @@ public sealed class InputFlowAcceptanceTarget : Form
         Controls.Add(instructions);
         Controls.Add(lastEvent);
 
+        if (numpad)
+        {
+            instructions.Height = 100;
+            instructions.Text = "Focus the left box. Move the pointer over the right box without clicking.\r\n" +
+                "F6 marks the start or end of one trial. F7 clears both boxes and focuses the left one.\r\n" +
+                "Use test digits only. Tab changes focus within this window.";
+            leftBox = CreateBox("left", 30, 0);
+            rightBox = CreateBox("right", 398, 1);
+            Controls.Add(leftBox);
+            Controls.Add(rightBox);
+            KeyDown += delegate(object sender, KeyEventArgs args)
+            {
+                if (args.KeyCode == Keys.F6)
+                {
+                    trial = !trial;
+                    Write(trial ? "TRIAL_START" : "TRIAL_END", 0, IntPtr.Zero, IntPtr.Zero);
+                    args.SuppressKeyPress = true;
+                }
+                else if (args.KeyCode == Keys.F7)
+                {
+                    leftBox.Clear();
+                    rightBox.Clear();
+                    leftBox.Focus();
+                    args.SuppressKeyPress = true;
+                }
+            };
+        }
+
         var menu = new ContextMenuStrip();
         menu.Items.Add("Target context menu is open");
         ContextMenuStrip = menu;
@@ -116,16 +150,53 @@ public sealed class InputFlowAcceptanceTarget : Form
             Focus();
             BringToFront();
             SetForegroundWindow(Handle);
+            if (leftBox != null) leftBox.Focus();
             Write("SHOWN", 0, Handle, new IntPtr(Visible ? 1 : 0));
         };
         FormClosed += delegate { Write("STOP", 0, IntPtr.Zero, IntPtr.Zero); log.Dispose(); };
+        if (runForMilliseconds > 0)
+        {
+            var stop = new System.Windows.Forms.Timer { Interval = runForMilliseconds };
+            stop.Tick += delegate { stop.Dispose(); Close(); };
+            FormClosed += delegate { stop.Dispose(); };
+            Shown += delegate { stop.Start(); };
+        }
     }
 
-    public static void Run(string logPath, string title, bool elevated)
+    private TextBox CreateBox(string name, int left, int index)
+    {
+        var box = new ObservedBox
+        {
+            Left = left, Top = 182, Width = 352, TabIndex = index,
+            AccessibleName = name + " test input", MaxLength = 100,
+            Font = new Font(SystemFonts.MessageBoxFont.FontFamily, 16)
+        };
+        box.Observed = delegate(Message message)
+        {
+            Write(NameOf(message.Msg), message.Msg, message.WParam, message.LParam, name);
+        };
+        box.Enter += delegate { Write("FOCUS_ENTER", 0, IntPtr.Zero, IntPtr.Zero, name); };
+        box.Leave += delegate { Write("FOCUS_LEAVE", 0, IntPtr.Zero, IntPtr.Zero, name); };
+        box.TextChanged += delegate { Write("TEXT_CHANGED", 0, IntPtr.Zero, IntPtr.Zero, name); };
+        return box;
+    }
+
+    private sealed class ObservedBox : TextBox
+    {
+        public Action<Message> Observed;
+
+        protected override void WndProc(ref Message message)
+        {
+            if (Observed != null && IsRecordedMessage(message.Msg)) Observed(message);
+            base.WndProc(ref message);
+        }
+    }
+
+    public static void Run(string logPath, string title, bool elevated, bool numpad, int runForMilliseconds)
     {
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
-        Application.Run(new InputFlowAcceptanceTarget(logPath, title, elevated));
+        Application.Run(new InputFlowAcceptanceTarget(logPath, title, elevated, numpad, runForMilliseconds));
     }
 
     protected override void WndProc(ref Message message)
@@ -162,7 +233,7 @@ public sealed class InputFlowAcceptanceTarget : Form
         }
     }
 
-    private void Write(string kind, int message, IntPtr wParam, IntPtr lParam)
+    private void Write(string kind, int message, IntPtr wParam, IntPtr lParam, string target = "window")
     {
         long id = Interlocked.Increment(ref sequence);
         Point cursor = Cursor.Position;
@@ -183,11 +254,30 @@ public sealed class InputFlowAcceptanceTarget : Form
             Process.GetCurrentProcess().Id,
             elevated,
             GetMessageExtraInfo().ToInt64());
+        if (leftBox != null && rightBox != null)
+        {
+            string focus = leftBox.Focused ? "left" : rightBox.Focused ? "right" : "other";
+            line += string.Format("\ttarget={0}\tfocus={1}\tleft={2}\tright={3}\tleft_hwnd=0x{4:X}\tright_hwnd=0x{5:X}\tnum_lock={6}",
+                target, focus, Digits(leftBox.Text), Digits(rightBox.Text), ControlHandle(leftBox), ControlHandle(rightBox), IsKeyLocked(Keys.NumLock));
+        }
         log.WriteLine(line);
         if (!IsDisposed && IsHandleCreated)
         {
             lastEvent.Text = line.Replace("\t", Environment.NewLine);
         }
+    }
+
+    private static string Digits(string text)
+    {
+        var digits = new StringBuilder(text.Length);
+        foreach (char character in text)
+            digits.Append(character >= '0' && character <= '9' ? character : '?');
+        return digits.ToString();
+    }
+
+    private static long ControlHandle(Control control)
+    {
+        return control.IsHandleCreated ? control.Handle.ToInt64() : 0;
     }
 
     private static string NameOf(int message)
@@ -230,4 +320,4 @@ public sealed class InputFlowAcceptanceTarget : Form
 Add-Type -TypeDefinition $source -ReferencedAssemblies System.Windows.Forms.dll,System.Drawing.dll
 $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
 $isElevated = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-[InputFlowAcceptanceTarget]::Run($resolvedLog, $Title, $isElevated)
+[InputFlowAcceptanceTarget]::Run($resolvedLog, $Title, $isElevated, $Numpad.IsPresent, $RunForMilliseconds)

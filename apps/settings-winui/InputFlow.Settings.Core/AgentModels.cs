@@ -27,7 +27,8 @@ public sealed record AgentStatus(
     ulong? ReconciliationRequestId,
     string? LastError,
     TouchpadStatus? Touchpad = null,
-    PresentationStatus? Presentation = null)
+    PresentationStatus? Presentation = null,
+    NumpadStatus? Numpad = null)
 {
     public static AgentStatus Parse(JsonElement value) => new(
         RequiredString(value, "phase"),
@@ -48,10 +49,22 @@ public sealed record AgentStatus(
             : null,
         value.TryGetProperty("presentation", out JsonElement presentation) && presentation.ValueKind == JsonValueKind.Object
             ? PresentationStatus.Parse(presentation)
+            : null,
+        value.TryGetProperty("numpad", out JsonElement numpad) && numpad.ValueKind == JsonValueKind.Object
+            ? NumpadStatus.Parse(numpad)
             : null);
 
     private static string RequiredString(JsonElement value, string name) =>
         value.GetProperty(name).GetString() ?? throw new FormatException($"{name} must be a string");
+}
+
+public sealed record NumpadStatus(string Phase, string Reason, ulong Confirmed, ulong Cancelled, ulong InsertedInputs)
+{
+    public static NumpadStatus Parse(JsonElement value) => new(
+        value.GetProperty("phase").GetString() ?? "unknown",
+        value.GetProperty("reason").GetString() ?? "unknown",
+        value.GetProperty("confirmed").GetUInt64(), value.GetProperty("cancelled").GetUInt64(),
+        value.GetProperty("inserted_inputs").GetUInt64());
 }
 
 public sealed record PresentationDisplay(string Id, int Left, int Top, int Width, int Height, bool Primary);
