@@ -31,6 +31,10 @@ impl KeyState {
         self.physically_held.insert(key);
     }
 
+    pub(crate) fn any_physically_held(&self) -> bool {
+        !self.physically_held.is_empty()
+    }
+
     pub fn mark_physical_up(&mut self, key: Key) {
         self.physically_held.remove(&key);
     }
@@ -102,6 +106,10 @@ impl MouseState {
 
     pub fn mark_physical_down(&mut self, button: MouseButton) {
         self.physically_held.insert(button);
+    }
+
+    pub(crate) fn any_physically_held(&self) -> bool {
+        !self.physically_held.is_empty()
     }
 
     pub fn mark_physical_up(&mut self, button: MouseButton) {

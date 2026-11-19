@@ -1,6 +1,9 @@
 # InputFlow · Stage 3：将 Touch Click 作为实验功能接入 Agent 和规则设置
 
 **任务类型**　设计与开发任务卡 · **状态**　已接入，按[实机记录](../records/TOUCHPAD_STAGE_3_TOUCH_CLICK.md)核对验收范围
+
+**Stage 3 实验性 Touch Click 已实现，本机核心流程验收通过**
+
 **用户验收目标**　用户在「设置 → 实验功能」手动开启「触控板支持」后，才会在规则设置看到 Touch Click。启用 Touch Click 后，关闭设置窗口，在记事本或浏览器中，轻触板面任一侧都能左击，原地长触能右击。物理按压、拖选和双指滚动沿用 Windows 行为。按配置的紧急旁路键（默认 F12）能立即阻止尚未发出的点击。
 
 本卡落实[触控板提案第 15 节 Stage 3](../planning/InputFlow-Touchpad-Expansion-Proposal.md) 的配置、启停、回退、恢复和诊断。Stage 3 只交付 Touch Click。演示指针、触控板数字键盘和通用手势映射留给后续任务。

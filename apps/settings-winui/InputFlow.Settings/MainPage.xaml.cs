@@ -81,6 +81,8 @@ public sealed partial class MainPage : Page
 
     internal string LocalizationSmokeTouchClickOff => TouchClickEnabled.OffContent?.ToString() ?? string.Empty;
 
+    internal string LocalizationSmokePresentationName => AutomationProperties.GetName(PresentationEnabled);
+
     internal string LocalizationSmokeNavigationName =>
         Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(RootNavigation);
 
@@ -125,13 +127,25 @@ public sealed partial class MainPage : Page
 
         if (RuleEditor.Visibility == Visibility.Visible)
         {
-            if (!TryBuildEditedRule(out RuleDocument? rule, out string? error))
+            if (_presentationBinding is not null)
             {
-                ShowEditorError(error ?? AppResources.Get("RuleEditor_CannotCommit"));
-                return false;
+                if (!TryBuildTrigger(out RuleTrigger? binding, out string? error))
+                {
+                    ShowEditorError(error ?? AppResources.Get("RuleEditor_CannotCommit"));
+                    return false;
+                }
+                SavePresentationBinding(binding);
+                SetBindingEditor(null);
             }
-
-            _draft.UpsertRule(rule!, _editingOriginalId);
+            else
+            {
+                if (!TryBuildEditedRule(out RuleDocument? rule, out string? error))
+                {
+                    ShowEditorError(error ?? AppResources.Get("RuleEditor_CannotCommit"));
+                    return false;
+                }
+                _draft.UpsertRule(rule!, _editingOriginalId);
+            }
             RuleEditor.Visibility = Visibility.Collapsed;
             UpdateResponsiveEditor();
         }
@@ -290,11 +304,12 @@ public sealed partial class MainPage : Page
 
     private void RefreshTouchpadControls()
     {
+        RefreshPresentationControls();
         ConfigDocument? confirmed = _coordinator?.LatestConfig;
         bool supported = _coordinator?.Handshake?.Capabilities.Contains("touch_click", StringComparer.Ordinal) == true
             && _draft.IsLoaded
-            && confirmed?.SchemaVersion == ConfigDocument.CurrentSchemaVersion
-            && _draft.Draft.SchemaVersion == ConfigDocument.CurrentSchemaVersion;
+            && confirmed?.SchemaVersion >= 5
+            && _draft.Draft.SchemaVersion >= 5;
         TouchpadExperimentSection.Visibility = supported ? Visibility.Visible : Visibility.Collapsed;
         if (!supported)
         {
@@ -324,7 +339,7 @@ public sealed partial class MainPage : Page
         string pending = formal != draft ? AppResources.Get("Touchpad_Pending") + " " : string.Empty;
         string disconnected = !connected ? AppResources.Get("Touchpad_LastKnown") + " " : string.Empty;
         TouchpadExperimentStatus.Text = TouchClickStatus.Text = pending + disconnected + status;
-        if (connected && formal.ExperimentalEnabled)
+        if (connected && (formal.ExperimentalEnabled || PresentationCard.Visibility == Visibility.Visible))
         {
             _touchpadStatusTimer.Start();
         }
@@ -340,6 +355,7 @@ public sealed partial class MainPage : Page
         "rule_disabled" => "Touchpad_RuleDisabled",
         "ready" => "Touchpad_Ready",
         "paused" => "Touchpad_Paused",
+        "presentation_active" => "Touchpad_PresentationActive",
         "recording" => "Touchpad_Recording",
         "observe_only" => "Touchpad_ObserveOnly",
         "native_tap_enabled" => "Touchpad_NativeTap",
@@ -641,6 +657,7 @@ public sealed partial class MainPage : Page
     private void AddRule_Click(object sender, RoutedEventArgs e)
     {
         if (!_draft.IsLoaded) return;
+        SetBindingEditor(null);
         _editingOriginalId = null;
         EditorTitle.Text = AppResources.Get("RuleEditor_NewTitle");
         RuleIdBox.Text = $"rule-{Guid.NewGuid():N}"[..13];
@@ -668,13 +685,25 @@ public sealed partial class MainPage : Page
         if ((sender as FrameworkElement)?.Tag is not string id || !_draft.IsLoaded) return;
         RuleDocument? rule = _draft.Draft.Rules.FirstOrDefault(candidate => candidate.Id == id);
         if (rule is null) return;
+        SetBindingEditor(null);
         _editingOriginalId = rule.Id;
         EditorTitle.Text = AppResources.Get("RuleEditor_EditTitle");
         RuleIdBox.Text = rule.Id;
         EditorEnabled.IsOn = rule.Enabled;
-        SelectTriggerType(rule.Trigger.Type);
-        PrimaryKeyPicker.SetIdentity(rule.Trigger.FirstKey);
-        switch (rule.Trigger)
+        PopulateTriggerControls(rule.Trigger);
+        ClearActionPickers();
+        foreach (KeyIdentity key in rule.Action.Keys) AddActionPicker(key);
+        EditorInfo.IsOpen = false;
+        RuleEditor.Visibility = Visibility.Visible;
+        UpdateResponsiveEditor();
+        RuleIdBox.Focus(FocusState.Programmatic);
+    }
+
+    private void PopulateTriggerControls(RuleTrigger trigger)
+    {
+        SelectTriggerType(trigger.Type);
+        PrimaryKeyPicker.SetIdentity(trigger.FirstKey);
+        switch (trigger)
         {
             case KeyChordTrigger chord:
                 SecondaryKeyPicker.SetIdentity(chord.Second);
@@ -697,12 +726,6 @@ public sealed partial class MainPage : Page
                 break;
         }
 
-        ClearActionPickers();
-        foreach (KeyIdentity key in rule.Action.Keys) AddActionPicker(key);
-        EditorInfo.IsOpen = false;
-        RuleEditor.Visibility = Visibility.Visible;
-        UpdateResponsiveEditor();
-        RuleIdBox.Focus(FocusState.Programmatic);
     }
 
     private async void DeleteRule_Click(object sender, RoutedEventArgs e)
@@ -735,6 +758,19 @@ public sealed partial class MainPage : Page
 
     private void CommitEdit_Click(object sender, RoutedEventArgs e)
     {
+        if (_presentationBinding is not null)
+        {
+            if (TryBuildTrigger(out RuleTrigger? binding, out string? message))
+            {
+                SavePresentationBinding(binding);
+                CancelEdit_Click(sender, e);
+            }
+            else
+            {
+                ShowEditorError(message ?? AppResources.Get("RuleEditor_Incomplete"));
+            }
+            return;
+        }
         if (!TryBuildEditedRule(out RuleDocument? rule, out string? error))
         {
             ShowEditorError(error ?? AppResources.Get("RuleEditor_Incomplete"));
@@ -753,6 +789,7 @@ public sealed partial class MainPage : Page
         RuleEditor.Visibility = Visibility.Collapsed;
         EditorInfo.IsOpen = false;
         _editingOriginalId = null;
+        SetBindingEditor(null);
         UpdateResponsiveEditor();
     }
 
@@ -766,13 +803,43 @@ public sealed partial class MainPage : Page
             return false;
         }
 
+        if (!TryBuildTrigger(out RuleTrigger? trigger, out error)) return false;
+        var actionKeys = new List<KeyIdentity>();
+        foreach (KeyPicker picker in _actionPickers)
+        {
+            if (!picker.TryGetIdentity(out KeyIdentity? key, out error)) return false;
+            actionKeys.Add(key!);
+        }
+
+        if (actionKeys.Count == 0)
+        {
+            error = AppResources.Get("RuleValidation_ActionKeyRequired");
+            return false;
+        }
+
+        rule = new RuleDocument
+        {
+            Id = id,
+            Enabled = EditorEnabled.IsOn,
+            Trigger = trigger!,
+            Action = new KeyChordAction(actionKeys),
+        };
+        return true;
+    }
+
+    private bool TryBuildTrigger(out RuleTrigger? trigger, out string? error)
+    {
+        trigger = null;
         if (!PrimaryKeyPicker.TryGetIdentity(out KeyIdentity? first, out error)) return false;
         string type = SelectedTriggerType();
-        RuleTrigger trigger;
         if (type == "key_chord")
         {
             if (!SecondaryKeyPicker.TryGetIdentity(out KeyIdentity? second, out error)) return false;
             trigger = new KeyChordTrigger(first!, second!);
+        }
+        else if (type == "double_tap")
+        {
+            trigger = new DoubleTapTrigger(first!);
         }
         else if (type == "key_mouse_button")
         {
@@ -805,26 +872,6 @@ public sealed partial class MainPage : Page
             trigger = new MouseDirectionTrigger(first!, directionChoice.Value, distance, duration, tolerance);
         }
 
-        var actionKeys = new List<KeyIdentity>();
-        foreach (KeyPicker picker in _actionPickers)
-        {
-            if (!picker.TryGetIdentity(out KeyIdentity? key, out error)) return false;
-            actionKeys.Add(key!);
-        }
-
-        if (actionKeys.Count == 0)
-        {
-            error = AppResources.Get("RuleValidation_ActionKeyRequired");
-            return false;
-        }
-
-        rule = new RuleDocument
-        {
-            Id = id,
-            Enabled = EditorEnabled.IsOn,
-            Trigger = trigger,
-            Action = new KeyChordAction(actionKeys),
-        };
         error = null;
         return true;
     }
@@ -1512,8 +1559,9 @@ public sealed partial class MainPage : Page
             AppResources.Format("RuleRow_ActionFormat", string.Join(" + ", rule.Action.Keys.Select(KeyLabel))),
             enabledChanged);
 
-        private static string TriggerLabel(RuleTrigger trigger) => trigger switch
+        internal static string TriggerLabel(RuleTrigger trigger) => trigger switch
         {
+            DoubleTapTrigger tap => AppResources.Format("RuleRow_DoubleTapFormat", KeyLabel(tap.Key)),
             KeyChordTrigger chord => $"{KeyLabel(chord.First)} + {KeyLabel(chord.Second)}",
             KeyMouseButtonTrigger mouse => AppResources.Format(
                 "RuleRow_KeyMouseTriggerFormat",

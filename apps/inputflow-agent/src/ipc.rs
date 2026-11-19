@@ -128,8 +128,10 @@ impl ProtocolHandler for AgentProtocolHandler {
             schema_version: current_schema_version(),
             capabilities: vec![
                 "status".to_string(),
-                "config_v5".to_string(),
+                "config_v6".to_string(),
                 "touch_click".to_string(),
+                "key_double_tap".to_string(),
+                "presentation_pointer".to_string(),
                 "validate_apply".to_string(),
                 "pause_resume".to_string(),
                 "stats".to_string(),
@@ -153,6 +155,11 @@ impl ProtocolHandler for AgentProtocolHandler {
             "get_status" => {
                 parse_params::<EmptyParams>(params)?;
                 to_value(status_dto(&self.runtime.status()))?
+            }
+            "identify_displays" => {
+                parse_params::<EmptyParams>(params)?;
+                self.runtime.identify_displays().map_err(runtime_error)?;
+                serde_json::json!({"requested": true})
             }
             "get_config" => {
                 parse_params::<EmptyParams>(params)?;
@@ -417,6 +424,33 @@ fn status_dto(status: &RuntimeStatus) -> StatusResult {
             last_cancel: status.touchpad.last_cancel.map(str::to_string),
             normalized_distance: status.touchpad.normalized_distance,
         }),
+        presentation: Some(inputflow_protocol::PresentationStatusResult {
+            enabled: status.presentation.enabled,
+            can_start: status.presentation.can_start,
+            phase: status.presentation.phase.to_owned(),
+            reason: status.presentation.reason.to_owned(),
+            preset: status.presentation.preset.clone(),
+            display: status.presentation.display.clone(),
+            pointer: status.presentation.pointer,
+            mouse_position: status.presentation.mouse_position,
+            system_cursor: status.presentation.system_cursor,
+            segments: status.presentation.segments,
+            frames: status.presentation.frames,
+            peak_render_us: status.presentation.peak_render_us,
+            displays: status
+                .presentation
+                .displays
+                .iter()
+                .map(|value| inputflow_protocol::DisplayResult {
+                    id: value.id.clone(),
+                    primary: value.primary,
+                    left: value.left,
+                    top: value.top,
+                    width: value.width,
+                    height: value.height,
+                })
+                .collect(),
+        }),
     }
 }
 
@@ -546,6 +580,7 @@ mod tests {
             apply_reconciliation: ApplyReconciliation::Settled,
             last_error: None,
             touchpad: Default::default(),
+            presentation: Default::default(),
         };
         let wire = status_dto(&status);
         assert_eq!(wire.phase, "ready");

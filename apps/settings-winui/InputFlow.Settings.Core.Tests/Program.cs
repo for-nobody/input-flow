@@ -59,6 +59,23 @@ Run("v5 touchpad survives hidden rule edits and v4 stays compatible", () =>
     Assert(session.Draft.Touchpad == enabled, "reopening experiment did not restore Touch Click");
 });
 
+Run("v6 double tap and presentation drafts survive closing the experiment", () =>
+{
+    ConfigDocument legacy = ParseFixture(root, "v4-valid.json");
+    Assert(!ConfigCodec.ToJsonElement(legacy with { SchemaVersion = 5 }).TryGetProperty("presentation", out _), "v5 must remain writable by its Agent");
+    var session = new DraftSession();
+    session.Load(legacy with { SchemaVersion = ConfigDocument.CurrentSchemaVersion });
+    var presentation = PresentationDocument.CreateDefault();
+    session.SetPresentation(presentation with { Enabled = true, Absolute = true });
+    session.SetTouchpad(session.Draft.Touchpad with { ExperimentalEnabled = false });
+    RuleDocument oldRule = session.Draft.Rules[0];
+    session.UpsertRule(oldRule with { Trigger = new DoubleTapTrigger(KeyIdentity.Physical(30, false)) }, oldRule.Id);
+    ConfigDocument saved = Parse(ConfigCodec.ToJsonElement(session.Draft));
+    Assert(saved.Rules[0].Trigger is DoubleTapTrigger tap && tap.Key.ScanCode == 30, "physical double tap did not round trip");
+    Assert(saved.Presentation.Enabled && saved.Presentation.Absolute, "hidden presentation config was lost");
+    Assert(saved.Presentation.Presets.Select(preset => preset.Id).SequenceEqual(presentation.Presets.Select(preset => preset.Id)), "preset IDs or order changed");
+});
+
 Run("draft never mutates formal snapshot", () =>
 {
     ConfigDocument formal = ParseFixture(root, "v3-valid.json");

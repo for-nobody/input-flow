@@ -396,6 +396,14 @@ impl Decoder {
         })
     }
 
+    /// Inclusive logical coordinate endpoints read from the HID descriptor.
+    pub fn logical_bounds(&self) -> [(i32, i32); 2] {
+        [
+            (self.first.x.min, self.first.x.max),
+            (self.first.y.min, self.first.y.max),
+        ]
+    }
+
     pub fn decode(&mut self, report: &[u8]) -> io::Result<Option<Decoded>> {
         if report.first().copied() != Some(self.report_id) {
             return Ok(None);

@@ -34,7 +34,7 @@ impl PendingQueue {
     /// Try to hold one event. On overflow the event is not held, the queue marks
     /// itself overflowed, and `Err(Overflow)` is returned.
     pub fn push(&mut self, event: InputEvent) -> Result<(), Overflow> {
-        if self.entries.len() >= self.capacity {
+        if self.is_full() {
             self.overflow = true;
             return Err(Overflow);
         }
@@ -47,6 +47,10 @@ impl PendingQueue {
         self.entries.drain(..).collect()
     }
 
+    pub(crate) fn take_first_tap(&mut self) -> Vec<InputEvent> {
+        self.entries.drain(..2).collect()
+    }
+
     /// Number of currently held events.
     pub fn len(&self) -> usize {
         self.entries.len()
@@ -55,6 +59,10 @@ impl PendingQueue {
     /// Whether no events are currently held.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+
+    pub(crate) fn is_full(&self) -> bool {
+        self.entries.len() >= self.capacity
     }
 
     /// Whether the queue ever overflowed since it was last cleared.

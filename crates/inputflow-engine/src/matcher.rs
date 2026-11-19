@@ -17,7 +17,7 @@ use std::time::Instant;
 
 use crate::event::{InputEvent, InputSource, Key, MouseButton, MouseKind};
 use crate::pending::PendingQueue;
-use crate::rules::{Action, MouseDirection, MouseDirectionGroup, RuleIndex};
+use crate::rules::{Action, ChordScope, MouseDirection, MouseDirectionGroup, RuleIndex};
 use crate::state::{KeyState, MouseState};
 
 /// How to handle the current event.
@@ -36,6 +36,11 @@ pub enum Resolution {
     Pending,
     /// A rule matched; consume the trigger and emit the action.
     Matched { rule_id: String, action: Action },
+    MatchedAfterReplay {
+        replay: Vec<InputEvent>,
+        rule_id: String,
+        action: Action,
+    },
     /// No rule matched; replay the held events in order.
     Failed { replay: Vec<InputEvent> },
 }
@@ -125,6 +130,7 @@ struct ActiveHold {
 struct ActiveChord {
     first: Key,
     first_tracking_key: Key,
+    scope: ChordScope,
 }
 
 /// A `Hold+MouseButton` rule: first wait for the key's threshold, then wait for
@@ -163,6 +169,25 @@ enum Active {
     Direction(ActiveDirection),
 }
 
+pub const DOUBLE_TAP_PRESS_MS: u64 = 180;
+pub const DOUBLE_TAP_GAP_MS: u64 = 270;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TapPhase {
+    FirstDown,
+    Gap,
+    SecondDown,
+}
+
+#[derive(Clone, Copy)]
+struct DoubleTap {
+    key: Key,
+    tracking_key: Key,
+    phase: TapPhase,
+    limit: u64,
+    legacy_prefix: bool,
+}
+
 /// The pure matching state machine.
 pub struct Matcher {
     clock: Box<dyn Clock + Send>,
@@ -171,6 +196,10 @@ pub struct Matcher {
     buttons: MouseState,
     index: RuleIndex,
     active: Option<Active>,
+    double_tap: Option<DoubleTap>,
+    presentation_ready: bool,
+    presenting: bool,
+    recording: bool,
     paused: bool,
     bypassed: bool,
 }
@@ -185,6 +214,10 @@ impl Matcher {
             buttons: MouseState::new(),
             index,
             active: None,
+            double_tap: None,
+            presentation_ready: false,
+            presenting: false,
+            recording: false,
             paused: false,
             bypassed: false,
         }
@@ -239,7 +272,7 @@ impl Matcher {
             return self.consume_button(button, event);
         }
 
-        if self.paused || self.bypassed {
+        if self.paused || self.bypassed || self.recording {
             return self.pass_through(event);
         }
 
@@ -248,7 +281,19 @@ impl Matcher {
             return self.pass_through(event);
         }
 
-        match event.source {
+        let replay = if let Some(tap) = self.double_tap
+            && (event.tracking_key().is_some()
+                || event.button().is_some()
+                || matches!(self.active, Some(Active::Direction(_))))
+        {
+            if let Some(result) = self.advance_double_tap(tap, event, cursor) {
+                return result;
+            }
+            self.release_double_tap(tap)
+        } else {
+            Vec::new()
+        };
+        let (decision, resolution) = match event.source {
             InputSource::Keyboard { .. } => self.on_key_event(event, cursor),
             InputSource::Mouse {
                 kind: MouseKind::ButtonDown(_) | MouseKind::ButtonUp(_),
@@ -268,13 +313,34 @@ impl Matcher {
                     self.pass_through(event)
                 }
             }
-        }
+        };
+        (decision, Self::prepend_replay(replay, resolution))
     }
 
     /// Advance past a deadline and produce any resulting commands. Single-key
     /// `Hold` rules emit their action (or replay if released); `Hold+MouseButton`
     /// rules arm themselves at the deadline and then wait for the button down.
     pub fn on_timeout(&mut self) -> Vec<Command> {
+        let mut commands = Vec::new();
+        if let Some(tap) = self.double_tap {
+            let now = self.clock.now_ms();
+            if now <= tap.limit
+                && !self
+                    .legacy_deadline()
+                    .is_some_and(|deadline| now >= deadline)
+            {
+                return commands;
+            }
+            let events = self.release_double_tap(tap);
+            if !events.is_empty() {
+                commands.push(Command::Replay { events });
+            }
+        }
+        commands.extend(self.on_legacy_timeout());
+        commands
+    }
+
+    fn on_legacy_timeout(&mut self) -> Vec<Command> {
         match self.active.take() {
             Some(Active::Holding(active)) => {
                 if self.clock.now_ms() < active.deadline_ms {
@@ -342,12 +408,23 @@ impl Matcher {
                     vec![Command::Replay { events: replay }]
                 }
             }
-            _ => Vec::new(),
+            other => {
+                self.active = other;
+                Vec::new()
+            }
         }
     }
 
     /// The next deadline that should trigger [`Matcher::on_timeout`], if any.
     pub fn next_deadline(&self) -> Option<u64> {
+        self.double_tap
+            .map(|tap| tap.limit.saturating_add(1))
+            .into_iter()
+            .chain(self.legacy_deadline())
+            .min()
+    }
+
+    fn legacy_deadline(&self) -> Option<u64> {
         match &self.active {
             Some(Active::Holding(hold)) => Some(hold.deadline_ms),
             Some(Active::HoldToButton(hb)) if !hb.armed => Some(hb.deadline_ms),
@@ -376,6 +453,7 @@ impl Matcher {
         if paused {
             let held = self.pending.take_replay();
             self.active = None;
+            self.double_tap = None;
             // Pending input is replayed by the caller, but already-consumed
             // downs must never be resurrected. Preserve only their release
             // tombstones so a later physical up is suppressed even in bypass;
@@ -424,6 +502,52 @@ impl Matcher {
     /// on a lock-free pass-through path when no activation key is pending.
     pub fn has_active_mouse_direction_candidate(&self) -> bool {
         matches!(self.active.as_ref(), Some(Active::Direction(_)))
+    }
+
+    pub fn has_active_double_tap(&self) -> bool {
+        self.double_tap.is_some()
+    }
+
+    pub fn set_recording(&mut self, recording: bool) {
+        self.recording = recording;
+    }
+
+    pub fn cancel_candidates(&mut self) -> Vec<InputEvent> {
+        self.active = None;
+        self.double_tap = None;
+        let replay = self.pending.take_replay();
+        self.mark_replay_seen(&replay);
+        replay
+    }
+
+    /// Focus/capture changes must never deliver an old candidate to a new target.
+    pub fn discard_double_tap(&mut self) {
+        if let Some(tap) = self.double_tap.take() {
+            self.active = None;
+            self.pending.clear();
+            if tap.phase != TapPhase::Gap {
+                self.keys.mark_consumed(tap.tracking_key);
+            }
+        }
+    }
+
+    pub fn set_presentation_state(&mut self, ready: bool, active: bool) {
+        if (self.presentation_ready, self.presenting) != (ready, active) {
+            if self.double_tap.is_some_and(|tap| {
+                self.index.double_tap(tap.key).is_some_and(|(_, action)| {
+                    action.available(self.presentation_ready, self.presenting)
+                        && !action.available(ready, active)
+                })
+            }) {
+                self.discard_double_tap();
+            }
+            self.presentation_ready = ready;
+            self.presenting = active;
+        }
+    }
+
+    fn action_available(&self, action: &Action) -> bool {
+        action.available(self.presentation_ready, self.presenting)
     }
 
     /// Set or clear the internal overflow-bypass flag. Setting it true also
@@ -515,27 +639,174 @@ impl Matcher {
             // Physical is first, so an exact-position rule deterministically
             // wins over a logical rule when both could start on this event.
             for key in event.key_identities().into_iter().flatten() {
-                if let Some((id, timeout_ms, action)) = self.index.hold(key).cloned() {
-                    return self.start_hold(key, tracking_key, event, id, timeout_ms, action);
+                if !self.keys.any_physically_held()
+                    && !self.buttons.any_physically_held()
+                    && self
+                        .index
+                        .double_tap(key)
+                        .is_some_and(|(_, action)| self.action_available(action))
+                {
+                    return self.start_tap_down(
+                        key,
+                        tracking_key,
+                        TapPhase::FirstDown,
+                        event,
+                        cursor,
+                    );
                 }
-                if let Some(rule) = self.index.hold_button(key).cloned() {
-                    return self.start_hold_button(key, tracking_key, event, rule);
-                }
-                if let Some(group) = self.index.mouse_directions(key).cloned() {
-                    if let Some((x, y)) = cursor {
-                        return self.start_direction(key, tracking_key, event, x, y, group);
-                    }
-                    // Without a cursor snapshot the platform cannot establish
-                    // the complete net displacement, so fail open for this
-                    // activation rather than inventing a first-move origin.
-                    return self.pass_through(event);
-                }
-                if self.index.is_first_candidate(key) {
-                    return self.start_chord(key, tracking_key, event);
+                if let Some(result) = self.start_legacy_prefix(key, tracking_key, event, cursor) {
+                    return result;
                 }
             }
         }
         self.pass_through(event)
+    }
+
+    fn start_legacy_prefix(
+        &mut self,
+        key: Key,
+        tracking_key: Key,
+        event: InputEvent,
+        cursor: Option<(i32, i32)>,
+    ) -> Option<(Decision, Resolution)> {
+        if let Some((id, timeout, action)) = self
+            .index
+            .hold(key)
+            .filter(|(_, _, action)| self.action_available(action))
+            .cloned()
+        {
+            return Some(self.start_hold(key, tracking_key, event, id, timeout, action));
+        }
+        if let Some(rule) = self
+            .index
+            .hold_button(key)
+            .filter(|(_, _, _, action)| self.action_available(action))
+            .cloned()
+        {
+            return Some(self.start_hold_button(key, tracking_key, event, rule));
+        }
+        if let Some((x, y)) = cursor
+            && let Some(group) = self.index.mouse_directions(key).cloned()
+        {
+            return Some(self.start_direction(key, tracking_key, event, x, y, group));
+        }
+        self.index
+            .chord_scope(key, self.presentation_ready, self.presenting)
+            .map(|scope| self.start_chord(key, tracking_key, scope, event))
+    }
+
+    fn start_tap_down(
+        &mut self,
+        key: Key,
+        tracking_key: Key,
+        phase: TapPhase,
+        event: InputEvent,
+        cursor: Option<(i32, i32)>,
+    ) -> (Decision, Resolution) {
+        let legacy = self.start_legacy_prefix(key, tracking_key, event, cursor);
+        let legacy_prefix = legacy.is_some();
+        let result = legacy
+            .unwrap_or_else(|| self.start_chord(key, tracking_key, ChordScope::Ordinary, event));
+        if matches!(result.1, Resolution::Pending) {
+            self.double_tap = Some(DoubleTap {
+                key,
+                tracking_key,
+                phase,
+                legacy_prefix,
+                limit: self.clock.now_ms().saturating_add(DOUBLE_TAP_PRESS_MS),
+            });
+        }
+        result
+    }
+
+    fn advance_double_tap(
+        &mut self,
+        tap: DoubleTap,
+        event: InputEvent,
+        cursor: Option<(i32, i32)>,
+    ) -> Option<(Decision, Resolution)> {
+        let now = self.clock.now_ms();
+        if now > tap.limit
+            || event.tracking_key() != Some(tap.tracking_key)
+            || event.is_repeat()
+            || self.legacy_deadline().is_some_and(|time| {
+                now >= time && !matches!(self.active, Some(Active::Direction(_)))
+            })
+        {
+            return None;
+        }
+        match tap.phase {
+            TapPhase::Gap if event.is_key_down() && event.matches_key(tap.key) => {
+                self.double_tap = None;
+                Some(self.start_tap_down(
+                    tap.key,
+                    tap.tracking_key,
+                    TapPhase::SecondDown,
+                    event,
+                    cursor,
+                ))
+            }
+            TapPhase::FirstDown | TapPhase::SecondDown if event.is_key_up() => {
+                self.keys.mark_physical_up(tap.tracking_key);
+                let decision = Decision::Suppress {
+                    event_id: event.seq,
+                };
+                if tap.phase == TapPhase::FirstDown {
+                    if self.pending.push(event).is_err() {
+                        return Some(self.overflow_flush());
+                    }
+                    self.active = None;
+                    self.double_tap = Some(DoubleTap {
+                        phase: TapPhase::Gap,
+                        limit: now.saturating_add(DOUBLE_TAP_GAP_MS),
+                        ..tap
+                    });
+                    Some((decision, Resolution::Pending))
+                } else {
+                    let (rule_id, action) = self.index.double_tap(tap.key).cloned()?;
+                    self.active = None;
+                    self.double_tap = None;
+                    self.pending.clear();
+                    Some((decision, Resolution::Matched { rule_id, action }))
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn release_double_tap(&mut self, tap: DoubleTap) -> Vec<InputEvent> {
+        self.double_tap = None;
+        let replay = if tap.phase == TapPhase::Gap || !tap.legacy_prefix {
+            self.active = None;
+            self.pending.take_replay()
+        } else if tap.phase == TapPhase::SecondDown {
+            self.pending.take_first_tap()
+        } else {
+            Vec::new()
+        };
+        self.mark_replay_seen(&replay);
+        replay
+    }
+
+    fn prepend_replay(mut replay: Vec<InputEvent>, resolution: Resolution) -> Resolution {
+        if replay.is_empty() {
+            return resolution;
+        }
+        match resolution {
+            Resolution::Pending => Resolution::Failed { replay },
+            Resolution::Failed { replay: tail } => {
+                replay.extend(tail);
+                Resolution::Failed { replay }
+            }
+            Resolution::Matched { rule_id, action } => Resolution::MatchedAfterReplay {
+                replay,
+                rule_id,
+                action,
+            },
+            Resolution::MatchedAfterReplay { .. } => {
+                unreachable!("only the active double tap may prepend replay")
+            }
+        }
     }
 
     fn start_hold(
@@ -601,6 +872,7 @@ impl Matcher {
         &mut self,
         key: Key,
         tracking_key: Key,
+        scope: ChordScope,
         event: InputEvent,
     ) -> (Decision, Resolution) {
         if self.pending.push(event).is_err() {
@@ -610,6 +882,7 @@ impl Matcher {
         self.active = Some(Active::Chording(ActiveChord {
             first: key,
             first_tracking_key: tracking_key,
+            scope,
         }));
         (
             Decision::Suppress {
@@ -658,6 +931,9 @@ impl Matcher {
         tracking_key: Key,
         event: InputEvent,
     ) -> (Decision, Resolution) {
+        if self.presentation_chord_buffer_full() {
+            return self.cancel_active_and_pass(event);
+        }
         if event.is_key_up() {
             // First key released before completion: fail and replay in order.
             self.keys.mark_physical_up(tracking_key);
@@ -712,7 +988,12 @@ impl Matcher {
     ) -> (Decision, Resolution) {
         if event.is_key_down() && !event.is_repeat() {
             for second in event.key_identities().into_iter().flatten() {
-                if let Some((rule_id, action)) = self.index.second_key(first, second).cloned() {
+                if let Some((rule_id, action)) = self
+                    .index
+                    .second_key(first, second)
+                    .filter(|(_, action)| self.action_available(action))
+                    .cloned()
+                {
                     let second_tracking_key = event
                         .tracking_key()
                         .expect("keyboard event carries a tracking key");
@@ -739,7 +1020,12 @@ impl Matcher {
         event: InputEvent,
     ) -> (Decision, Resolution) {
         if event.is_button_down() {
-            if let Some((rule_id, action)) = self.index.second_button(first, button).cloned() {
+            if let Some((rule_id, action)) = self
+                .index
+                .second_button(first, button)
+                .filter(|(_, action)| self.action_available(action))
+                .cloned()
+            {
                 return self.match_chord(
                     rule_id,
                     action,
@@ -826,7 +1112,12 @@ impl Matcher {
             return self.pass_through(event);
         }
 
-        let Some((rule_id, action)) = active.group.action(direction).cloned() else {
+        let Some((rule_id, action)) = active
+            .group
+            .action(direction)
+            .filter(|(_, action)| self.action_available(action))
+            .cloned()
+        else {
             // A partial group may omit this direction. Keep observing net
             // displacement until release/timeout instead of selecting another
             // axis or depending on JSON order.
@@ -868,6 +1159,9 @@ impl Matcher {
     /// first-key events followed by this input, in order, so the target sees the
     /// original order.
     fn fail_active(&mut self, event: InputEvent) -> (Decision, Resolution) {
+        if self.presentation_chord_buffer_full() {
+            return self.cancel_active_and_pass(event);
+        }
         if self.pending.push(event).is_err() {
             return self.overflow_flush();
         }
@@ -882,9 +1176,21 @@ impl Matcher {
         )
     }
 
-    /// Cancel the active direction candidate while allowing the current
-    /// non-suppressible mouse event through. The activation-key stream is
-    /// replayed before the hook forwards that current event.
+    fn presentation_chord_buffer_full(&self) -> bool {
+        // A held presentation modifier can generate a long series of repeats.
+        // Release only this candidate before it would suspend the whole Agent.
+        self.pending.is_full()
+            && matches!(
+                self.active,
+                Some(Active::Chording(ActiveChord {
+                    scope: ChordScope::PresentationOnly,
+                    ..
+                }))
+            )
+    }
+
+    /// Cancel the active candidate and replay its held stream before the hook
+    /// forwards the current event.
     fn cancel_active_and_pass(&mut self, event: InputEvent) -> (Decision, Resolution) {
         let replay = self.pending.take_replay();
         self.active = None;
@@ -991,6 +1297,7 @@ impl Matcher {
     fn enter_bypass(&mut self) {
         self.bypassed = true;
         self.active = None;
+        self.double_tap = None;
         self.keys.clear_tracking_preserving_consumed();
         self.buttons.clear_tracking_preserving_consumed();
     }
@@ -1031,6 +1338,253 @@ impl Matcher {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn double_tap(key: Key) -> Rule {
+        Rule {
+            id: "double".into(),
+            trigger: Trigger::DoubleTap { key },
+            action: Action::KeyChord(vec![Key::C]),
+        }
+    }
+
+    #[test]
+    fn presentation_only_prefixes_pass_before_the_session_and_capture_cancels_candidates() {
+        let clock = ManualClock::new(0);
+        let mut matcher = matcher_with(
+            clock.clone(),
+            vec![
+                Rule {
+                    id: "start".into(),
+                    trigger: Trigger::DoubleTap { key: Key::LeftCtrl },
+                    action: Action::Presentation(crate::PresentationAction::Start),
+                },
+                Rule {
+                    id: "clear".into(),
+                    trigger: Trigger::KeyChord {
+                        first: Key::LeftAlt,
+                        second: Key::Digit5,
+                    },
+                    action: Action::Presentation(crate::PresentationAction::Clear),
+                },
+            ],
+            16,
+        );
+        matcher.set_presentation_state(true, false);
+        assert_eq!(
+            matcher.on_event(down(1, 0, Key::LeftAlt)).0,
+            Decision::PassThrough
+        );
+        matcher.on_event(up(2, 1, Key::LeftAlt));
+        let ctrl = down(3, 5, Key::LeftCtrl);
+        assert!(matches!(
+            matcher.on_event(ctrl).0,
+            Decision::Suppress { .. }
+        ));
+        assert_eq!(matcher.cancel_candidates(), vec![ctrl]);
+        matcher.set_recording(true);
+        matcher.on_event(up(4, 10, Key::LeftCtrl));
+        assert_eq!(
+            matcher.on_event(down(5, 15, Key::LeftCtrl)).0,
+            Decision::PassThrough
+        );
+        matcher.on_event(up(6, 20, Key::LeftCtrl));
+        matcher.set_recording(false);
+        matcher.set_presentation_state(true, true);
+        assert!(matches!(
+            matcher.on_event(down(7, 25, Key::LeftAlt)).0,
+            Decision::Suppress { .. }
+        ));
+        assert!(matches!(
+            matcher.on_event(down(8, 35, Key::Digit5)).1,
+            Resolution::Matched { .. }
+        ));
+    }
+
+    #[test]
+    fn held_presentation_modifier_replays_at_capacity_without_aborting_presentation() {
+        let mut matcher = matcher_with(
+            ManualClock::new(0),
+            vec![Rule {
+                id: "temporary".into(),
+                trigger: Trigger::KeyChord {
+                    first: Key::LeftAlt,
+                    second: Key::Digit4,
+                },
+                action: Action::Presentation(crate::PresentationAction::ToggleMouse),
+            }],
+            2,
+        );
+        matcher.set_presentation_state(true, true);
+        let alt = down(1, 0, Key::LeftAlt);
+        let first_repeat = repeat(2, 300, Key::LeftAlt);
+        matcher.on_event(alt);
+        matcher.on_event(first_repeat);
+        assert_eq!(
+            matcher.on_event(repeat(3, 335, Key::LeftAlt)),
+            (
+                Decision::PassThrough,
+                Resolution::Failed {
+                    replay: vec![alt, first_repeat],
+                },
+            )
+        );
+        assert!(!matcher.is_bypassed());
+        assert_eq!(
+            matcher.on_event(up(4, 360, Key::LeftAlt)).0,
+            Decision::PassThrough
+        );
+        matcher.on_event(down(5, 400, Key::LeftAlt));
+        assert_eq!(
+            matcher.on_event(down(6, 460, Key::Digit4)).1,
+            Resolution::Matched {
+                rule_id: "temporary".into(),
+                action: Action::Presentation(crate::PresentationAction::ToggleMouse),
+            }
+        );
+    }
+
+    #[test]
+    fn double_tap_matches_only_at_second_up_with_inclusive_bounds() {
+        let clock = ManualClock::new(0);
+        let mut matcher = matcher_with(clock.clone(), vec![double_tap(Key::A)], 16);
+        for (ms, event) in [
+            (0, down(1, 0, Key::A)),
+            (180, up(2, 180, Key::A)),
+            (450, down(3, 450, Key::A)),
+        ] {
+            clock.set(ms);
+            assert!(matcher.poll_timeouts().is_empty());
+            assert_eq!(
+                matcher.on_event(event),
+                (
+                    Decision::Suppress {
+                        event_id: event.seq
+                    },
+                    Resolution::Pending
+                )
+            );
+        }
+        clock.set(630);
+        assert!(matcher.poll_timeouts().is_empty());
+        assert_eq!(
+            matcher.on_event(up(4, 630, Key::A)),
+            (
+                Decision::Suppress { event_id: 4 },
+                Resolution::Matched {
+                    rule_id: "double".into(),
+                    action: Action::KeyChord(vec![Key::C])
+                }
+            )
+        );
+        assert!(!matcher.has_release_tombstones());
+        assert!(matcher.poll_timeouts().is_empty());
+    }
+
+    #[test]
+    fn double_tap_replays_a_once_at_timeout_and_before_b() {
+        let clock = ManualClock::new(0);
+        let mut matcher = matcher_with(clock.clone(), vec![double_tap(Key::A)], 16);
+        let first = [down(1, 0, Key::A), up(2, 20, Key::A)];
+        for event in first {
+            clock.set(event.time_ms);
+            matcher.on_event(event);
+        }
+        clock.set(291);
+        assert_eq!(
+            matcher.poll_timeouts(),
+            vec![Command::Replay {
+                events: first.to_vec()
+            }]
+        );
+        assert!(matcher.poll_timeouts().is_empty());
+        let next = [down(3, 400, Key::A), up(4, 430, Key::A)];
+        for event in next {
+            clock.set(event.time_ms);
+            matcher.on_event(event);
+        }
+        clock.set(450);
+        assert_eq!(
+            matcher.on_event(down(5, 450, Key::B)),
+            (
+                Decision::PassThrough,
+                Resolution::Failed {
+                    replay: next.to_vec()
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn double_tap_coexists_with_configured_hold_and_key_chord() {
+        let clock = ManualClock::new(0);
+        let hold = hold_rule(Key::LeftCtrl, 240);
+        let mut matcher = matcher_with(clock.clone(), vec![double_tap(Key::LeftCtrl), hold], 16);
+        matcher.on_event(down(1, 0, Key::LeftCtrl));
+        clock.set(181);
+        assert!(matcher.poll_timeouts().is_empty());
+        clock.set(240);
+        assert!(matches!(
+            matcher.poll_timeouts().as_slice(),
+            [Command::Emit { .. }]
+        ));
+        assert!(matches!(
+            matcher.on_event(up(2, 250, Key::LeftCtrl)).0,
+            Decision::Suppress { .. }
+        ));
+
+        let mut matcher = matcher_with(
+            clock.clone(),
+            vec![
+                double_tap(Key::LeftCtrl),
+                chord_rule("copy", Key::LeftCtrl, Key::C),
+            ],
+            16,
+        );
+        let first = [down(3, 300, Key::LeftCtrl), up(4, 350, Key::LeftCtrl)];
+        for event in first {
+            clock.set(event.time_ms);
+            matcher.on_event(event);
+        }
+        clock.set(400);
+        matcher.on_event(down(5, 400, Key::LeftCtrl));
+        clock.set(440);
+        assert!(matches!(matcher.on_event(down(6, 440, Key::C)).1,
+            Resolution::MatchedAfterReplay { replay, rule_id, .. } if replay == first && rule_id == "copy"));
+    }
+
+    #[test]
+    fn repeat_mouse_other_ctrl_and_focus_cancel_double_tap() {
+        let clock = ManualClock::new(0);
+        let mut matcher = matcher_with(clock, vec![double_tap(Key::LeftCtrl)], 16);
+        let ctrl = down(1, 0, Key::LeftCtrl);
+        matcher.on_event(ctrl);
+        assert!(matches!(matcher.on_event(repeat(2, 10, Key::LeftCtrl)).1,
+            Resolution::Failed { replay } if replay == [ctrl]));
+        matcher.on_event(up(3, 20, Key::LeftCtrl));
+        matcher.on_event(down(4, 30, Key::LeftCtrl));
+        matcher.on_event(up(5, 40, Key::LeftCtrl));
+        assert!(matches!(
+            matcher.on_event(down(6, 50, Key::RightCtrl)).1,
+            Resolution::Failed { .. }
+        ));
+        matcher.on_event(up(7, 60, Key::RightCtrl));
+        let ctrl = down(8, 70, Key::LeftCtrl);
+        matcher.on_event(ctrl);
+        assert!(
+            matches!(matcher.on_event(button(9, 80, MouseButton::Left, true)).1,
+            Resolution::Failed { replay } if replay == [ctrl])
+        );
+        matcher.on_event(button(10, 85, MouseButton::Left, false));
+        matcher.on_event(up(11, 90, Key::LeftCtrl));
+        matcher.on_event(down(12, 100, Key::LeftCtrl));
+        matcher.discard_double_tap();
+        assert!(matches!(
+            matcher.on_event(up(13, 120, Key::LeftCtrl)).0,
+            Decision::Suppress { .. }
+        ));
+        assert!(!matcher.has_active_double_tap());
+        assert!(matcher.poll_timeouts().is_empty());
+    }
     use crate::event::MouseButton;
     use crate::rules::{Rule, RuleIndex, Trigger};
 

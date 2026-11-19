@@ -25,7 +25,7 @@
 //! (`SetTimer`) drives `Hold` / `Hold+MouseButton` deadlines via `WM_TIMER`.
 
 use std::collections::{BTreeSet, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -127,6 +127,8 @@ static DIRECTION_RULES_ENABLED: AtomicBool = AtomicBool::new(false);
 /// Whether the owner currently has an active keyboard-initiated direction
 /// candidate. Ordinary move/wheel events can bypass the matcher lock when false.
 static DIRECTION_CANDIDATE_ACTIVE: AtomicBool = AtomicBool::new(false);
+static DOUBLE_TAP_TARGET: AtomicUsize = AtomicUsize::new(0);
+static PRESENTATION_ESCAPE_OWNED: AtomicBool = AtomicBool::new(false);
 /// Latest cursor point reported by `MSLLHOOKSTRUCT`. The packed pair preserves
 /// one coherent x/y observation across the keyboard and mouse hook callbacks.
 static LAST_HOOK_MOUSE_POINT: AtomicU64 = AtomicU64::new(0);
@@ -407,6 +409,9 @@ pub fn is_bypassed() -> bool {
 
 fn set_bypassed(bypassed: bool) {
     if BYPASS.swap(bypassed, Ordering::AcqRel) != bypassed {
+        if bypassed {
+            super::presentation::request_stop();
+        }
         super::touchpad::invalidate();
         STATE_REVISION.fetch_add(1, Ordering::AcqRel);
         super::shell::notify_runtime_state_changed();
@@ -559,10 +564,11 @@ fn flush_held_events_on_hook_thread() -> PauseReport {
 }
 
 fn matcher_has_release_tombstones() -> bool {
-    MATCHER
-        .get()
-        .and_then(|matcher| matcher.lock().ok())
-        .is_some_and(|guard| guard.has_release_tombstones())
+    PRESENTATION_ESCAPE_OWNED.load(Ordering::Acquire)
+        || MATCHER
+            .get()
+            .and_then(|matcher| matcher.lock().ok())
+            .is_some_and(|guard| guard.has_release_tombstones())
 }
 
 fn suspend_on_hook_thread() -> PauseReport {
@@ -655,6 +661,15 @@ fn begin_capture_on_hook_thread(timeout: Duration) -> Result<CaptureSession, Str
     });
     CAPTURE_ACTIVE.store(true, Ordering::Release);
     super::touchpad::invalidate();
+    drop(state);
+    if let Some(matcher) = MATCHER.get() {
+        let replay = matcher
+            .lock()
+            .map_or_else(|_| Vec::new(), |mut guard| guard.cancel_candidates());
+        if !replay.is_empty() {
+            dispatch_command(&Command::Replay { events: replay });
+        }
+    }
     send_log(format!("capture started: session_id={id}"));
     Ok(CaptureSession { id, receiver })
 }
@@ -1455,7 +1470,13 @@ fn process_with_cursor_and_dispatch(
     if was_bypassed {
         guard.set_paused(true);
     }
+    sync_matcher_context(&mut guard);
+    let continuing_tap = guard.has_active_double_tap();
     let (mut decision, resolution) = guard.on_event_with_cursor(event, cursor);
+    if guard.has_active_double_tap() && !continuing_tap {
+        // SAFETY: The foreground window handle is used only as an identity.
+        DOUBLE_TAP_TARGET.store(unsafe { GetForegroundWindow() } as usize, Ordering::Relaxed);
+    }
     let direction_candidate_active = guard.has_active_mouse_direction_candidate();
     DIRECTION_CANDIDATE_ACTIVE.store(direction_candidate_active, Ordering::Release);
     if debug_log_enabled()
@@ -1486,7 +1507,7 @@ fn process_with_cursor_and_dispatch(
         }
     }
 
-    let command = match resolution {
+    let (before, command) = match resolution {
         Resolution::Matched { rule_id, action } => {
             if debug_log_enabled()
                 && let InputSource::Mouse {
@@ -1499,17 +1520,25 @@ fn process_with_cursor_and_dispatch(
                     "mouse_direction_match: rule_id={rule_id} end=({x},{y})"
                 ));
             }
-            Some(Command::Emit { rule_id, action })
+            (None, Some(Command::Emit { rule_id, action }))
         }
-        Resolution::Failed { replay } => Some(Command::Replay { events: replay }),
-        Resolution::Pending => None,
+        Resolution::MatchedAfterReplay {
+            replay,
+            rule_id,
+            action,
+        } => (
+            Some(Command::Replay { events: replay }),
+            Some(Command::Emit { rule_id, action }),
+        ),
+        Resolution::Failed { replay } => (None, Some(Command::Replay { events: replay })),
+        Resolution::Pending => (None, None),
     };
     // SendInput can synchronously re-enter this hook thread with a physical
     // event that was already queued by the OS. Never hold the non-reentrant
     // matcher mutex across output, or that nested callback deadlocks while the
     // outer SendInput waits for it to return.
     drop(guard);
-    if let Some(command) = command {
+    for command in before.into_iter().chain(command) {
         let report = dispatch(&command);
         if report.status != OutputStatus::Complete {
             // Enter matcher bypass atomically with the failed decision and keep
@@ -1539,6 +1568,7 @@ fn process_with_cursor_and_dispatch(
                         .to_string(),
                 );
             }
+            break;
         }
     }
     decision
@@ -1569,6 +1599,20 @@ fn decision_after_output_failure(
 /// inserted before the hook returns, so a subsequent pass-through event cannot
 /// overtake it (M6 P1 #4), and there is no queue to drop or block on (#5).
 fn dispatch_command(command: &Command) -> OutputReport {
+    if let Command::Emit {
+        action: Action::Presentation(action),
+        ..
+    } = command
+    {
+        super::presentation::enqueue(action.clone());
+        record_hold_delay();
+        return OutputReport {
+            requested: 0,
+            inserted: 0,
+            last_error: 0,
+            status: OutputStatus::Complete,
+        };
+    }
     match command {
         Command::Emit { rule_id, action } => {
             if debug_log_enabled() {
@@ -1609,6 +1653,7 @@ fn drive_timeouts_with_dispatch(
 ) -> usize {
     let commands = match matcher.lock() {
         Ok(mut guard) => {
+            sync_matcher_context(&mut guard);
             let commands = guard.poll_timeouts();
             DIRECTION_CANDIDATE_ACTIVE.store(
                 guard.has_active_mouse_direction_candidate(),
@@ -1637,6 +1682,21 @@ fn drive_timeouts_with_dispatch(
     resolved
 }
 
+fn sync_matcher_context(matcher: &mut Matcher) {
+    matcher.set_recording(is_capture_active());
+    matcher.set_presentation_state(
+        super::presentation::is_ready(),
+        super::presentation::is_active(),
+    );
+    if matcher.has_active_double_tap() {
+        // SAFETY: This handle is compared as a value. It is not dereferenced.
+        let foreground = unsafe { GetForegroundWindow() } as usize;
+        if foreground == 0 || foreground != DOUBLE_TAP_TARGET.load(Ordering::Relaxed) {
+            matcher.discard_double_tap();
+        }
+    }
+}
+
 /// Build the `INPUT` array for an output command.
 fn build_inputs(command: &Command) -> Vec<INPUT> {
     match command {
@@ -1652,6 +1712,7 @@ fn build_inputs(command: &Command) -> Vec<INPUT> {
                 }
                 inputs
             }
+            Action::Presentation(_) => Vec::new(),
         },
     }
 }
@@ -2123,7 +2184,6 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
         // Capture is an immutable observation only. It neither pauses nor
         // pre-consumes the event, and the emergency key is excluded inside the
         // observer.
-        observe_capture(event);
 
         // The emergency key toggles suspension on its first (non-repeat) down and
         // is itself never intercepted.
@@ -2144,6 +2204,20 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
             return finish_callback(callback_start, result);
         }
 
+        if key == Key::Escape && !injected {
+            if PRESENTATION_ESCAPE_OWNED.load(Ordering::Acquire) {
+                if up {
+                    PRESENTATION_ESCAPE_OWNED.store(false, Ordering::Release);
+                }
+                return finish_callback(callback_start, 1);
+            }
+            if !up && !repeat && !is_capture_active() && super::presentation::is_active() {
+                PRESENTATION_ESCAPE_OWNED.store(true, Ordering::Release);
+                super::presentation::request_stop();
+                return finish_callback(callback_start, 1);
+            }
+        }
+
         let cursor = if !up
             && !repeat
             && !injected
@@ -2161,7 +2235,9 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
             None
         };
 
-        match process_with_cursor(event, cursor) {
+        let decision = process_with_cursor(event, cursor);
+        observe_capture(event);
+        match decision {
             Decision::Suppress { .. } => finish_callback(callback_start, 1),
             Decision::PassThrough => {
                 // SAFETY: `hhk` is ignored for low-level hooks.
@@ -2253,8 +2329,9 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
             ));
         }
 
+        let decision = process(event);
         observe_capture(event);
-        match process(event) {
+        match decision {
             Decision::Suppress { .. } => finish_callback(callback_start, 1),
             Decision::PassThrough => {
                 // SAFETY: `hhk` is ignored for low-level hooks.

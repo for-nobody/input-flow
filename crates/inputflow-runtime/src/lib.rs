@@ -18,8 +18,9 @@ use inputflow_config::{
     Config, SCHEMA_VERSION, SaveReport, load, save_with_report, to_json_pretty, validate_config,
 };
 use inputflow_engine::{Key, Matcher, RuleIndex, SystemClock};
-use inputflow_windows::platform::{touchpad, windows};
+use inputflow_windows::platform::{presentation, touchpad, windows};
 
+pub use inputflow_windows::platform::presentation::PresentationStatus;
 pub use inputflow_windows::platform::touchpad::TouchpadStatus;
 pub use inputflow_windows::platform::windows::{
     CaptureOutcome, CaptureSession, CapturedInput, ControlFailure, ControlFailureKind, PauseReport,
@@ -80,6 +81,7 @@ pub struct RuntimeStatus {
     pub apply_reconciliation: ApplyReconciliation,
     pub last_error: Option<String>,
     pub touchpad: TouchpadStatus,
+    pub presentation: PresentationStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -178,7 +180,15 @@ impl Runtime {
         let disk_config = DiskConfig::read(&options.config_path);
         let prepared = (|| {
             let loaded = load(&options.config_path);
-            let index = RuleIndex::compile(loaded.rules.clone()).map_err(|errors| {
+            let index = RuleIndex::compile(
+                loaded
+                    .rules
+                    .iter()
+                    .chain(&loaded.presentation_rules)
+                    .cloned()
+                    .collect(),
+            )
+            .map_err(|errors| {
                 format!(
                     "validated configuration failed defensive rule compilation: {}",
                     errors
@@ -238,6 +248,10 @@ impl Runtime {
             }
         };
 
+        presentation::configure(
+            loaded.config.touchpad.experimental_enabled,
+            loaded.config.presentation.clone(),
+        );
         let touchpad = touchpad::TouchpadThread::start(
             loaded.config.touchpad,
             options.observe_touchpad,
@@ -312,6 +326,7 @@ impl Runtime {
             apply_reconciliation: metadata.apply_reconciliation,
             last_error: metadata.last_error.clone(),
             touchpad: touchpad::status(),
+            presentation: presentation::status(),
         }
     }
 
@@ -321,6 +336,12 @@ impl Runtime {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .clone()
+    }
+
+    pub fn identify_displays(&self) -> Result<(), String> {
+        self.require_ready()?;
+        presentation::identify_displays();
+        Ok(())
     }
 
     pub fn pause(&self) -> Result<PauseReport, String> {
@@ -418,12 +439,12 @@ impl Runtime {
                     &self.current_config,
                     &self.metadata,
                     &self.rule_count,
-                    config,
+                    *config,
                     ApplyReconciliation::Settled,
                 );
             }
             ApplyDisposition::Reconcile(pending) => {
-                self.start_reconciliation(pending);
+                self.start_reconciliation(*pending);
             }
         }
         report
@@ -606,8 +627,8 @@ enum ReplaceAttempt<P> {
 
 enum ApplyDisposition<P> {
     None,
-    Applied(Config),
-    Reconcile(PendingApply<P>),
+    Applied(Box<Config>),
+    Reconcile(Box<PendingApply<P>>),
 }
 
 struct PendingApply<P> {
@@ -677,7 +698,13 @@ fn apply_transaction<P>(
         }
     };
     let rule_count = validated.rules.len();
-    let index = match RuleIndex::compile(validated.rules) {
+    let index = match RuleIndex::compile(
+        validated
+            .rules
+            .into_iter()
+            .chain(validated.presentation_rules)
+            .collect(),
+    ) {
         Ok(index) => index,
         Err(errors) => {
             return (
@@ -718,7 +745,7 @@ fn apply_transaction<P>(
                 error: None,
                 recovery_required: false,
             },
-            ApplyDisposition::Applied(draft),
+            ApplyDisposition::Applied(Box::new(draft)),
         ),
         ReplaceAttempt::Cancelled(failure) | ReplaceAttempt::Failed(failure) => {
             let cancelled = failure.kind == ControlFailureKind::Cancelled;
@@ -771,12 +798,12 @@ fn apply_transaction<P>(
                 )),
                 recovery_required: true,
             },
-            ApplyDisposition::Reconcile(PendingApply {
+            ApplyDisposition::Reconcile(Box::new(PendingApply {
                 request_id,
                 old: old.clone(),
                 draft,
                 pending,
-            }),
+            })),
         ),
     }
 }
@@ -789,6 +816,7 @@ fn apply_live_config(
     reconciliation: ApplyReconciliation,
 ) {
     let touchpad_config = config.touchpad;
+    let presentation_config = config.presentation.clone();
     let validated = validate_config(&config).ok();
     let enabled_rule_count = validated
         .as_ref()
@@ -806,6 +834,7 @@ fn apply_live_config(
         metadata.last_error = None;
     }
     touchpad::configure(touchpad_config);
+    presentation::configure(touchpad_config.experimental_enabled, presentation_config);
     touchpad::set_config_pending(false);
 }
 
@@ -1035,7 +1064,7 @@ mod tests {
         );
         assert_eq!(report.outcome, ApplyOutcome::Applied);
         assert_eq!(*order.lock().unwrap(), vec!["persist", "replace"]);
-        assert!(matches!(applied, ApplyDisposition::Applied(config) if config == draft));
+        assert!(matches!(applied, ApplyDisposition::Applied(config) if *config == draft));
         assert_eq!(
             report.save.unwrap().cleanup_warnings,
             vec!["cleanup warning"]
@@ -1072,7 +1101,7 @@ mod tests {
         assert_eq!(report.outcome, ApplyOutcome::Applied);
         assert_eq!(report.rule_count, 0);
         assert_eq!(*persisted.lock().unwrap(), Some(draft.clone()));
-        assert!(matches!(applied, ApplyDisposition::Applied(config) if config == draft));
+        assert!(matches!(applied, ApplyDisposition::Applied(config) if *config == draft));
     }
 
     #[test]
@@ -1190,7 +1219,7 @@ mod tests {
             Arc::clone(&current),
             Arc::clone(&metadata),
             Arc::clone(&rule_count),
-            pending,
+            *pending,
             |receiver| receiver.recv().unwrap(),
             save_with_report,
         );

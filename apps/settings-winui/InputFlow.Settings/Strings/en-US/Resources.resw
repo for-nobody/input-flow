@@ -413,4 +413,81 @@
   <data name="TouchpadExperimentEnabled.OffContent" xml:space="preserve"><value>Off</value></data>
   <data name="TouchClickEnabled.OnContent" xml:space="preserve"><value>On</value></data>
   <data name="TouchClickEnabled.OffContent" xml:space="preserve"><value>Off</value></data>
+  <data name="TriggerDoubleTap.Content" xml:space="preserve"><value>Same-key double tap</value></data>
+  <data name="RuleRow_DoubleTapFormat" xml:space="preserve"><value>{0} × 2</value></data>
+  <data name="PresentationTitle.Text" xml:space="preserve"><value>Presentation pointer</value></data>
+  <data name="PresentationEditButton.Content" xml:space="preserve"><value>Edit</value></data>
+  <data name="PresentationEditButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Edit presentation pointer settings</value></data>
+  <data name="PresentationEnabled.Header" xml:space="preserve"><value>Presentation pointer</value></data>
+  <data name="PresentationEnabled.OnContent" xml:space="preserve"><value>On</value></data>
+  <data name="PresentationEnabled.OffContent" xml:space="preserve"><value>Off</value></data>
+  <data name="PresentationEnabled.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Enable presentation pointer</value></data>
+  <data name="PresentationDoneButton.Content" xml:space="preserve"><value>Done</value></data>
+  <data name="PresentationDiscardButton.Content" xml:space="preserve"><value>Discard editor changes</value></data>
+  <data name="PresentationBindingsTitle.Text" xml:space="preserve"><value>Session shortcuts</value></data>
+  <data name="PresentationPresetsTitle.Text" xml:space="preserve"><value>Style presets</value></data>
+  <data name="PresentationAddPreset.Content" xml:space="preserve"><value>Add preset</value></data>
+  <data name="PresentationDeletePreset.Content" xml:space="preserve"><value>Remove selected preset</value></data>
+  <data name="PresentationPresetName.Header" xml:space="preserve"><value>Preset name</value></data>
+  <data name="PresentationPresetName.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Preset name</value></data>
+  <data name="PresentationShapeLabel.Header" xml:space="preserve"><value>Style</value></data>
+  <data name="PresentationShapeLabel.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Pointer style</value></data>
+  <data name="PresentationShapeRing.Content" xml:space="preserve"><value>Hollow ring</value></data>
+  <data name="PresentationShapeDot.Content" xml:space="preserve"><value>Solid dot</value></data>
+  <data name="PresentationShapeInk.Content" xml:space="preserve"><value>Ink trail</value></data>
+  <data name="PresentationPreviewDark.Header" xml:space="preserve"><value>Dark preview background</value></data>
+  <data name="PresentationPreviewDark.OnContent" xml:space="preserve"><value>Dark</value></data>
+  <data name="PresentationPreviewDark.OffContent" xml:space="preserve"><value>Light</value></data>
+  <data name="PresentationHexColor.Header" xml:space="preserve"><value>sRGB color (#RRGGBB)</value></data>
+  <data name="PresentationHexColor.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>sRGB hex color</value></data>
+  <data name="PresentationColorPicker.Content" xml:space="preserve"><value>Open color picker</value></data>
+  <data name="PresentationColorPickerControl.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>sRGB color picker</value></data>
+  <data name="PresentationDiameter.Header" xml:space="preserve"><value>Diameter (px)</value></data>
+  <data name="PresentationDiameter.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Pointer diameter in pixels</value></data>
+  <data name="PresentationRingWidth.Header" xml:space="preserve"><value>Ring thickness (px)</value></data>
+  <data name="PresentationRingWidth.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Ring thickness in pixels</value></data>
+  <data name="PresentationInkWidth.Header" xml:space="preserve"><value>Ink width (px)</value></data>
+  <data name="PresentationInkWidth.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Ink width in pixels</value></data>
+  <data name="PresentationTimedInk.Header" xml:space="preserve"><value>Ink retention</value></data>
+  <data name="PresentationTimedInk.OnContent" xml:space="preserve"><value>Timed</value></data>
+  <data name="PresentationTimedInk.OffContent" xml:space="preserve"><value>Until cleared</value></data>
+  <data name="PresentationRetention.Header" xml:space="preserve"><value>Retain each segment (seconds)</value></data>
+  <data name="PresentationRetention.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Time before each ink segment expires in seconds</value></data>
+  <data name="PresentationLocationTitle.Text" xml:space="preserve"><value>Display and positioning</value></data>
+  <data name="PresentationDisplayTarget.Header" xml:space="preserve"><value>Target display</value></data>
+  <data name="PresentationDisplayTarget.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Target display</value></data>
+  <data name="PresentationIdentifyDisplays.Content" xml:space="preserve"><value>Identify displays</value></data>
+  <data name="PresentationMovement.Header" xml:space="preserve"><value>Positioning mode</value></data>
+  <data name="PresentationMovement.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Positioning mode</value></data>
+  <data name="PresentationRelative.Content" xml:space="preserve"><value>Relative movement</value></data>
+  <data name="PresentationAbsolute.Content" xml:space="preserve"><value>Absolute positioning</value></data>
+  <data name="PresentationRemoveBinding.Content" xml:space="preserve"><value>Clear this binding</value></data>
+  <data name="Presentation_SummaryFormat" xml:space="preserve"><value>Start {0} · Stop {1} · {2} presets</value></data>
+  <data name="Presentation_CapacityStatus" xml:space="preserve"><value>Ink limit reached. Clear the screen to continue drawing.</value></data>
+  <data name="Presentation_PointingStatus" xml:space="preserve"><value>Presentation active. The system mouse still receives native input.</value></data>
+  <data name="Presentation_MouseStatus" xml:space="preserve"><value>Temporary mouse. Existing ink stays visible.</value></data>
+  <data name="Presentation_OverlayStatus" xml:space="preserve"><value>The Agent could not open or update the presentation overlay.</value></data>
+  <data name="Presentation_PausedStatus" xml:space="preserve"><value>Presentation is paused by the Agent or current session.</value></data>
+  <data name="Presentation_DisplayStatus" xml:space="preserve"><value>The target display is unavailable or has changed.</value></data>
+  <data name="Presentation_DeviceStatus" xml:space="preserve"><value>The touchpad is unavailable or was disconnected.</value></data>
+  <data name="Presentation_ReadyStatus" xml:space="preserve"><value>Ready. Use the start shortcut to begin.</value></data>
+  <data name="Presentation_DisabledStatus" xml:space="preserve"><value>The Agent has not enabled presentation shortcuts.</value></data>
+  <data name="Presentation_StartBinding" xml:space="preserve"><value>Start</value></data>
+  <data name="Presentation_StopBinding" xml:space="preserve"><value>Stop</value></data>
+  <data name="Presentation_MouseBinding" xml:space="preserve"><value>Temporary mouse / return</value></data>
+  <data name="Presentation_ClearBinding" xml:space="preserve"><value>Clear ink</value></data>
+  <data name="Presentation_DefaultFormat" xml:space="preserve"><value>Use {0} as the default preset</value></data>
+  <data name="Presentation_SelectFormat" xml:space="preserve"><value>Edit style preset {0}</value></data>
+  <data name="Presentation_AutoDisplay" xml:space="preserve"><value>Automatic · primary display</value></data>
+  <data name="Presentation_DisplayFormat" xml:space="preserve"><value>Display {0} · {1} × {2} at ({3}, {4})</value></data>
+  <data name="Presentation_MissingDisplayFormat" xml:space="preserve"><value>Unavailable · {0}</value></data>
+  <data name="Presentation_Unbound" xml:space="preserve"><value>Unbound</value></data>
+  <data name="Presentation_EditBindingFormat" xml:space="preserve"><value>Edit {0} shortcut, {1}</value></data>
+  <data name="Presentation_BindingTitleFormat" xml:space="preserve"><value>Edit shortcut · {0}</value></data>
+  <data name="Presentation_NewPreset" xml:space="preserve"><value>New style</value></data>
+  <data name="Presentation_SwatchFormat" xml:space="preserve"><value>Use color {0}</value></data>
+  <data name="Touchpad_PresentationActive" xml:space="preserve"><value>Touch Click is temporarily paused while the presentation pointer is active.</value></data>
+  <data name="Presentation_DrawingStatus" xml:space="preserve"><value>Drawing mode. Lift your finger to finish a stroke.</value></data>
+  <data name="PresentationMoveUp.Content" xml:space="preserve"><value>Move up</value></data>
+  <data name="PresentationMoveDown.Content" xml:space="preserve"><value>Move down</value></data>
 </root>

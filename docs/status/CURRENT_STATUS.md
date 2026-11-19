@@ -4,7 +4,7 @@
 >
 > 最后更新：2026-11-19（Australia/Brisbane）
 >
-> 代码基线：`main`（`f44d0e0`）及 Stage 3 开发工作树。`v0.9.0` 已作为 GitHub Pre-release 发布，tag 指向 `c18a0a8...`
+> 代码基线：`main`（`c5497a8`）及 Stage 4 开发工作树。`v0.9.0` 已作为 GitHub Pre-release 发布，tag 指向 `c18a0a8...`
 
 ## 当前结论
 
@@ -43,6 +43,11 @@ RC-01 的本地实施和复验矩阵见
 
 开发工作树已接入实验性触控板 Touch Click，默认关闭。已验证本机后台只读、正式设置启用、目标窗口点击及记事本选词和长触菜单。
 点击来源、实测范围和未覆盖场景见[触控板 Stage 3 记录](../records/TOUCHPAD_STAGE_3_TOUCH_CLICK.md)。
+
+Stage 4 已接入普通规则同键双击，以及默认关闭的演示激光笔。自动构建和单屏覆盖层冒烟通过，
+本机记事本验证了普通双击规则的通过字符、相对定位和临时鼠标返回、清屏和退出，以及绝对落点和断笔。
+Windows 鼠标箭头仍随触控板移动。扩展屏、会议共享和生命周期矩阵仍待实测。
+过程及实测范围见[触控板 Stage 4 记录](../records/TOUCHPAD_STAGE_4_PRESENTATION_POINTER.md)。
 
 ## 阶段状态
 

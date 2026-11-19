@@ -131,6 +131,9 @@ public sealed class AgentConnectionCoordinator : IAgentGateway, IAsyncDisposable
         return LatestStatus;
     }
 
+    public async Task IdentifyDisplaysAsync(CancellationToken cancellationToken = default) =>
+        await SendControlAsync(client => client.IdentifyDisplaysAsync(cancellationToken)).ConfigureAwait(false);
+
     public async Task<ConfigDocument> GetConfigAsync(CancellationToken cancellationToken = default)
     {
         JsonElement result = await SendControlAsync(
@@ -483,7 +486,7 @@ public sealed class AgentConnectionCoordinator : IAgentGateway, IAsyncDisposable
                 $"设置程序需要协议 v{ProtocolConstants.Version}，Agent 提供 v{handshake.ProtocolVersion}");
         }
 
-        if (handshake.SchemaVersion is not (ConfigDocument.CompatibleSchemaVersion or ConfigDocument.CurrentSchemaVersion) ||
+        if (handshake.SchemaVersion is < ConfigDocument.CompatibleSchemaVersion or > ConfigDocument.CurrentSchemaVersion ||
             !handshake.Capabilities.Contains($"config_v{handshake.SchemaVersion}", StringComparer.Ordinal))
         {
             throw new ProtocolException(

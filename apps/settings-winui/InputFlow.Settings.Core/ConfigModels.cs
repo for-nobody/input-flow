@@ -66,6 +66,13 @@ public abstract record RuleTrigger
     public abstract RuleTrigger DeepCopy();
 }
 
+public sealed record DoubleTapTrigger(KeyIdentity Key) : RuleTrigger
+{
+    public override string Type => "double_tap";
+    public override KeyIdentity FirstKey => Key;
+    public override RuleTrigger DeepCopy() => this;
+}
+
 public sealed record KeyChordTrigger(KeyIdentity First, KeyIdentity Second) : RuleTrigger
 {
     public override string Type => "key_chord";
@@ -166,7 +173,7 @@ public sealed record TouchpadDocument
 
 public sealed record ConfigDocument
 {
-    public const uint CurrentSchemaVersion = 5;
+    public const uint CurrentSchemaVersion = 6;
     public const uint CompatibleSchemaVersion = 4;
 
     public uint SchemaVersion { get; init; } = CurrentSchemaVersion;
@@ -175,6 +182,7 @@ public sealed record ConfigDocument
 
     public required List<RuleDocument> Rules { get; init; }
     public TouchpadDocument Touchpad { get; init; } = new();
+    public PresentationDocument Presentation { get; init; } = PresentationDocument.CreateDefault();
 
     public ConfigDocument DeepCopy() => new()
     {
@@ -182,6 +190,7 @@ public sealed record ConfigDocument
         EmergencyBypassKey = EmergencyBypassKey,
         Rules = Rules.Select(rule => rule.DeepCopy()).ToList(),
         Touchpad = Touchpad,
+        Presentation = Presentation.DeepCopy(),
     };
 
     public int EnabledRuleCount => Rules.Count(rule => rule.Enabled);
@@ -236,6 +245,8 @@ public static class ConfigCodec
             EmergencyBypassKey = emergency,
             Rules = rules,
             Touchpad = touchpad,
+            Presentation = sourceVersion >= 6 && root.TryGetProperty("presentation", out JsonElement presentation)
+                ? PresentationCodec.Parse(presentation) : PresentationDocument.CreateDefault(),
         };
     }
 
@@ -291,12 +302,17 @@ public static class ConfigCodec
             writer.WriteNumber("movement_mm", config.Touchpad.MovementMillimeters);
             writer.WriteEndObject();
         }
+        if (config.SchemaVersion >= 6)
+        {
+            writer.WritePropertyName("presentation");
+            PresentationCodec.Write(writer, config.Presentation);
+        }
         writer.WriteEndObject();
         writer.Flush();
         return buffer.WrittenSpan.ToArray();
     }
 
-    private static RuleTrigger ParseTrigger(JsonElement trigger, uint sourceVersion)
+    internal static RuleTrigger ParseTrigger(JsonElement trigger, uint sourceVersion)
     {
         string type = trigger.GetProperty("type").GetString()
             ?? throw new FormatException("trigger type must be a string");
@@ -308,6 +324,7 @@ public static class ConfigCodec
         return type switch
         {
             "key_chord" => new KeyChordTrigger(Key("first"), Key("second")),
+            "double_tap" when sourceVersion >= 6 => new DoubleTapTrigger(Key("key")),
             "key_mouse_button" => new KeyMouseButtonTrigger(
                 Key("key"),
                 RequiredString(trigger, "button")),
@@ -355,12 +372,16 @@ public static class ConfigCodec
         };
     }
 
-    private static void WriteTrigger(Utf8JsonWriter writer, RuleTrigger trigger)
+    internal static void WriteTrigger(Utf8JsonWriter writer, RuleTrigger trigger)
     {
         writer.WriteStartObject();
         writer.WriteString("type", trigger.Type);
         switch (trigger)
         {
+            case DoubleTapTrigger tap:
+                writer.WritePropertyName("key");
+                WriteKey(writer, tap.Key);
+                break;
             case KeyChordTrigger chord:
                 writer.WritePropertyName("first");
                 WriteKey(writer, chord.First);

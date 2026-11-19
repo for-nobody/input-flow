@@ -83,11 +83,39 @@ impl MouseDirectionGroup {
 pub enum Action {
     /// Synthesize a keyboard chord (all keys pressed together, then released).
     KeyChord(Vec<Key>),
+    Presentation(PresentationAction),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PresentationAction {
+    Start,
+    Stop,
+    ToggleMouse,
+    Clear,
+    Select(String),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ChordScope {
+    Ordinary,
+    PresentationOnly,
+}
+
+impl Action {
+    pub(crate) fn available(&self, presentation_ready: bool, presenting: bool) -> bool {
+        match self {
+            Self::Presentation(PresentationAction::Start) => presentation_ready,
+            Self::Presentation(_) => presentation_ready && presenting,
+            Self::KeyChord(_) => true,
+        }
+    }
 }
 
 /// The trigger condition of a rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Trigger {
+    /// Two independent presses and releases of the same key.
+    DoubleTap { key: Key },
     /// Second key pressed while the first key is held down.
     KeyChord { first: Key, second: Key },
     /// Mouse button pressed while the key is held down.
@@ -138,6 +166,7 @@ impl fmt::Display for RuleError {
 
 fn trigger_desc(trigger: &Trigger) -> String {
     match trigger {
+        Trigger::DoubleTap { key } => format!("{key:?} × 2"),
         Trigger::KeyChord { first, second } => format!("{first:?}+{second:?}"),
         Trigger::KeyMouseButton { key, button } => format!("{key:?}+{button:?}"),
         Trigger::Hold { key, timeout_ms } => format!("{key:?} held {timeout_ms}ms"),
@@ -167,6 +196,7 @@ pub struct RuleIndex {
     hold_buttons: BTreeMap<Key, (String, u64, MouseButton, Action)>,
     /// Mouse direction groups keyed by their keyboard activation identity.
     directions: BTreeMap<Key, MouseDirectionGroup>,
+    double_taps: BTreeMap<Key, (String, Action)>,
 }
 
 impl RuleIndex {
@@ -174,7 +204,7 @@ impl RuleIndex {
     pub fn compile(rules: Vec<Rule>) -> Result<Self, Vec<RuleError>> {
         let mut errors = Vec::new();
         let mut seen_ids = BTreeSet::new();
-        let mut seen_triggers = BTreeSet::new();
+        let mut seen_triggers = BTreeMap::new();
         let mut index = RuleIndex::default();
 
         for rule in rules {
@@ -183,11 +213,18 @@ impl RuleIndex {
                 continue;
             }
             let desc = trigger_desc(&rule.trigger);
-            if !seen_triggers.insert(desc.clone()) {
-                errors.push(RuleError::DuplicateTrigger(desc));
+            if let Some(other) = seen_triggers.get(&desc) {
+                errors.push(RuleError::DuplicateTrigger(format!(
+                    "{desc} ({other}, {})",
+                    rule.id
+                )));
                 continue;
             }
+            seen_triggers.insert(desc, rule.id.clone());
             match rule.trigger {
+                Trigger::DoubleTap { key } => {
+                    index.double_taps.insert(key, (rule.id, rule.action));
+                }
                 Trigger::KeyChord { first, second } => {
                     index.first_keys.insert(first);
                     index
@@ -303,6 +340,34 @@ impl RuleIndex {
             && self.holds.is_empty()
             && self.hold_buttons.is_empty()
             && self.directions.is_empty()
+            && self.double_taps.is_empty()
+    }
+
+    pub fn double_tap(&self, key: Key) -> Option<&(String, Action)> {
+        self.double_taps.get(&key)
+    }
+
+    pub(crate) fn chord_scope(&self, key: Key, ready: bool, active: bool) -> Option<ChordScope> {
+        if !self.first_keys.contains(&key) {
+            return None;
+        }
+        let mut scope = None;
+        let chords = self.chords.get(&key).into_iter().flat_map(BTreeMap::values);
+        let mouse_chords = self
+            .mouse_chords
+            .get(&key)
+            .into_iter()
+            .flat_map(BTreeMap::values);
+        for (_, action) in chords.chain(mouse_chords) {
+            match action {
+                Action::KeyChord(_) => return Some(ChordScope::Ordinary),
+                Action::Presentation(_) if action.available(ready, active) => {
+                    scope = Some(ChordScope::PresentationOnly);
+                }
+                _ => {}
+            }
+        }
+        scope
     }
 
     /// Whether `key` can start a `KeyChord` or `KeyMouseButton` rule.
@@ -412,7 +477,7 @@ mod tests {
         let err = RuleIndex::compile(rules).unwrap_err();
         assert_eq!(
             err,
-            vec![RuleError::DuplicateTrigger("LeftCtrl+Q".to_string())]
+            vec![RuleError::DuplicateTrigger("LeftCtrl+Q (a, b)".to_string())]
         );
     }
 

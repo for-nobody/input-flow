@@ -16,6 +16,9 @@ smoke；公开下载的 ZIP 已重新下载并验证 SHA-256。参见
 
 开发工作树已接入默认关闭的实验性触控板点击。设备实测范围和点击来源条件见[触控板 Stage 3 记录](docs/records/TOUCHPAD_STAGE_3_TOUCH_CLICK.md)。
 
+开发工作树也新增了同键双击触发和默认关闭的实验性演示激光笔，支持相对与绝对定位。
+实机范围见[触控板 Stage 4 记录](docs/records/TOUCHPAD_STAGE_4_PRESENTATION_POINTER.md)。
+
 ## 架构与安全边界
 
 - `inputflow-agent.exe` 是唯一的 Hook、托盘、规则运行时、正式配置和 IPC 服务所有者。

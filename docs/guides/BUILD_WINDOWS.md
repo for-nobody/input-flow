@@ -19,7 +19,7 @@ publish 另外固定 .NET self-contained。开发构建成功仍不代表自启�
 |---|---|---|
 | `probe-cli.exe` | Rust + Win32 | M1–M6 诊断原型，可构建和完成无输入 lifecycle smoke |
 | `inputflow-agent.exe` | 纯 Rust + `windows-sys` + Win32 | M7 Phase D 已接入安全 Named Pipe；Hook/runtime、托盘、单实例、配置热应用、capture 与事件订阅均由 agent 权威实现 |
-| `InputFlow.Settings.exe` | C# + WinUI 3 + Windows App SDK | Agent 状态、Schema v5 草稿、方向规则编辑／有限预览、实验性触控板设置、录制、保存核对和单实例 |
+| `InputFlow.Settings.exe` | C# + WinUI 3 + Windows App SDK | Agent 状态、Schema v6 草稿、规则编辑、实验性触控板设置、录制、保存核对和单实例 |
 
 禁止把 Tauri、React、Node.js、npm、WebView2 或 Electron 加入 M7 构建链。WinUI 3 设置程序不得安装 Hook，也不得嵌入 agent 进程。
 

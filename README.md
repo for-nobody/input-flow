@@ -18,6 +18,10 @@ work and formal 1–2 hour, 24-hour, and 72-hour soak sessions have not started.
 The development checkout also includes experimental Touch Click for Precision Touchpads. It is off by default.
 See the [Stage 3 verification record](docs/records/TOUCHPAD_STAGE_3_TOUCH_CLICK.md) for device coverage and click-source requirements.
 
+The development checkout also adds a same-key double-press trigger and an experimental presentation pointer
+with relative and absolute positioning. The presentation pointer is off by default. See the
+[Stage 4 verification record](docs/records/TOUCHPAD_STAGE_4_PRESENTATION_POINTER.md) for hardware results.
+
 ## Architecture and safety boundaries
 
 - `inputflow-agent.exe` is the only owner of hooks, tray state, the rule runtime, formal configuration, and IPC.

@@ -72,6 +72,9 @@ public sealed class InputFlowClient : IAsyncDisposable
     public Task<JsonElement> GetConfigAsync(CancellationToken cancellationToken = default) =>
         SendAsync("get_config", WriteEmptyObject, cancellationToken);
 
+    public Task<JsonElement> IdentifyDisplaysAsync(CancellationToken cancellationToken = default) =>
+        SendAsync("identify_displays", WriteEmptyObject, cancellationToken);
+
     public Task<JsonElement> ValidateConfigAsync(
         JsonElement config,
         CancellationToken cancellationToken = default) =>

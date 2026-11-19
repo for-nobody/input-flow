@@ -22,6 +22,7 @@
 12. [`guides/USER_GUIDE.en-US.md`](guides/USER_GUIDE.en-US.md)／[`guides/USER_GUIDE.md`](guides/USER_GUIDE.md)：英语／中文用户指南。
 13. [`decisions/`](decisions/)：已接受的架构决策。
 14. [触控板 Touch Click 集成任务](tasks/TOUCHPAD_STAGE_3_TOUCH_CLICK_INTEGRATION.md)与[实机记录](records/TOUCHPAD_STAGE_3_TOUCH_CLICK.md)。
+15. [触控板演示激光笔、同键双击任务](tasks/TOUCHPAD_STAGE_4_PRESENTATION_POINTER.md)与[验证记录](records/TOUCHPAD_STAGE_4_PRESENTATION_POINTER.md)。
 
 ## 目录职责
 

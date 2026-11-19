@@ -26,7 +26,8 @@ public sealed record AgentStatus(
     string ApplyReconciliation,
     ulong? ReconciliationRequestId,
     string? LastError,
-    TouchpadStatus? Touchpad = null)
+    TouchpadStatus? Touchpad = null,
+    PresentationStatus? Presentation = null)
 {
     public static AgentStatus Parse(JsonElement value) => new(
         RequiredString(value, "phase"),
@@ -44,10 +45,29 @@ public sealed record AgentStatus(
             : value.GetProperty("last_error").GetString(),
         value.TryGetProperty("touchpad", out JsonElement touchpad) && touchpad.ValueKind == JsonValueKind.Object
             ? TouchpadStatus.Parse(touchpad)
+            : null,
+        value.TryGetProperty("presentation", out JsonElement presentation) && presentation.ValueKind == JsonValueKind.Object
+            ? PresentationStatus.Parse(presentation)
             : null);
 
     private static string RequiredString(JsonElement value, string name) =>
         value.GetProperty(name).GetString() ?? throw new FormatException($"{name} must be a string");
+}
+
+public sealed record PresentationDisplay(string Id, int Left, int Top, int Width, int Height, bool Primary);
+
+public sealed record PresentationStatus(
+    bool Enabled, bool CanStart, string Phase, string Reason, string? Preset, int Segments,
+    IReadOnlyList<PresentationDisplay> Displays)
+{
+    public static PresentationStatus Parse(JsonElement value) => new(
+        value.GetProperty("enabled").GetBoolean(), value.GetProperty("can_start").GetBoolean(),
+        value.GetProperty("phase").GetString() ?? "", value.GetProperty("reason").GetString() ?? "",
+        value.GetProperty("preset").GetString(), value.GetProperty("segments").GetInt32(),
+        value.GetProperty("displays").EnumerateArray().Select(display => new PresentationDisplay(
+            display.GetProperty("id").GetString() ?? "", display.GetProperty("left").GetInt32(), display.GetProperty("top").GetInt32(),
+            display.GetProperty("width").GetInt32(), display.GetProperty("height").GetInt32(), display.GetProperty("primary").GetBoolean()
+        )).ToArray());
 }
 
 public sealed record TouchpadStatus(

@@ -97,13 +97,23 @@ public sealed class DraftSession
     public void SetTouchpad(TouchpadDocument touchpad)
     {
         EnsureLoaded();
-        if (_draft!.SchemaVersion < ConfigDocument.CurrentSchemaVersion || _draft.Touchpad == touchpad)
+        if (_draft!.SchemaVersion < 5 || _draft.Touchpad == touchpad)
         {
             return;
         }
 
         _draft = _draft with { Touchpad = touchpad };
         Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    public void SetPresentation(PresentationDocument presentation)
+    {
+        EnsureLoaded();
+        if (_draft!.SchemaVersion >= 6)
+        {
+            _draft = _draft with { Presentation = presentation.DeepCopy() };
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     private void EnsureLoaded()

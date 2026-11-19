@@ -5,7 +5,7 @@
 //! identity explicit: logical keys use canonical names and physical keys use a
 //! scan code plus extended flag. Schema v3 adds persistent per-rule enablement;
 //! schema v4 adds keyboard-activated mouse direction triggers and v5 adds
-//! Touch Click settings. Older documents migrate in memory; writes use v5.
+//! Touch Click settings. Schema v6 adds double-tap rules and presentation settings.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -14,12 +14,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::PresentationConfig;
 use inputflow_engine::{Action, Key, MouseButton, MouseDirection, Rule, RuleIndex, Trigger};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Current on-disk schema version.
-pub const SCHEMA_VERSION: u32 = 5;
+pub const SCHEMA_VERSION: u32 = 6;
+const TOUCH_CLICK_SCHEMA_VERSION: u32 = 5;
 const DIRECTION_SCHEMA_VERSION: u32 = 4;
 /// Old string-key schema accepted for compatibility and explicit migration.
 pub const LEGACY_SCHEMA_VERSION: u32 = 1;
@@ -65,6 +67,8 @@ pub struct Config {
     pub rules: Vec<RuleConfig>,
     #[serde(default)]
     pub touchpad: TouchpadConfig,
+    #[serde(default)]
+    pub presentation: PresentationConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -128,6 +132,9 @@ pub struct RuleConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, tag = "type", rename_all = "snake_case")]
 pub enum TriggerConfig {
+    DoubleTap {
+        key: KeyConfig,
+    },
     KeyChord {
         first: KeyConfig,
         second: KeyConfig,
@@ -214,6 +221,17 @@ struct ConfigV4 {
     emergency_bypass_key: KeyConfig,
     #[serde(default)]
     rules: Vec<RuleConfig>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConfigV5 {
+    schema_version: u32,
+    emergency_bypass_key: KeyConfig,
+    #[serde(default)]
+    rules: Vec<RuleConfig>,
+    #[serde(default)]
+    touchpad: TouchpadConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -321,6 +339,7 @@ pub struct LoadedConfig {
     pub write_blocked_reason: Option<String>,
     pub emergency_key: Key,
     pub rules: Vec<Rule>,
+    pub presentation_rules: Vec<Rule>,
     pub problems: Vec<String>,
 }
 
@@ -330,6 +349,7 @@ pub struct ValidatedConfig {
     pub config: Config,
     pub emergency_key: Key,
     pub rules: Vec<Rule>,
+    pub presentation_rules: Vec<Rule>,
 }
 
 /// Structured result of an atomic configuration commit.
@@ -348,6 +368,7 @@ impl Default for LoadedConfig {
             write_blocked_reason: None,
             emergency_key: DEFAULT_EMERGENCY_KEY,
             rules: Vec::new(),
+            presentation_rules: Vec::new(),
             problems: Vec::new(),
         }
     }
@@ -370,6 +391,7 @@ pub fn load(path: &Path) -> LoadedConfig {
                 write_blocked_reason: None,
                 emergency_key: resolved.emergency_key,
                 rules: resolved.rules,
+                presentation_rules: resolved.presentation_rules,
                 problems,
             };
         }
@@ -409,6 +431,7 @@ pub fn load(path: &Path) -> LoadedConfig {
                 write_blocked_reason: None,
                 emergency_key: resolved.emergency_key,
                 rules: resolved.rules,
+                presentation_rules: resolved.presentation_rules,
                 problems,
             };
         }
@@ -546,15 +569,31 @@ pub fn parse_and_migrate_json(text: &str) -> Result<MigrationReport, Vec<ConfigE
                 vec![ConfigError(format!("invalid schema v4 document: {error}"))]
             })?;
             debug_assert_eq!(previous.schema_version, DIRECTION_SCHEMA_VERSION);
+            reject_legacy_double_tap(&previous.rules)?;
             Config {
                 schema_version: SCHEMA_VERSION,
                 emergency_bypass_key: previous.emergency_bypass_key,
                 rules: previous.rules,
                 touchpad: TouchpadConfig::default(),
+                presentation: PresentationConfig::default(),
+            }
+        }
+        TOUCH_CLICK_SCHEMA_VERSION => {
+            let previous: ConfigV5 = serde_json::from_value(value).map_err(|error| {
+                vec![ConfigError(format!("invalid schema v5 document: {error}"))]
+            })?;
+            debug_assert_eq!(previous.schema_version, TOUCH_CLICK_SCHEMA_VERSION);
+            reject_legacy_double_tap(&previous.rules)?;
+            Config {
+                schema_version: SCHEMA_VERSION,
+                emergency_bypass_key: previous.emergency_bypass_key,
+                rules: previous.rules,
+                touchpad: previous.touchpad,
+                presentation: PresentationConfig::default(),
             }
         }
         SCHEMA_VERSION => serde_json::from_value(value)
-            .map_err(|error| vec![ConfigError(format!("invalid schema v5 document: {error}"))])?,
+            .map_err(|error| vec![ConfigError(format!("invalid schema v6 document: {error}"))])?,
         other => {
             return Err(vec![ConfigError(format!(
                 "unsupported schema_version {other} (supported: 1–{SCHEMA_VERSION})"
@@ -574,6 +613,7 @@ fn migrate_v1(legacy: ConfigV1) -> Config {
     Config {
         schema_version: SCHEMA_VERSION,
         touchpad: TouchpadConfig::default(),
+        presentation: PresentationConfig::default(),
         emergency_bypass_key: KeyConfig::Logical {
             key: legacy.emergency_bypass_key,
         },
@@ -621,11 +661,25 @@ fn migrate_v1(legacy: ConfigV1) -> Config {
     }
 }
 
+fn reject_legacy_double_tap(rules: &[RuleConfig]) -> Result<(), Vec<ConfigError>> {
+    if rules
+        .iter()
+        .any(|rule| matches!(rule.trigger, TriggerConfig::DoubleTap { .. }))
+    {
+        Err(vec![ConfigError(
+            "double_tap requires schema v6".to_string(),
+        )])
+    } else {
+        Ok(())
+    }
+}
+
 fn migrate_v2(previous: ConfigV2) -> Config {
     debug_assert_eq!(previous.schema_version, KEY_IDENTITY_SCHEMA_VERSION);
     Config {
         schema_version: SCHEMA_VERSION,
         touchpad: TouchpadConfig::default(),
+        presentation: PresentationConfig::default(),
         emergency_bypass_key: previous.emergency_bypass_key,
         rules: previous
             .rules
@@ -645,6 +699,7 @@ fn migrate_v3(previous: ConfigV3) -> Config {
     Config {
         schema_version: SCHEMA_VERSION,
         touchpad: TouchpadConfig::default(),
+        presentation: PresentationConfig::default(),
         emergency_bypass_key: previous.emergency_bypass_key,
         rules: previous
             .rules
@@ -753,6 +808,7 @@ struct Resolved {
     source_schema_version: u32,
     emergency_key: Key,
     rules: Vec<Rule>,
+    presentation_rules: Vec<Rule>,
 }
 
 /// Validate a parsed config and resolve it into engine rules. Returns all
@@ -824,6 +880,7 @@ fn validate(config: &Config) -> Result<Resolved, Vec<ConfigError>> {
             Trigger::Hold { key, .. } => Some(key),
             Trigger::HoldMouseButton { key, .. } => Some(key),
             Trigger::MouseDirection { key, .. } => Some(key),
+            Trigger::DoubleTap { key } => Some(key),
         };
         if let Some(key) = prefix {
             prefix_keys.insert(key);
@@ -837,7 +894,16 @@ fn validate(config: &Config) -> Result<Resolved, Vec<ConfigError>> {
 
     // Reuse the engine's rule-index validation (duplicate ids/triggers and
     // cross-kind prefix conflicts).
-    if let Err(rule_errors) = RuleIndex::compile(rules.clone()) {
+    let presentation_enabled = touchpad.experimental_enabled && config.presentation.enabled;
+    let mut presentation_rules = config
+        .presentation
+        .resolved_rules(presentation_enabled.then_some(emergency_key), &mut errors);
+    if !presentation_enabled {
+        presentation_rules.clear();
+    }
+    if let Err(rule_errors) =
+        RuleIndex::compile(rules.iter().chain(&presentation_rules).cloned().collect())
+    {
         for rule_error in rule_errors {
             errors.push(ConfigError(rule_error.to_string()));
         }
@@ -849,18 +915,20 @@ fn validate(config: &Config) -> Result<Resolved, Vec<ConfigError>> {
             source_schema_version: SCHEMA_VERSION,
             emergency_key,
             rules,
+            presentation_rules,
         })
     } else {
         Err(errors)
     }
 }
 
-/// Validate and resolve a schema-v4 document without reading or writing disk.
+/// Validate and resolve a current-schema document without reading or writing disk.
 pub fn validate_config(config: &Config) -> Result<ValidatedConfig, Vec<ConfigError>> {
     validate(config).map(|resolved| ValidatedConfig {
         config: resolved.config,
         emergency_key: resolved.emergency_key,
         rules: resolved.rules,
+        presentation_rules: resolved.presentation_rules,
     })
 }
 
@@ -870,7 +938,31 @@ fn resolve_rule(rule: &RuleConfig) -> Result<Rule, String> {
         return Err("rule has an empty id".to_string());
     }
 
-    let trigger = match &rule.trigger {
+    let trigger = resolve_trigger(&rule.trigger)?;
+    let action = match &rule.action {
+        ActionConfig::KeyChord { keys } => {
+            if keys.is_empty() {
+                return Err("action has no keys".to_string());
+            }
+            let mut parsed = Vec::with_capacity(keys.len());
+            for key in keys {
+                parsed.push(parse_key(key)?);
+            }
+            Action::KeyChord(parsed)
+        }
+    };
+    Ok(Rule {
+        id: rule.id.clone(),
+        trigger,
+        action,
+    })
+}
+
+pub(crate) fn resolve_trigger(trigger: &TriggerConfig) -> Result<Trigger, String> {
+    Ok(match trigger {
+        TriggerConfig::DoubleTap { key } => Trigger::DoubleTap {
+            key: parse_key(key)?,
+        },
         TriggerConfig::KeyChord { first, second } => Trigger::KeyChord {
             first: parse_key(first)?,
             second: parse_key(second)?,
@@ -916,25 +1008,6 @@ fn resolve_rule(rule: &RuleConfig) -> Result<Rule, String> {
             max_duration_ms: check_direction_duration(*max_duration_ms)?,
             off_axis_tolerance_px: check_direction_off_axis(*off_axis_tolerance_px)?,
         },
-    };
-
-    let action = match &rule.action {
-        ActionConfig::KeyChord { keys } => {
-            if keys.is_empty() {
-                return Err("action has no keys".to_string());
-            }
-            let mut parsed = Vec::with_capacity(keys.len());
-            for key in keys {
-                parsed.push(parse_key(key)?);
-            }
-            Action::KeyChord(parsed)
-        }
-    };
-
-    Ok(Rule {
-        id: rule.id.clone(),
-        trigger,
-        action,
     })
 }
 
@@ -1187,6 +1260,7 @@ pub fn default_config() -> Config {
     Config {
         schema_version: SCHEMA_VERSION,
         touchpad: TouchpadConfig::default(),
+        presentation: PresentationConfig::default(),
         emergency_bypass_key: KeyConfig::logical(DEFAULT_EMERGENCY_KEY),
         rules: Vec::new(),
     }
@@ -1210,6 +1284,7 @@ mod tests {
         Config {
             schema_version: SCHEMA_VERSION,
             touchpad: TouchpadConfig::default(),
+            presentation: PresentationConfig::default(),
             emergency_bypass_key: logical("F12"),
             rules: vec![RuleConfig {
                 id: "hold-ctrl-right-click-copy".to_string(),
@@ -1235,8 +1310,59 @@ mod tests {
         config.touchpad.click_enabled = true;
         config.touchpad.movement_mm = 2.375;
         let saved = parse_and_migrate_json(&to_json_pretty(&config)).unwrap();
-        assert_eq!(saved.source_schema_version, 5);
+        assert_eq!(saved.source_schema_version, SCHEMA_VERSION);
         assert_eq!(saved.config, config);
+    }
+
+    #[test]
+    fn v5_migration_preserves_old_rules_and_leaves_presentation_disabled() {
+        let mut legacy: serde_json::Value = serde_json::from_str(V4_GOLDEN).unwrap();
+        legacy["schema_version"] = 5.into();
+        legacy["touchpad"] = serde_json::json!({
+            "experimental_enabled": true, "click_enabled": true, "short_ms": 310, "hold_ms": 550, "movement_mm": 2.5
+        });
+        let loaded = parse_and_migrate_json(&legacy.to_string()).unwrap();
+        assert_eq!(loaded.source_schema_version, 5);
+        assert_eq!(loaded.config.rules.len(), 2);
+        assert_eq!(loaded.config.touchpad.short_ms, 310);
+        assert_eq!(loaded.config.touchpad.movement_mm, 2.5);
+        assert!(!loaded.config.presentation.enabled);
+        assert!(
+            validate_config(&loaded.config)
+                .unwrap()
+                .presentation_rules
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn presentation_shortcuts_share_conflict_checks_without_affecting_rule_count() {
+        let mut config = sample_config();
+        config.rules[0].trigger = TriggerConfig::DoubleTap {
+            key: logical("LeftCtrl"),
+        };
+        config.presentation.enabled = true;
+        assert_eq!(validate_config(&config).unwrap().rules.len(), 1);
+        config.touchpad.experimental_enabled = true;
+        let errors = validate_config(&config).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.0.contains("presentation.start")
+                    && error.0.contains(&config.rules[0].id))
+        );
+        config.rules.clear();
+        config.emergency_bypass_key = logical("RightCtrl");
+        assert!(
+            validate_config(&config)
+                .unwrap_err()
+                .iter()
+                .any(|error| error.0.contains("presentation.stop"))
+        );
+        config.emergency_bypass_key = logical("F12");
+        let active = validate_config(&config).unwrap();
+        assert_eq!(active.rules.len(), 0);
+        assert_eq!(active.presentation_rules.len(), 7);
     }
 
     #[test]
@@ -1638,6 +1764,7 @@ mod tests {
         let mut config = Config {
             schema_version: SCHEMA_VERSION,
             touchpad: TouchpadConfig::default(),
+            presentation: PresentationConfig::default(),
             emergency_bypass_key: logical("F12"),
             rules: vec![base.clone()],
         };
@@ -2062,6 +2189,7 @@ mod tests {
             let config = Config {
                 schema_version: SCHEMA_VERSION,
                 touchpad: TouchpadConfig::default(),
+                presentation: PresentationConfig::default(),
                 emergency_bypass_key: logical(key),
                 rules: Vec::new(),
             };
@@ -2123,6 +2251,7 @@ mod tests {
                 let config = Config {
                     schema_version: SCHEMA_VERSION,
                     touchpad: TouchpadConfig::default(),
+                    presentation: PresentationConfig::default(),
                     emergency_bypass_key: logical(key),
                     rules: Vec::new(),
                 };

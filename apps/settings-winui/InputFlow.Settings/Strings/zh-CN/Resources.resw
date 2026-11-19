@@ -413,4 +413,81 @@
   <data name="TouchpadExperimentEnabled.OffContent" xml:space="preserve"><value>关</value></data>
   <data name="TouchClickEnabled.OnContent" xml:space="preserve"><value>开</value></data>
   <data name="TouchClickEnabled.OffContent" xml:space="preserve"><value>关</value></data>
+  <data name="TriggerDoubleTap.Content" xml:space="preserve"><value>同键双击</value></data>
+  <data name="RuleRow_DoubleTapFormat" xml:space="preserve"><value>{0} × 2</value></data>
+  <data name="PresentationTitle.Text" xml:space="preserve"><value>演示激光笔</value></data>
+  <data name="PresentationEditButton.Content" xml:space="preserve"><value>编辑</value></data>
+  <data name="PresentationEditButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>编辑演示激光笔</value></data>
+  <data name="PresentationEnabled.Header" xml:space="preserve"><value>演示激光笔</value></data>
+  <data name="PresentationEnabled.OnContent" xml:space="preserve"><value>开</value></data>
+  <data name="PresentationEnabled.OffContent" xml:space="preserve"><value>关</value></data>
+  <data name="PresentationEnabled.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>启用演示激光笔</value></data>
+  <data name="PresentationDoneButton.Content" xml:space="preserve"><value>完成编辑</value></data>
+  <data name="PresentationDiscardButton.Content" xml:space="preserve"><value>放弃本次编辑</value></data>
+  <data name="PresentationBindingsTitle.Text" xml:space="preserve"><value>运行快捷键</value></data>
+  <data name="PresentationPresetsTitle.Text" xml:space="preserve"><value>样式预设</value></data>
+  <data name="PresentationAddPreset.Content" xml:space="preserve"><value>新增预设</value></data>
+  <data name="PresentationDeletePreset.Content" xml:space="preserve"><value>删除所选预设</value></data>
+  <data name="PresentationPresetName.Header" xml:space="preserve"><value>预设名称</value></data>
+  <data name="PresentationPresetName.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>预设名称</value></data>
+  <data name="PresentationShapeLabel.Header" xml:space="preserve"><value>样式</value></data>
+  <data name="PresentationShapeLabel.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>指针样式</value></data>
+  <data name="PresentationShapeRing.Content" xml:space="preserve"><value>空心圆</value></data>
+  <data name="PresentationShapeDot.Content" xml:space="preserve"><value>实心圆</value></data>
+  <data name="PresentationShapeInk.Content" xml:space="preserve"><value>拖尾笔迹</value></data>
+  <data name="PresentationPreviewDark.Header" xml:space="preserve"><value>深色预览背景</value></data>
+  <data name="PresentationPreviewDark.OnContent" xml:space="preserve"><value>深色</value></data>
+  <data name="PresentationPreviewDark.OffContent" xml:space="preserve"><value>浅色</value></data>
+  <data name="PresentationHexColor.Header" xml:space="preserve"><value>sRGB 颜色（#RRGGBB）</value></data>
+  <data name="PresentationHexColor.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>sRGB 十六进制颜色</value></data>
+  <data name="PresentationColorPicker.Content" xml:space="preserve"><value>打开调色盘</value></data>
+  <data name="PresentationColorPickerControl.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>sRGB 调色盘</value></data>
+  <data name="PresentationDiameter.Header" xml:space="preserve"><value>直径（像素）</value></data>
+  <data name="PresentationDiameter.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>指针直径，单位像素</value></data>
+  <data name="PresentationRingWidth.Header" xml:space="preserve"><value>圆环粗细（像素）</value></data>
+  <data name="PresentationRingWidth.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>环宽，单位像素</value></data>
+  <data name="PresentationInkWidth.Header" xml:space="preserve"><value>线宽（像素）</value></data>
+  <data name="PresentationInkWidth.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>线宽，单位像素</value></data>
+  <data name="PresentationTimedInk.Header" xml:space="preserve"><value>笔迹保留方式</value></data>
+  <data name="PresentationTimedInk.OnContent" xml:space="preserve"><value>限时保留</value></data>
+  <data name="PresentationTimedInk.OffContent" xml:space="preserve"><value>保留到清屏</value></data>
+  <data name="PresentationRetention.Header" xml:space="preserve"><value>每段保留（秒）</value></data>
+  <data name="PresentationRetention.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>每段笔迹保留时间，单位秒</value></data>
+  <data name="PresentationLocationTitle.Text" xml:space="preserve"><value>显示与定位</value></data>
+  <data name="PresentationDisplayTarget.Header" xml:space="preserve"><value>目标显示器</value></data>
+  <data name="PresentationDisplayTarget.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>目标显示器</value></data>
+  <data name="PresentationIdentifyDisplays.Content" xml:space="preserve"><value>识别显示器</value></data>
+  <data name="PresentationMovement.Header" xml:space="preserve"><value>定位方式</value></data>
+  <data name="PresentationMovement.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>定位方式</value></data>
+  <data name="PresentationRelative.Content" xml:space="preserve"><value>相对移动</value></data>
+  <data name="PresentationAbsolute.Content" xml:space="preserve"><value>绝对定位</value></data>
+  <data name="PresentationRemoveBinding.Content" xml:space="preserve"><value>取消此绑定</value></data>
+  <data name="Presentation_SummaryFormat" xml:space="preserve"><value>开启 {0} · 关闭 {1} · {2} 个预设</value></data>
+  <data name="Presentation_CapacityStatus" xml:space="preserve"><value>已到笔迹容量上限。清屏后可继续绘制。</value></data>
+  <data name="Presentation_PointingStatus" xml:space="preserve"><value>正在演示。系统鼠标仍可收到 Windows 原生输入。</value></data>
+  <data name="Presentation_MouseStatus" xml:space="preserve"><value>临时鼠标模式。已有笔迹继续显示。</value></data>
+  <data name="Presentation_OverlayStatus" xml:space="preserve"><value>Agent 无法打开或更新演示覆盖层。</value></data>
+  <data name="Presentation_PausedStatus" xml:space="preserve"><value>Agent 或当前会话已暂停演示。</value></data>
+  <data name="Presentation_DisplayStatus" xml:space="preserve"><value>目标显示器不可用或已发生变化。</value></data>
+  <data name="Presentation_DeviceStatus" xml:space="preserve"><value>触控板不可用或已断开。</value></data>
+  <data name="Presentation_ReadyStatus" xml:space="preserve"><value>已就绪。使用开启快捷键开始演示。</value></data>
+  <data name="Presentation_DisabledStatus" xml:space="preserve"><value>Agent 尚未启用演示快捷键。</value></data>
+  <data name="Presentation_StartBinding" xml:space="preserve"><value>开启</value></data>
+  <data name="Presentation_StopBinding" xml:space="preserve"><value>关闭</value></data>
+  <data name="Presentation_MouseBinding" xml:space="preserve"><value>临时鼠标／返回</value></data>
+  <data name="Presentation_ClearBinding" xml:space="preserve"><value>立即清屏</value></data>
+  <data name="Presentation_DefaultFormat" xml:space="preserve"><value>将 {0} 设为默认预设</value></data>
+  <data name="Presentation_SelectFormat" xml:space="preserve"><value>编辑样式预设 {0}</value></data>
+  <data name="Presentation_AutoDisplay" xml:space="preserve"><value>自动选择 · 主显示器</value></data>
+  <data name="Presentation_DisplayFormat" xml:space="preserve"><value>显示器 {0} · {1} × {2}，原点 ({3}, {4})</value></data>
+  <data name="Presentation_MissingDisplayFormat" xml:space="preserve"><value>不可用 · {0}</value></data>
+  <data name="Presentation_Unbound" xml:space="preserve"><value>未绑定</value></data>
+  <data name="Presentation_EditBindingFormat" xml:space="preserve"><value>编辑 {0} 快捷键，{1}</value></data>
+  <data name="Presentation_BindingTitleFormat" xml:space="preserve"><value>编辑快捷键 · {0}</value></data>
+  <data name="Presentation_NewPreset" xml:space="preserve"><value>新样式</value></data>
+  <data name="Presentation_SwatchFormat" xml:space="preserve"><value>使用颜色 {0}</value></data>
+  <data name="Touchpad_PresentationActive" xml:space="preserve"><value>演示指针工作期间暂时停用触控点击。</value></data>
+  <data name="Presentation_DrawingStatus" xml:space="preserve"><value>正在绘画。抬手结束当前一笔。</value></data>
+  <data name="PresentationMoveUp.Content" xml:space="preserve"><value>上移</value></data>
+  <data name="PresentationMoveDown.Content" xml:space="preserve"><value>下移</value></data>
 </root>

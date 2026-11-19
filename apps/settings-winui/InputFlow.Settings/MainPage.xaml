@@ -105,6 +105,7 @@
                     <Grid x:Name="RulesListPane">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         <Border x:Name="TouchClickSection" Padding="12" Margin="0,0,0,8" Visibility="Collapsed" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="6">
@@ -124,7 +125,19 @@
                                 <TextBlock x:Name="TouchClickStatus" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
                             </StackPanel>
                         </Border>
-                        <ListView x:Name="RulesList" x:Uid="RulesList" Grid.Row="1" IsItemClickEnabled="False" SelectionMode="None">
+                        <Border x:Name="PresentationCard" Grid.Row="1" Visibility="Collapsed" Padding="12" Margin="0,0,0,8"
+                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <StackPanel Spacing="3">
+                                    <TextBlock x:Uid="PresentationTitle" FontWeight="SemiBold" />
+                                    <TextBlock x:Name="PresentationSummary" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="PresentationState" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+                                </StackPanel>
+                                <Button x:Uid="PresentationEditButton" Grid.Column="1" Click="PresentationEdit_Click" />
+                            </Grid>
+                        </Border>
+                        <ListView x:Name="RulesList" x:Uid="RulesList" Grid.Row="2" IsItemClickEnabled="False" SelectionMode="None">
                             <ListView.ItemTemplate>
                                 <DataTemplate>
                                     <Border Margin="0,0,0,8" Padding="12" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6">
@@ -151,7 +164,57 @@
                                 </DataTemplate>
                             </ListView.ItemTemplate>
                         </ListView>
-                        <TextBlock x:Name="EmptyRulesText" x:Uid="EmptyRulesText" Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="Collapsed" />
+                        <TextBlock x:Name="EmptyRulesText" x:Uid="EmptyRulesText" Grid.Row="2" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="Collapsed" />
+                        <ScrollViewer x:Name="PresentationEditor" Grid.RowSpan="3" Visibility="Collapsed"
+                                      Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel Spacing="10" Padding="6">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button x:Uid="PresentationDoneButton" Click="PresentationDone_Click" />
+                                    <Button x:Uid="PresentationDiscardButton" Click="PresentationDiscard_Click" />
+                                </StackPanel>
+                                <TextBlock x:Uid="PresentationBindingsTitle" FontSize="18" FontWeight="SemiBold" />
+                                <StackPanel x:Name="PresentationBindings" Spacing="4" />
+                                <TextBlock x:Uid="PresentationPresetsTitle" FontSize="18" FontWeight="SemiBold" />
+                                <StackPanel x:Name="PresentationPresetRows" Spacing="3" />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button x:Uid="PresentationAddPreset" Click="PresentationAddPreset_Click" />
+                                    <Button x:Uid="PresentationDeletePreset" x:Name="PresentationDeletePresetButton" Click="PresentationDeletePreset_Click" />
+                                    <Button x:Uid="PresentationMoveUp" Tag="-1" Click="PresentationMovePreset_Click" />
+                                    <Button x:Uid="PresentationMoveDown" Tag="1" Click="PresentationMovePreset_Click" />
+                                </StackPanel>
+                                <StackPanel x:Name="SelectedPresentationPreset" Spacing="8">
+                                    <TextBox x:Uid="PresentationPresetName" x:Name="PresentationPresetName" LostFocus="PresentationPresetFields_Changed" />
+                                    <ComboBox x:Uid="PresentationShapeLabel" x:Name="PresentationShape" SelectionChanged="PresentationShape_Changed">
+                                        <ComboBoxItem x:Uid="PresentationShapeRing" />
+                                        <ComboBoxItem x:Uid="PresentationShapeDot" />
+                                        <ComboBoxItem x:Uid="PresentationShapeInk" />
+                                    </ComboBox>
+                                    <Border x:Name="PresentationPreview" Height="76" HorizontalAlignment="Stretch" CornerRadius="6" />
+                                    <ToggleSwitch x:Uid="PresentationPreviewDark" x:Name="PresentationPreviewDark" Toggled="PresentationPreview_Changed" />
+                                    <TextBox x:Uid="PresentationHexColor" x:Name="PresentationHexColor" LostFocus="PresentationPresetFields_Changed" />
+                                    <Button x:Uid="PresentationColorPicker">
+                                        <Button.Flyout>
+                                            <Flyout>
+                                                <ColorPicker x:Uid="PresentationColorPickerControl" x:Name="PresentationColorPickerControl" IsAlphaEnabled="False" ColorChanged="PresentationColor_Changed" />
+                                            </Flyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                    <StackPanel x:Name="PresentationSwatches" Spacing="4" Orientation="Horizontal" />
+                                    <NumberBox x:Uid="PresentationDiameter" x:Name="PresentationDiameter" Minimum="2" Maximum="256" ValueChanged="PresentationNumber_Changed" />
+                                    <NumberBox x:Uid="PresentationRingWidth" x:Name="PresentationRingWidth" Minimum="1" Maximum="127" ValueChanged="PresentationNumber_Changed" />
+                                    <NumberBox x:Uid="PresentationInkWidth" x:Name="PresentationInkWidth" Minimum="1" Maximum="64" ValueChanged="PresentationNumber_Changed" />
+                                    <ToggleSwitch x:Uid="PresentationTimedInk" x:Name="PresentationTimedInk" Toggled="PresentationTimedInk_Toggled" />
+                                    <NumberBox x:Uid="PresentationRetention" x:Name="PresentationRetention" Minimum="1" Maximum="600" ValueChanged="PresentationNumber_Changed" />
+                                </StackPanel>
+                                <TextBlock x:Uid="PresentationLocationTitle" FontSize="18" FontWeight="SemiBold" />
+                                <ComboBox x:Uid="PresentationDisplayTarget" x:Name="PresentationDisplayTarget" SelectionChanged="PresentationDisplay_Changed" />
+                                <Button x:Uid="PresentationIdentifyDisplays" Click="PresentationIdentify_Click" HorizontalAlignment="Left" />
+                                <ComboBox x:Uid="PresentationMovement" x:Name="PresentationMovement" SelectionChanged="PresentationMovement_Changed">
+                                    <ComboBoxItem x:Uid="PresentationRelative" />
+                                    <ComboBoxItem x:Uid="PresentationAbsolute" />
+                                </ComboBox>
+                            </StackPanel>
+                        </ScrollViewer>
                     </Grid>
 
                     <Border x:Name="RuleEditor" Grid.Column="1" Padding="16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Visibility="Collapsed">
@@ -172,6 +235,7 @@
                                     <ComboBoxItem x:Uid="TriggerHold" Tag="hold" />
                                     <ComboBoxItem x:Uid="TriggerHoldMouseButton" Tag="hold_mouse_button" />
                                     <ComboBoxItem x:Uid="TriggerMouseDirection" Tag="mouse_direction" />
+                                    <ComboBoxItem x:Name="DoubleTapChoice" x:Uid="TriggerDoubleTap" Tag="double_tap" Visibility="Collapsed" />
                                 </ComboBox>
                                 <TextBlock x:Uid="PrimaryKeyLabel" FontWeight="SemiBold" />
                                 <controls:KeyPicker x:Name="PrimaryKeyPicker" CaptureRequested="KeyPicker_CaptureRequested" />
@@ -205,10 +269,13 @@
                                     <ProgressBar x:Name="DirectionPreviewProgress" x:Uid="DirectionPreviewProgress" Maximum="100" Minimum="0" Value="0" />
                                     <TextBlock x:Name="DirectionPreviewText" x:Uid="DirectionPreviewText" AutomationProperties.LiveSetting="Polite" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
                                 </StackPanel>
-                                <TextBlock x:Uid="ActionKeysLabel" FontWeight="SemiBold" />
-                                <StackPanel x:Name="ActionKeysPanel" Spacing="8" />
-                                <Button x:Uid="AddActionKeyButton" HorizontalAlignment="Left" Click="AddActionKey_Click" />
-                                <TextBlock x:Uid="ActionKeysHelpText" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                                <StackPanel x:Name="RuleActionFields" Spacing="8">
+                                    <TextBlock x:Uid="ActionKeysLabel" FontWeight="SemiBold" />
+                                    <StackPanel x:Name="ActionKeysPanel" Spacing="8" />
+                                    <Button x:Uid="AddActionKeyButton" HorizontalAlignment="Left" Click="AddActionKey_Click" />
+                                    <TextBlock x:Uid="ActionKeysHelpText" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <Button x:Name="RemovePresentationBindingButton" x:Uid="PresentationRemoveBinding" Visibility="Collapsed" Click="PresentationRemoveBinding_Click" />
                                 <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
                                     <Button x:Uid="CancelEditButton" Click="CancelEdit_Click" />
                                     <Button x:Uid="CommitEditButton" Click="CommitEdit_Click" Style="{StaticResource AccentButtonStyle}" />
@@ -238,6 +305,7 @@
                         <StackPanel Spacing="8">
                             <TextBlock x:Uid="TouchpadExperimentTitle" FontSize="18" FontWeight="SemiBold" />
                             <ToggleSwitch x:Name="TouchpadExperimentEnabled" x:Uid="TouchpadExperimentEnabled" Toggled="TouchpadExperimentEnabled_Toggled" />
+                            <ToggleSwitch x:Name="PresentationEnabled" x:Uid="PresentationEnabled" Visibility="Collapsed" Toggled="PresentationEnabled_Toggled" />
                             <TextBlock x:Uid="TouchpadExperimentHelp" TextWrapping="Wrap" />
                             <TextBlock x:Name="TouchpadExperimentStatus" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
                             <Button x:Name="TouchpadSaveButton" x:Uid="TouchpadSaveButton" Click="Save_Click" HorizontalAlignment="Left" />

@@ -96,13 +96,16 @@ internal static class LocalizationSmoke
                 ? "Touchpad support (experimental)"
                 : "触控板支持（实验性）";
             string expectedTouchClickOff = language == UiLanguagePreference.EnglishUnitedStates ? "Off" : "关";
+            string expectedPresentation = language == UiLanguagePreference.EnglishUnitedStates
+                ? "Enable presentation pointer" : "启用演示激光笔";
             bool passed = AppResources.CurrentLanguageTag == language &&
                 string.Equals(probe.StaticText, expectedStatic, StringComparison.Ordinal) &&
                 string.Equals(page.LocalizationSmokeRulesText, expectedRules, StringComparison.Ordinal) &&
                 string.Equals(AppResources.Get("Preview_Stopped"), expectedDynamic, StringComparison.Ordinal) &&
                 string.Equals(probe.AutomationName, expectedAutomation, StringComparison.Ordinal) &&
                 string.Equals(page.LocalizationSmokeTouchpadName, expectedTouchpad, StringComparison.Ordinal) &&
-                string.Equals(page.LocalizationSmokeTouchClickOff, expectedTouchClickOff, StringComparison.Ordinal);
+                string.Equals(page.LocalizationSmokeTouchClickOff, expectedTouchClickOff, StringComparison.Ordinal) &&
+                string.Equals(page.LocalizationSmokePresentationName, expectedPresentation, StringComparison.Ordinal);
             return passed ? 0 : 1;
         }
         catch

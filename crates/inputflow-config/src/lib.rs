@@ -6,6 +6,9 @@
 //! human-readable problems, so the caller can start in bypass (NFR-03).
 
 mod config;
+mod presentation;
+
+pub use presentation::{MovementMode, PresentationConfig, Preset, Style, parse_color};
 
 pub use config::{
     ActionConfig, Config, ConfigError, DEFAULT_DIRECTION_MAX_DURATION_MS,

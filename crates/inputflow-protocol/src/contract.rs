@@ -169,6 +169,37 @@ pub struct StatusResult {
     pub last_error: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub touchpad: Option<TouchpadStatusResult>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presentation: Option<PresentationStatusResult>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PresentationStatusResult {
+    pub enabled: bool,
+    pub can_start: bool,
+    pub phase: String,
+    pub reason: String,
+    pub preset: Option<String>,
+    pub display: Option<String>,
+    pub pointer: Option<(i32, i32)>,
+    pub mouse_position: Option<(i32, i32)>,
+    pub system_cursor: Option<(i32, i32)>,
+    pub segments: usize,
+    pub frames: u64,
+    pub peak_render_us: u64,
+    pub displays: Vec<DisplayResult>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DisplayResult {
+    pub id: String,
+    pub primary: bool,
+    pub left: i32,
+    pub top: i32,
+    pub width: i32,
+    pub height: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

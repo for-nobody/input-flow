@@ -124,7 +124,7 @@ pub fn status() -> TouchpadStatus {
     status
 }
 
-fn wake_worker() {
+pub(super) fn wake_worker() {
     let thread = WINDOW_THREAD.load(Ordering::Acquire) as u32;
     if thread != 0 {
         // SAFETY: The id is published after the thread has created its window and queue.
@@ -146,6 +146,9 @@ pub(super) fn acknowledge_recovery() {
 
 pub fn set_config_pending(pending: bool) {
     if CONFIG_PENDING.swap(pending, Ordering::AcqRel) != pending {
+        if pending {
+            super::presentation::request_stop();
+        }
         invalidate();
         wake_worker();
     }
@@ -251,6 +254,7 @@ struct Click {
 impl Click {
     fn can_send(&self) -> bool {
         READY.load(Ordering::Acquire)
+            && !super::presentation::is_pointing()
             && !FAULT.load(Ordering::Acquire)
             && !RECOVERY_WAITING.load(Ordering::Acquire)
             && !CONFIG_PENDING.load(Ordering::Acquire)
@@ -511,6 +515,8 @@ struct Worker {
     native_off: bool,
     checked_taps: Instant,
     parameters: Parameters,
+    track_clicks: bool,
+    presentation: super::presentation::Presenter,
 }
 
 impl Worker {
@@ -525,8 +531,10 @@ impl Worker {
             },
         );
         let paused = windows::is_bypassed() || windows::is_capture_active();
-        let active = self.observe || (config.experimental_enabled && config.click_enabled);
-        let should_tick = active && !self.sleeping && !self.locked;
+        self.track_clicks = self.observe || (config.experimental_enabled && config.click_enabled);
+        let active = self.track_clicks || super::presentation::is_configured();
+        let should_tick =
+            (active || self.presentation.needs_timer()) && !self.sleeping && !self.locked;
         if should_tick && !self.ticking {
             // SAFETY: This worker owns the live window and its timer.
             self.ticking = unsafe { SetTimer(self.window, TIMER, TICK_MS, None) } != 0;
@@ -535,7 +543,7 @@ impl Worker {
             unsafe { KillTimer(self.window, TIMER) };
             self.ticking = false;
         }
-        let subscribe = should_tick && self.ticking;
+        let subscribe = active && should_tick && self.ticking;
         let mut registration_failed = should_tick && !self.ticking;
         if subscribe != self.registered {
             match register(self.window, subscribe) {
@@ -556,7 +564,24 @@ impl Worker {
             }
         }
 
-        if active && now.duration_since(self.checked_taps) >= Duration::from_millis(250) {
+        self.presentation.refresh(
+            !self.devices.is_empty(),
+            self.devices.values().any(|device| device.occupied),
+            paused
+                || self.sleeping
+                || self.locked
+                || self.observe
+                || CONFIG_PENDING.load(Ordering::Acquire)
+                || !self.session_notifications
+                || RECOVERY_WAITING.load(Ordering::Acquire),
+            now,
+        );
+        if self.presentation.needs_timer() && !self.ticking && !self.sleeping && !self.locked {
+            // SAFETY: Identification overlays use the same window-owned timer.
+            self.ticking = unsafe { SetTimer(self.window, TIMER, TICK_MS, None) } != 0;
+        }
+        if self.track_clicks && now.duration_since(self.checked_taps) >= Duration::from_millis(250)
+        {
             let native_off = native_taps_disabled();
             if native_off != self.native_off {
                 self.native_off = native_off;
@@ -585,6 +610,8 @@ impl Worker {
             "session_inactive"
         } else if paused {
             "paused"
+        } else if super::presentation::is_pointing() {
+            "presentation_active"
         } else if self.devices.is_empty() {
             "device_unavailable"
         } else if !capable {
@@ -676,6 +703,7 @@ impl Worker {
             Ok(Some(packet)) => packet,
             _ => {
                 invalidate();
+                self.presentation.cancel_contact(true);
                 update_status(|status| status.last_cancel = Some("invalid_raw_input"));
                 return;
             }
@@ -709,6 +737,7 @@ impl Worker {
                 Ok(None) => continue,
                 Err(_) => {
                     invalidate();
+                    self.presentation.cancel_contact(true);
                     self.devices.get_mut(&handle).expect("known device").cancel(
                         "descriptor_decode_failed",
                         now,
@@ -735,7 +764,18 @@ impl Worker {
                     device.cancel("multiple_devices", now, self.observe);
                 }
             }
-            self.devices.get_mut(&handle).expect("known device").frame(
+            let device = self.devices.get_mut(&handle).expect("known device");
+            self.presentation.frame(
+                handle,
+                frame.frame,
+                device.decoder.logical_bounds(),
+                competing || frame.physical_button == Some(true),
+                now,
+            );
+            if !self.track_clicks || super::presentation::is_pointing() {
+                continue;
+            }
+            device.frame(
                 frame,
                 &FrameContext {
                     now,
@@ -751,7 +791,8 @@ impl Worker {
 
     fn tick(&mut self, now: Instant) {
         self.refresh(now);
-        if !windows::is_bypassed() && !windows::is_capture_active() {
+        self.presentation.render(now);
+        if self.track_clicks && !windows::is_bypassed() && !windows::is_capture_active() {
             for device in self.devices.values_mut() {
                 device.tick(self.generation, self.output, self.observe, now);
             }
@@ -797,8 +838,13 @@ unsafe extern "system" fn window_proc(window: HWND, msg: u32, wp: WPARAM, lp: LP
                 worker.refresh(now);
             }
             WM_INPUT_DEVICE_CHANGE if wp == GIDC_REMOVAL as usize => {
+                worker.presentation.device_removed(lp as usize);
                 worker.devices.remove(&(lp as usize));
                 invalidate();
+                worker.refresh(now);
+            }
+            WM_DISPLAYCHANGE => {
+                worker.presentation.topology_changed();
                 worker.refresh(now);
             }
             WM_WTSSESSION_CHANGE
@@ -825,6 +871,13 @@ unsafe extern "system" fn window_proc(window: HWND, msg: u32, wp: WPARAM, lp: LP
 }
 
 fn run_window(observe: bool, ready: mpsc::SyncSender<Result<u32, String>>) {
+    use windows_sys::Win32::UI::HiDpi::{
+        DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetThreadDpiAwarenessContext,
+    };
+    // SAFETY: Apply the DPI context only to this thread before creating its windows.
+    unsafe {
+        SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    }
     let class = w!("InputFlowTouchpadInput");
     // SAFETY: These handles, the NUL-terminated class name and WNDCLASSW belong to this process.
     let module = unsafe { GetModuleHandleW(null()) };
@@ -884,6 +937,8 @@ fn run_window(observe: bool, ready: mpsc::SyncSender<Result<u32, String>>) {
         native_off: native_taps_disabled(),
         checked_taps: now,
         parameters: Parameters::default(),
+        track_clicks: false,
+        presentation: super::presentation::Presenter::new(),
     }));
     let id = unsafe { GetCurrentThreadId() };
     WINDOW_THREAD.store(u64::from(id), Ordering::Release);
