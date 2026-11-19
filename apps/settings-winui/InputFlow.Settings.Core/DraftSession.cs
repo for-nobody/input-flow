@@ -94,6 +94,18 @@ public sealed class DraftSession
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
+    public void SetTouchpad(TouchpadDocument touchpad)
+    {
+        EnsureLoaded();
+        if (_draft!.SchemaVersion < ConfigDocument.CurrentSchemaVersion || _draft.Touchpad == touchpad)
+        {
+            return;
+        }
+
+        _draft = _draft with { Touchpad = touchpad };
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
     private void EnsureLoaded()
     {
         if (!IsLoaded)

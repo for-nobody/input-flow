@@ -1,20 +1,20 @@
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Point {
+pub struct Point {
     pub x: i32,
     pub y: i32,
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct Contact {
+pub struct Contact {
     pub id: i32,
     pub tip: bool,
     pub point: Point,
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum Frame {
+pub enum Frame {
     Empty,
     Single(Contact),
     Multiple,
@@ -30,7 +30,7 @@ struct Active {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(super) enum Transition {
+pub enum Transition {
     Down {
         id: i32,
         start: Point,
@@ -50,13 +50,13 @@ pub(super) enum Transition {
 }
 
 #[derive(Default)]
-pub(super) struct Tracker {
+pub struct Tracker {
     active: Option<Active>,
     waiting_for_clear: bool,
 }
 
 impl Tracker {
-    pub(super) fn observe(&mut self, frame: Frame, now: Instant) -> Option<Transition> {
+    pub fn observe(&mut self, frame: Frame, now: Instant) -> Option<Transition> {
         match frame {
             Frame::Multiple => self.interrupt("multiple_contacts"),
             Frame::Empty => {
@@ -108,7 +108,7 @@ impl Tracker {
         }
     }
 
-    pub(super) fn interrupt(&mut self, reason: &'static str) -> Option<Transition> {
+    pub fn interrupt(&mut self, reason: &'static str) -> Option<Transition> {
         self.waiting_for_clear = true;
         self.abandon(reason)
     }

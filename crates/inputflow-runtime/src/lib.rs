@@ -15,11 +15,12 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use inputflow_config::{
-    Config, SCHEMA_VERSION, SaveReport, load, save_with_report, validate_config,
+    Config, SCHEMA_VERSION, SaveReport, load, save_with_report, to_json_pretty, validate_config,
 };
 use inputflow_engine::{Key, Matcher, RuleIndex, SystemClock};
-use inputflow_windows::platform::windows;
+use inputflow_windows::platform::{touchpad, windows};
 
+pub use inputflow_windows::platform::touchpad::TouchpadStatus;
 pub use inputflow_windows::platform::windows::{
     CaptureOutcome, CaptureSession, CapturedInput, ControlFailure, ControlFailureKind, PauseReport,
     Percentiles, ReplaceReport,
@@ -34,6 +35,7 @@ pub struct RuntimeOptions {
     pub config_path: PathBuf,
     pub crash_marker_path: PathBuf,
     pub debug_input: bool,
+    pub observe_touchpad: bool,
     pub pending_capacity: usize,
     pub diagnostic_sink: DiagnosticSink,
 }
@@ -45,6 +47,7 @@ impl RuntimeOptions {
             config_path: data_dir.join("config.json"),
             crash_marker_path: data_dir.join("running"),
             debug_input: false,
+            observe_touchpad: false,
             pending_capacity: DEFAULT_PENDING_CAPACITY,
             diagnostic_sink,
         }
@@ -76,6 +79,7 @@ pub struct RuntimeStatus {
     pub state_revision: u64,
     pub apply_reconciliation: ApplyReconciliation,
     pub last_error: Option<String>,
+    pub touchpad: TouchpadStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -143,11 +147,13 @@ struct RuntimeMetadata {
 struct RuntimeThreads {
     hook: JoinHandle<()>,
     logger: JoinHandle<()>,
+    touchpad: Option<touchpad::TouchpadThread>,
 }
 
 pub struct Runtime {
     config_path: PathBuf,
     config_write_block_reason: Option<String>,
+    disk_config: Arc<Mutex<DiskConfig>>,
     current_config: Arc<Mutex<Config>>,
     apply_lock: Mutex<()>,
     metadata: Arc<Mutex<RuntimeMetadata>>,
@@ -169,6 +175,7 @@ impl Runtime {
         let previous_abnormal_termination = marker.was_left_running();
         marker.mark_running()?;
 
+        let disk_config = DiskConfig::read(&options.config_path);
         let prepared = (|| {
             let loaded = load(&options.config_path);
             let index = RuleIndex::compile(loaded.rules.clone()).map_err(|errors| {
@@ -231,6 +238,13 @@ impl Runtime {
             }
         };
 
+        let touchpad = touchpad::TouchpadThread::start(
+            loaded.config.touchpad,
+            options.observe_touchpad,
+            previous_abnormal_termination,
+        )
+        .inspect_err(|error| (options.diagnostic_sink)(format!("touchpad startup failed: {error}")))
+        .ok();
         let rule_count = loaded.rules.len();
         let emergency_key = loaded.emergency_key;
         let source_schema_version = loaded.source_schema_version;
@@ -240,6 +254,7 @@ impl Runtime {
         let runtime = Self {
             config_path: options.config_path.clone(),
             config_write_block_reason: config_write_block_reason.clone(),
+            disk_config: Arc::new(Mutex::new(disk_config)),
             current_config: Arc::new(Mutex::new(loaded.config)),
             apply_lock: Mutex::new(()),
             metadata: Arc::new(Mutex::new(RuntimeMetadata {
@@ -251,7 +266,11 @@ impl Runtime {
             hook_thread_id: AtomicU32::new(hook_thread_id),
             rule_count: Arc::new(AtomicUsize::new(rule_count)),
             logger_shutdown,
-            threads: Mutex::new(Some(RuntimeThreads { hook, logger })),
+            threads: Mutex::new(Some(RuntimeThreads {
+                hook,
+                logger,
+                touchpad,
+            })),
             reconciliation_thread: Mutex::new(None),
             marker,
         };
@@ -292,6 +311,7 @@ impl Runtime {
             state_revision: windows::state_revision(),
             apply_reconciliation: metadata.apply_reconciliation,
             last_error: metadata.last_error.clone(),
+            touchpad: touchpad::status(),
         }
     }
 
@@ -360,11 +380,12 @@ impl Runtime {
             _ => {}
         }
         let old = self.current_config();
+        touchpad::set_config_pending(true);
         let (report, disposition) = apply_transaction(
             &self.config_path,
             &old,
             draft,
-            save_with_report,
+            |path, config| save_current_config(&self.disk_config, path, config),
             |index, emergency_key, rule_count| match windows::replace_rules(
                 index,
                 emergency_key,
@@ -385,6 +406,9 @@ impl Runtime {
         );
         match disposition {
             ApplyDisposition::None => {
+                if !report.recovery_required {
+                    touchpad::set_config_pending(false);
+                }
                 if let Some(error) = report.error.as_deref() {
                     self.record_error(error);
                 }
@@ -424,11 +448,20 @@ impl Runtime {
             ));
         }
         let config_path = self.config_path.clone();
+        let disk_config = Arc::clone(&self.disk_config);
         let current_config = Arc::clone(&self.current_config);
         let metadata = Arc::clone(&self.metadata);
         let rule_count = Arc::clone(&self.rule_count);
         let thread = std::thread::spawn(move || {
-            reconcile_pending_apply(&config_path, current_config, metadata, rule_count, pending)
+            reconcile_pending_apply_with(
+                &config_path,
+                current_config,
+                metadata,
+                rule_count,
+                pending,
+                windows::PendingReplace::wait,
+                |path, config| save_current_config(&disk_config, path, config),
+            )
         });
         if let Ok(mut slot) = self.reconciliation_thread.lock()
             && let Some(previous) = slot.replace(thread)
@@ -463,6 +496,7 @@ impl Runtime {
             metadata.phase = RuntimePhase::ShuttingDown;
         }
 
+        touchpad::set_config_pending(true);
         let thread_id = self.hook_thread_id.swap(0, Ordering::AcqRel);
         let quit_posted = thread_id != 0 && windows::post_quit(thread_id);
         let threads = self
@@ -471,6 +505,7 @@ impl Runtime {
             .ok()
             .and_then(|mut threads| threads.take());
         let (hook_thread_panicked, logger_thread_panicked) = if let Some(threads) = threads {
+            drop(threads.touchpad);
             let hook_thread_panicked = threads.hook.join().is_err();
             if let Some(reconciliation) = self
                 .reconciliation_thread
@@ -580,6 +615,39 @@ struct PendingApply<P> {
     old: Config,
     draft: Config,
     pending: P,
+}
+
+struct DiskConfig(Result<Option<Vec<u8>>, String>);
+
+impl DiskConfig {
+    fn read(path: &Path) -> Self {
+        Self(match fs::read(path) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(format!(
+                "reading configuration file `{}`: {error}",
+                path.display()
+            )),
+        })
+    }
+}
+
+fn save_current_config(
+    revision: &Mutex<DiskConfig>,
+    path: &Path,
+    config: &Config,
+) -> Result<SaveReport, String> {
+    let mut revision = revision
+        .lock()
+        .map_err(|_| "configuration file revision lock is poisoned".to_string())?;
+    let expected = revision.0.as_ref().map_err(Clone::clone)?;
+    let actual = DiskConfig::read(path).0?;
+    if &actual != expected {
+        return Err("configuration changed on disk since it was read; restart the Agent to review the current file before saving".to_string());
+    }
+    let report = save_with_report(path, config)?;
+    revision.0 = Ok(Some(to_json_pretty(config).into_bytes()));
+    Ok(report)
 }
 
 fn apply_transaction<P>(
@@ -720,6 +788,7 @@ fn apply_live_config(
     config: Config,
     reconciliation: ApplyReconciliation,
 ) {
+    let touchpad_config = config.touchpad;
     let validated = validate_config(&config).ok();
     let enabled_rule_count = validated
         .as_ref()
@@ -736,23 +805,8 @@ fn apply_live_config(
         metadata.apply_reconciliation = reconciliation;
         metadata.last_error = None;
     }
-}
-
-fn reconcile_pending_apply(
-    config_path: &Path,
-    current_config: Arc<Mutex<Config>>,
-    metadata: Arc<Mutex<RuntimeMetadata>>,
-    rule_count: Arc<AtomicUsize>,
-    pending: PendingApply<windows::PendingReplace>,
-) {
-    reconcile_pending_apply_with(
-        config_path,
-        current_config,
-        metadata,
-        rule_count,
-        pending,
-        windows::PendingReplace::wait,
-    );
+    touchpad::configure(touchpad_config);
+    touchpad::set_config_pending(false);
 }
 
 fn reconcile_pending_apply_with<P>(
@@ -762,6 +816,7 @@ fn reconcile_pending_apply_with<P>(
     rule_count: Arc<AtomicUsize>,
     pending: PendingApply<P>,
     wait: impl FnOnce(P) -> windows::PendingReplaceOutcome,
+    persist: impl FnOnce(&Path, &Config) -> Result<SaveReport, String>,
 ) {
     let request_id = pending.request_id;
     match wait(pending.pending) {
@@ -772,36 +827,35 @@ fn reconcile_pending_apply_with<P>(
             pending.draft,
             ApplyReconciliation::AppliedAfterTimeout { request_id },
         ),
-        windows::PendingReplaceOutcome::Failed(error) => {
-            match save_with_report(config_path, &pending.old) {
-                Ok(rollback) => {
-                    let warning = if rollback.cleanup_warnings.is_empty() {
-                        String::new()
-                    } else {
-                        format!(
-                            "; rollback cleanup warnings: {}",
-                            rollback.cleanup_warnings.join("; ")
-                        )
-                    };
-                    if let Ok(mut metadata) = metadata.lock() {
-                        metadata.apply_reconciliation =
-                            ApplyReconciliation::RolledBackAfterTimeout { request_id };
-                        metadata.last_error = Some(format!(
-                            "late rule replacement request {request_id} failed and the previous config was restored: {error}{warning}"
-                        ));
-                    }
+        windows::PendingReplaceOutcome::Failed(error) => match persist(config_path, &pending.old) {
+            Ok(rollback) => {
+                let warning = if rollback.cleanup_warnings.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        "; rollback cleanup warnings: {}",
+                        rollback.cleanup_warnings.join("; ")
+                    )
+                };
+                if let Ok(mut metadata) = metadata.lock() {
+                    metadata.apply_reconciliation =
+                        ApplyReconciliation::RolledBackAfterTimeout { request_id };
+                    metadata.last_error = Some(format!(
+                        "late rule replacement request {request_id} failed and the previous config was restored: {error}{warning}"
+                    ));
                 }
-                Err(rollback_error) => {
-                    if let Ok(mut metadata) = metadata.lock() {
-                        metadata.apply_reconciliation =
-                            ApplyReconciliation::RecoveryRequired { request_id };
-                        metadata.last_error = Some(format!(
-                            "late rule replacement request {request_id} failed ({error}); restoring the previous config also failed: {rollback_error}"
-                        ));
-                    }
+                touchpad::set_config_pending(false);
+            }
+            Err(rollback_error) => {
+                if let Ok(mut metadata) = metadata.lock() {
+                    metadata.apply_reconciliation =
+                        ApplyReconciliation::RecoveryRequired { request_id };
+                    metadata.last_error = Some(format!(
+                        "late rule replacement request {request_id} failed ({error}); restoring the previous config also failed: {rollback_error}"
+                    ));
                 }
             }
-        }
+        },
         windows::PendingReplaceOutcome::OutcomeUnknown(error) => {
             if let Ok(mut metadata) = metadata.lock() {
                 metadata.apply_reconciliation =
@@ -881,6 +935,22 @@ pub fn current_schema_version() -> u32 {
 mod tests {
     use super::*;
     use inputflow_config::{ActionConfig, KeyConfig, RuleConfig, TriggerConfig, default_config};
+
+    #[test]
+    fn save_rejects_external_file_change_without_replacing_it() {
+        let directory =
+            std::env::temp_dir().join(format!("inputflow-config-revision-{}", std::process::id()));
+        fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("config.json");
+        let original = default_config();
+        let snapshot = Mutex::new(DiskConfig::read(&path));
+        save_current_config(&snapshot, &path, &original).unwrap();
+        let external = b"{\"schema_version\":99}";
+        fs::write(&path, external).unwrap();
+        assert!(save_current_config(&snapshot, &path, &original).is_err());
+        assert_eq!(fs::read(&path).unwrap(), external);
+        let _ = fs::remove_dir_all(&directory);
+    }
 
     fn config_with_rule(id: &str) -> Config {
         let mut config = default_config();
@@ -1122,6 +1192,7 @@ mod tests {
             Arc::clone(&rule_count),
             pending,
             |receiver| receiver.recv().unwrap(),
+            save_with_report,
         );
 
         assert_eq!(*current.lock().unwrap(), draft.clone());

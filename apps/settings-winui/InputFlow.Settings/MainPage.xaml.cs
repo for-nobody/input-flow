@@ -34,6 +34,9 @@ public sealed partial class MainPage : Page
     private Stopwatch? _directionPreviewClock;
     private CursorPoint _directionPreviewOrigin;
     private bool _initializingLanguage = true;
+    private bool _refreshingTouchpad;
+    private bool _readingTouchpadStatus;
+    private readonly DispatcherTimer _touchpadStatusTimer = new() { Interval = TimeSpan.FromSeconds(1) };
 
     [StructLayout(LayoutKind.Sequential)]
     private struct CursorPoint
@@ -65,12 +68,18 @@ public sealed partial class MainPage : Page
         _initializingLanguage = false;
         UpdateVersionText();
         _draft.Changed += Draft_Changed;
+        _touchpadStatusTimer.Tick += TouchpadStatusTimer_Tick;
         SizeChanged += MainPage_SizeChanged;
     }
 
     public bool HasUnsavedChanges => _draft.IsDirty || RuleEditor.Visibility == Visibility.Visible;
 
     internal string LocalizationSmokeRulesText => RulesNavigation.Content?.ToString() ?? string.Empty;
+
+    internal string LocalizationSmokeTouchpadName =>
+        Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(TouchpadExperimentEnabled);
+
+    internal string LocalizationSmokeTouchClickOff => TouchClickEnabled.OffContent?.ToString() ?? string.Empty;
 
     internal string LocalizationSmokeNavigationName =>
         Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(RootNavigation);
@@ -150,6 +159,7 @@ public sealed partial class MainPage : Page
 
     private void Page_Unloaded(object sender, RoutedEventArgs e)
     {
+        _touchpadStatusTimer.Stop();
         StopDirectionPreview(AppResources.Get("Preview_Stopped"), resetProgress: false);
         _pageLifetime.Cancel();
         _captureCountdown?.Cancel();
@@ -189,6 +199,7 @@ public sealed partial class MainPage : Page
         };
         SaveButton.IsEnabled = snapshot.ControlConnected && !_busy;
         PauseButton.IsEnabled = snapshot.ControlConnected && !_busy;
+        RefreshTouchpadControls();
     }
 
     private void ApplyAuthoritySnapshot()
@@ -249,6 +260,7 @@ public sealed partial class MainPage : Page
                     : InfoBarSeverity.Success;
             }
         }
+        RefreshTouchpadControls();
     }
 
     private void UpdateVersionText()
@@ -259,7 +271,7 @@ public sealed partial class MainPage : Page
             SettingsVersion.ToString(3),
             agentVersion,
             RuntimeInformation.ProcessArchitecture,
-            ConfigDocument.CurrentSchemaVersion);
+            _coordinator?.Handshake?.SchemaVersion ?? ConfigDocument.CurrentSchemaVersion);
     }
 
     private void Draft_Changed(object? sender, EventArgs e)
@@ -272,7 +284,119 @@ public sealed partial class MainPage : Page
             {
                 EmergencyKeyPicker.SetIdentity(_draft.Draft.EmergencyBypassKey);
             }
+            RefreshTouchpadControls();
         });
+    }
+
+    private void RefreshTouchpadControls()
+    {
+        ConfigDocument? confirmed = _coordinator?.LatestConfig;
+        bool supported = _coordinator?.Handshake?.Capabilities.Contains("touch_click", StringComparer.Ordinal) == true
+            && _draft.IsLoaded
+            && confirmed?.SchemaVersion == ConfigDocument.CurrentSchemaVersion
+            && _draft.Draft.SchemaVersion == ConfigDocument.CurrentSchemaVersion;
+        TouchpadExperimentSection.Visibility = supported ? Visibility.Visible : Visibility.Collapsed;
+        if (!supported)
+        {
+            TouchClickSection.Visibility = Visibility.Collapsed;
+            _touchpadStatusTimer.Stop();
+            return;
+        }
+
+        TouchpadDocument formal = confirmed!.Touchpad;
+        TouchpadDocument draft = _draft.Draft.Touchpad;
+        bool connected = _coordinator!.Connection.ControlConnected;
+        _refreshingTouchpad = true;
+        TouchClickSection.Visibility = formal.ExperimentalEnabled && draft.ExperimentalEnabled
+            ? Visibility.Visible : Visibility.Collapsed;
+        TouchpadExperimentEnabled.IsOn = draft.ExperimentalEnabled;
+        TouchClickEnabled.IsOn = draft.ClickEnabled;
+        TouchShort.Value = draft.ShortMilliseconds;
+        TouchHold.Value = draft.HoldMilliseconds;
+        TouchMovement.Value = draft.MovementMillimeters;
+        TouchpadSaveButton.IsEnabled = connected && !_busy && _draft.IsDirty;
+        TouchpadExperimentEnabled.IsEnabled = !_busy;
+        TouchClickEnabled.IsEnabled = !_busy;
+        TouchShort.IsEnabled = TouchHold.IsEnabled = TouchMovement.IsEnabled = !_busy;
+        _refreshingTouchpad = false;
+
+        string status = TouchpadStatusText(_coordinator.LatestStatus?.Touchpad);
+        string pending = formal != draft ? AppResources.Get("Touchpad_Pending") + " " : string.Empty;
+        string disconnected = !connected ? AppResources.Get("Touchpad_LastKnown") + " " : string.Empty;
+        TouchpadExperimentStatus.Text = TouchClickStatus.Text = pending + disconnected + status;
+        if (connected && formal.ExperimentalEnabled)
+        {
+            _touchpadStatusTimer.Start();
+        }
+        else
+        {
+            _touchpadStatusTimer.Stop();
+        }
+    }
+
+    private static string TouchpadStatusText(TouchpadStatus? status) => AppResources.Get(status?.Reason switch
+    {
+        "disabled" => "Touchpad_Disabled",
+        "rule_disabled" => "Touchpad_RuleDisabled",
+        "ready" => "Touchpad_Ready",
+        "paused" => "Touchpad_Paused",
+        "recording" => "Touchpad_Recording",
+        "observe_only" => "Touchpad_ObserveOnly",
+        "native_tap_enabled" => "Touchpad_NativeTap",
+        "device_unavailable" => "Touchpad_NoDevice",
+        "device_read_only" => "Touchpad_ReadOnlyDevice",
+        "registration_failed" or "session_notifications_unavailable" => "Touchpad_WindowsUnavailable",
+        "config_pending" => "Touchpad_ConfigPending",
+        "recovery_waiting" => "Touchpad_RecoveryWaiting",
+        "output_fault" => "Touchpad_OutputFault",
+        "session_inactive" => "Touchpad_SessionInactive",
+        _ => "Touchpad_StatusUnknown",
+    });
+
+    private async void TouchpadStatusTimer_Tick(object? sender, object e)
+    {
+        if (_readingTouchpadStatus || _busy || _coordinator?.Connection.ControlConnected != true) return;
+        _readingTouchpadStatus = true;
+        try
+        {
+            await _coordinator.GetStatusAsync(_pageLifetime.Token);
+        }
+        catch (Exception) when (!_coordinator.Connection.ControlConnected || _pageLifetime.IsCancellationRequested)
+        {
+            RefreshTouchpadControls();
+        }
+        catch (Exception error)
+        {
+            _touchpadStatusTimer.Stop();
+            ShowMessage(AppResources.Get("Touchpad_StatusUnknown"), FriendlyError(error), InfoBarSeverity.Warning);
+        }
+        finally
+        {
+            _readingTouchpadStatus = false;
+        }
+    }
+
+    private void TouchpadExperimentEnabled_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (!_refreshingTouchpad && _draft.IsLoaded)
+            _draft.SetTouchpad(_draft.Draft.Touchpad with { ExperimentalEnabled = TouchpadExperimentEnabled.IsOn });
+    }
+
+    private void TouchClickEnabled_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (!_refreshingTouchpad && _draft.IsLoaded)
+            _draft.SetTouchpad(_draft.Draft.Touchpad with { ClickEnabled = TouchClickEnabled.IsOn });
+    }
+
+    private void TouchParameter_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (_refreshingTouchpad || !_draft.IsLoaded || !double.IsFinite(args.NewValue)) return;
+        TouchpadDocument current = _draft.Draft.Touchpad;
+        _draft.SetTouchpad(sender == TouchShort
+            ? current with { ShortMilliseconds = (ulong)Math.Round(args.NewValue) }
+            : sender == TouchHold
+                ? current with { HoldMilliseconds = (ulong)Math.Round(args.NewValue) }
+                : current with { MovementMillimeters = args.NewValue });
     }
 
     private async void RetryConnection_Click(object sender, RoutedEventArgs e)
@@ -1161,6 +1285,7 @@ public sealed partial class MainPage : Page
         _busy = busy;
         SaveButton.IsEnabled = !busy && _coordinator?.Connection.ControlConnected == true;
         PauseButton.IsEnabled = !busy && _coordinator?.Connection.ControlConnected == true;
+        RefreshTouchpadControls();
     }
 
     private void ShowMessage(string title, string message, InfoBarSeverity severity)

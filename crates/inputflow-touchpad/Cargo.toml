@@ -1,0 +1,8 @@
+[package]
+name = "inputflow-touchpad"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+windows-sys = { workspace = true, features = ["Win32_Devices_HumanInterfaceDevice", "Win32_UI_Input"] }

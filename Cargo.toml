@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/inputflow-engine",
+    "crates/inputflow-touchpad",
     "crates/inputflow-windows",
     "crates/inputflow-config",
     "crates/inputflow-runtime",

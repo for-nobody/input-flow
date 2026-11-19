@@ -155,21 +155,33 @@ public sealed record RuleDocument
     };
 }
 
+public sealed record TouchpadDocument
+{
+    public bool ExperimentalEnabled { get; init; }
+    public bool ClickEnabled { get; init; }
+    public ulong ShortMilliseconds { get; init; } = 400;
+    public ulong HoldMilliseconds { get; init; } = 500;
+    public double MovementMillimeters { get; init; } = 3;
+}
+
 public sealed record ConfigDocument
 {
-    public const uint CurrentSchemaVersion = 4;
+    public const uint CurrentSchemaVersion = 5;
+    public const uint CompatibleSchemaVersion = 4;
 
     public uint SchemaVersion { get; init; } = CurrentSchemaVersion;
 
     public required KeyIdentity EmergencyBypassKey { get; init; }
 
     public required List<RuleDocument> Rules { get; init; }
+    public TouchpadDocument Touchpad { get; init; } = new();
 
     public ConfigDocument DeepCopy() => new()
     {
         SchemaVersion = SchemaVersion,
         EmergencyBypassKey = EmergencyBypassKey,
         Rules = Rules.Select(rule => rule.DeepCopy()).ToList(),
+        Touchpad = Touchpad,
     };
 
     public int EnabledRuleCount => Rules.Count(rule => rule.Enabled);
@@ -205,11 +217,25 @@ public static class ConfigCodec
             });
         }
 
+        TouchpadDocument touchpad = new();
+        if (sourceVersion >= 5 && root.TryGetProperty("touchpad", out JsonElement settings))
+        {
+            touchpad = new TouchpadDocument
+            {
+                ExperimentalEnabled = settings.GetProperty("experimental_enabled").GetBoolean(),
+                ClickEnabled = settings.GetProperty("click_enabled").GetBoolean(),
+                ShortMilliseconds = settings.GetProperty("short_ms").GetUInt64(),
+                HoldMilliseconds = settings.GetProperty("hold_ms").GetUInt64(),
+                MovementMillimeters = settings.GetProperty("movement_mm").GetDouble(),
+            };
+        }
+
         return new ConfigDocument
         {
-            SchemaVersion = ConfigDocument.CurrentSchemaVersion,
+            SchemaVersion = Math.Max(sourceVersion, ConfigDocument.CompatibleSchemaVersion),
             EmergencyBypassKey = emergency,
             Rules = rules,
+            Touchpad = touchpad,
         };
     }
 
@@ -238,7 +264,7 @@ public static class ConfigCodec
         var buffer = new ArrayBufferWriter<byte>();
         using var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = indented });
         writer.WriteStartObject();
-        writer.WriteNumber("schema_version", ConfigDocument.CurrentSchemaVersion);
+        writer.WriteNumber("schema_version", config.SchemaVersion);
         writer.WritePropertyName("emergency_bypass_key");
         WriteKey(writer, config.EmergencyBypassKey);
         writer.WriteStartArray("rules");
@@ -255,6 +281,16 @@ public static class ConfigCodec
         }
 
         writer.WriteEndArray();
+        if (config.SchemaVersion >= 5)
+        {
+            writer.WriteStartObject("touchpad");
+            writer.WriteBoolean("experimental_enabled", config.Touchpad.ExperimentalEnabled);
+            writer.WriteBoolean("click_enabled", config.Touchpad.ClickEnabled);
+            writer.WriteNumber("short_ms", config.Touchpad.ShortMilliseconds);
+            writer.WriteNumber("hold_ms", config.Touchpad.HoldMilliseconds);
+            writer.WriteNumber("movement_mm", config.Touchpad.MovementMillimeters);
+            writer.WriteEndObject();
+        }
         writer.WriteEndObject();
         writer.Flush();
         return buffer.WrittenSpan.ToArray();

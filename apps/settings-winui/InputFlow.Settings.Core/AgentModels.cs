@@ -25,7 +25,8 @@ public sealed record AgentStatus(
     ulong StateRevision,
     string ApplyReconciliation,
     ulong? ReconciliationRequestId,
-    string? LastError)
+    string? LastError,
+    TouchpadStatus? Touchpad = null)
 {
     public static AgentStatus Parse(JsonElement value) => new(
         RequiredString(value, "phase"),
@@ -40,10 +41,35 @@ public sealed record AgentStatus(
             : value.GetProperty("reconciliation_request_id").GetUInt64(),
         value.GetProperty("last_error").ValueKind == JsonValueKind.Null
             ? null
-            : value.GetProperty("last_error").GetString());
+            : value.GetProperty("last_error").GetString(),
+        value.TryGetProperty("touchpad", out JsonElement touchpad) && touchpad.ValueKind == JsonValueKind.Object
+            ? TouchpadStatus.Parse(touchpad)
+            : null);
 
     private static string RequiredString(JsonElement value, string name) =>
         value.GetProperty(name).GetString() ?? throw new FormatException($"{name} must be a string");
+}
+
+public sealed record TouchpadStatus(
+    bool ExperimentalEnabled, bool ClickEnabled, bool DeviceAvailable, bool OutputAllowed,
+    string Reason, ulong Reports, ulong SinkReports, ulong CompleteContacts, ulong ShortIntents, ulong LongIntents,
+    ulong RequestedInputs, ulong InsertedInputs, string? LastCancel, bool NormalizedDistance)
+{
+    public static TouchpadStatus Parse(JsonElement value) => new(
+        value.GetProperty("experimental_enabled").GetBoolean(),
+        value.GetProperty("click_enabled").GetBoolean(),
+        value.GetProperty("device_available").GetBoolean(),
+        value.GetProperty("output_allowed").GetBoolean(),
+        value.GetProperty("reason").GetString() ?? "unknown",
+        value.GetProperty("reports").GetUInt64(),
+        value.GetProperty("sink_reports").GetUInt64(),
+        value.GetProperty("complete_contacts").GetUInt64(),
+        value.GetProperty("short_intents").GetUInt64(),
+        value.GetProperty("long_intents").GetUInt64(),
+        value.GetProperty("requested_inputs").GetUInt64(),
+        value.GetProperty("inserted_inputs").GetUInt64(),
+        value.GetProperty("last_cancel").GetString(),
+        value.GetProperty("normalized_distance").GetBoolean());
 }
 
 public sealed record PercentileSummary(

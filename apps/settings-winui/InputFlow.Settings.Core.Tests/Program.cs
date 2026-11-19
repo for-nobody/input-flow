@@ -43,6 +43,22 @@ Run("future configuration schema is rejected", () =>
     Assert(rejected, "a future schema was accepted by the Settings codec");
 });
 
+Run("v5 touchpad survives hidden rule edits and v4 stays compatible", () =>
+{
+    ConfigDocument v4 = ParseFixture(root, "v4-valid.json");
+    Assert(!ConfigCodec.ToJsonElement(v4).TryGetProperty("touchpad", out _), "v4 payload cannot include touchpad fields");
+    var session = new DraftSession();
+    var enabled = new TouchpadDocument { ExperimentalEnabled = true, ClickEnabled = true, MovementMillimeters = 2.375 };
+    session.Load(v4 with { SchemaVersion = ConfigDocument.CurrentSchemaVersion, Touchpad = enabled });
+    session.SetTouchpad(enabled with { ExperimentalEnabled = false });
+    session.SetRuleEnabled(v4.Rules[0].Id, !v4.Rules[0].Enabled);
+    ConfigDocument saved = Parse(ConfigCodec.ToJsonElement(session.Draft));
+    Assert(saved.Touchpad == enabled with { ExperimentalEnabled = false }, "hidden Touch Click fields were lost");
+    session.AcceptSaved(saved);
+    session.SetTouchpad(saved.Touchpad with { ExperimentalEnabled = true });
+    Assert(session.Draft.Touchpad == enabled, "reopening experiment did not restore Touch Click");
+});
+
 Run("draft never mutates formal snapshot", () =>
 {
     ConfigDocument formal = ParseFixture(root, "v3-valid.json");

@@ -2,7 +2,7 @@ use crate::contact::Point;
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy)]
-pub(super) struct Parameters {
+pub struct Parameters {
     pub short: Duration,
     pub hold: Duration,
     pub movement: f64,
@@ -21,7 +21,7 @@ impl Default for Parameters {
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct Scale {
+pub struct Scale {
     pub x_span: f64,
     pub y_span: f64,
     pub millimeters: Option<(f64, f64)>,
@@ -46,7 +46,7 @@ impl Scale {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Decision {
+pub enum Decision {
     Short,
     Long,
     Suppress(&'static str),
@@ -54,7 +54,7 @@ pub(super) enum Decision {
 }
 
 impl Decision {
-    pub(super) fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Short => "short",
             Self::Long => "long",
@@ -63,7 +63,7 @@ impl Decision {
         }
     }
 
-    pub(super) fn reason(self) -> &'static str {
+    pub fn reason(self) -> &'static str {
         match self {
             Self::Short => "explicit_up_within_short_limit",
             Self::Long => "hold_deadline_while_down",
@@ -73,7 +73,7 @@ impl Decision {
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct Event {
+pub struct Event {
     pub token: usize,
     pub id: i32,
     pub elapsed: Duration,
@@ -118,7 +118,7 @@ impl Candidate {
     }
 }
 
-pub(super) struct Summary {
+pub struct Summary {
     pub token: usize,
     pub id: i32,
     pub duration: Duration,
@@ -131,13 +131,13 @@ pub(super) struct Summary {
 }
 
 #[derive(Default)]
-pub(super) struct Recognizer {
+pub struct Recognizer {
     next_token: usize,
     active: Option<Candidate>,
 }
 
 impl Recognizer {
-    pub(super) fn begin(
+    pub fn begin(
         &mut self,
         id: i32,
         start: Point,
@@ -161,13 +161,13 @@ impl Recognizer {
         self.next_token
     }
 
-    pub(super) fn deadline(&self) -> Option<(usize, Instant)> {
+    pub fn deadline(&self) -> Option<(usize, Instant)> {
         let active = self.active.as_ref()?;
         matches!(active.state, State::Pending)
             .then(|| (active.token, active.started + active.parameters.hold))
     }
 
-    pub(super) fn position(&mut self, point: Point, now: Instant) -> Option<Event> {
+    pub fn position(&mut self, point: Point, now: Instant) -> Option<Event> {
         let active = self.active.as_mut()?;
         active.peak = active.peak.max(active.distance(point));
         if active.peak <= active.scale.movement_limit(active.parameters) || active.crossed.is_some()
@@ -182,7 +182,7 @@ impl Recognizer {
         }
     }
 
-    pub(super) fn physical_button(&mut self, now: Instant) -> Option<Event> {
+    pub fn physical_button(&mut self, now: Instant) -> Option<Event> {
         let active = self.active.as_mut()?;
         if matches!(active.state, State::Fired) && !active.pressed_after_long {
             active.pressed_after_long = true;
@@ -191,7 +191,7 @@ impl Recognizer {
         self.cancel("physical_button", now)
     }
 
-    pub(super) fn cancel(&mut self, reason: &'static str, now: Instant) -> Option<Event> {
+    pub fn cancel(&mut self, reason: &'static str, now: Instant) -> Option<Event> {
         let active = self.active.as_mut()?;
         if !matches!(active.state, State::Pending) {
             return None;
@@ -200,7 +200,7 @@ impl Recognizer {
         Some(active.event(now, Decision::Suppress(reason)))
     }
 
-    pub(super) fn timer(&mut self, token: usize, now: Instant) -> Option<Event> {
+    pub fn timer(&mut self, token: usize, now: Instant) -> Option<Event> {
         let active = self.active.as_mut()?;
         if active.token != token
             || !matches!(active.state, State::Pending)
@@ -212,7 +212,7 @@ impl Recognizer {
         Some(active.event(now, Decision::Long))
     }
 
-    pub(super) fn finish(
+    pub fn finish(
         &mut self,
         end: Option<Point>,
         now: Instant,

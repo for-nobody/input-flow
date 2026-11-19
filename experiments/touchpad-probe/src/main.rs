@@ -1,13 +1,13 @@
 #![cfg(windows)]
 
+use inputflow_touchpad::raw::{HidBatch, Packet, device_info, raw_devices, read_packet};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
-use std::mem::{offset_of, size_of};
+use std::mem::size_of;
 use std::ptr::null_mut;
-use std::slice;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use windows_sys::Win32::Foundation::*;
@@ -30,9 +30,7 @@ macro_rules! log {
     ($($arg:tt)*) => { crate::write_log(format_args!($($arg)*)) };
 }
 
-mod contact;
-mod gesture;
-mod hid;
+use inputflow_touchpad::{contact, gesture, hid};
 mod output;
 mod stage2;
 
@@ -279,51 +277,8 @@ fn api_error(name: &str) -> io::Error {
     io::Error::other(format!("{name}: {}", io::Error::last_os_error()))
 }
 
-fn raw_devices() -> io::Result<Vec<RAWINPUTDEVICELIST>> {
-    let item_size = size_of::<RAWINPUTDEVICELIST>() as u32;
-    for _ in 0..3 {
-        let mut count = 0;
-        // SAFETY: A null list queries the count into a writable u32.
-        if unsafe { GetRawInputDeviceList(null_mut(), &mut count, item_size) } == u32::MAX {
-            return Err(api_error("GetRawInputDeviceList(count)"));
-        }
-        if count == 0 {
-            return Ok(Vec::new());
-        }
-        let mut devices = vec![RAWINPUTDEVICELIST::default(); count as usize];
-        // SAFETY: The aligned array has room for count records of item_size.
-        let copied = unsafe { GetRawInputDeviceList(devices.as_mut_ptr(), &mut count, item_size) };
-        if copied != u32::MAX {
-            devices.truncate(copied as usize);
-            return Ok(devices);
-        }
-        if unsafe { GetLastError() } != ERROR_INSUFFICIENT_BUFFER {
-            return Err(api_error("GetRawInputDeviceList(list)"));
-        }
-    }
-    Err(io::Error::other(
-        "GetRawInputDeviceList: device count changed during three attempts",
-    ))
-}
-
 fn classify_device(handle: HANDLE) -> io::Result<Source> {
-    let mut bytes = size_of::<RID_DEVICE_INFO>() as u32;
-    let mut info = RID_DEVICE_INFO {
-        cbSize: bytes,
-        ..Default::default()
-    };
-    // SAFETY: info is aligned, with cbSize and the output capacity set.
-    let result = unsafe {
-        GetRawInputDeviceInfoW(
-            handle,
-            RIDI_DEVICEINFO,
-            (&mut info as *mut RID_DEVICE_INFO).cast(),
-            &mut bytes,
-        )
-    };
-    if result == u32::MAX {
-        return Err(api_error("GetRawInputDeviceInfoW(RIDI_DEVICEINFO)"));
-    }
+    let info = device_info(handle)?;
     if info.dwType != RIM_TYPEHID {
         return Ok(Source::Other);
     }
@@ -375,84 +330,6 @@ fn enumerate() -> HashMap<HANDLE, Source> {
         devices.len()
     );
     sources
-}
-
-#[derive(Clone, Copy)]
-struct Packet<'a> {
-    header: RAWINPUTHEADER,
-    hid: Option<HidBatch<'a>>,
-}
-
-#[derive(Clone, Copy)]
-struct HidBatch<'a> {
-    report_size: usize,
-    bytes: &'a [u8],
-}
-
-impl HidBatch<'_> {
-    fn count(self) -> u64 {
-        (self.bytes.len() / self.report_size) as u64
-    }
-}
-
-fn read_packet(input: HRAWINPUT, buffer: &mut Vec<usize>) -> io::Result<Option<Packet<'_>>> {
-    let header_size = size_of::<RAWINPUTHEADER>();
-    let mut bytes = 0;
-    // SAFETY: input comes from WM_INPUT and a null buffer queries its size.
-    let result =
-        unsafe { GetRawInputData(input, RID_INPUT, null_mut(), &mut bytes, header_size as u32) };
-    if result == u32::MAX {
-        return Err(api_error("GetRawInputData(size)"));
-    }
-    if (bytes as usize) < header_size {
-        return Ok(None);
-    }
-
-    buffer.resize((bytes as usize).div_ceil(size_of::<usize>()), 0);
-    // SAFETY: buffer is aligned for Win32 and holds at least bytes writable bytes.
-    let copied = unsafe {
-        GetRawInputData(
-            input,
-            RID_INPUT,
-            buffer.as_mut_ptr().cast(),
-            &mut bytes,
-            header_size as u32,
-        )
-    };
-    if copied == u32::MAX {
-        return Err(api_error("GetRawInputData(data)"));
-    }
-    let copied = copied as usize;
-    if copied < header_size || copied > buffer.len() * size_of::<usize>() {
-        return Ok(None);
-    }
-    // SAFETY: The initialized allocation contains the complete header and copied bytes.
-    let header = unsafe { buffer.as_ptr().cast::<RAWINPUTHEADER>().read_unaligned() };
-    let size = header.dwSize as usize;
-    if size < header_size || size > copied {
-        return Ok(None);
-    }
-    let hid = if header.dwType == RIM_TYPEHID {
-        // SAFETY: size lies within the populated, initialized allocation.
-        let packet = unsafe { slice::from_raw_parts(buffer.as_ptr().cast::<u8>(), size) };
-        packet.get(offset_of!(RAWINPUT, data)..).and_then(hid_batch)
-    } else {
-        None
-    };
-    Ok(Some(Packet { header, hid }))
-}
-
-fn hid_batch(hid: &[u8]) -> Option<HidBatch<'_>> {
-    let (fields, payload) = hid.split_at_checked(offset_of!(RAWHID, bRawData))?;
-    let size = u32::from_le_bytes(fields.get(..4)?.try_into().ok()?) as usize;
-    let count = u32::from_le_bytes(fields.get(4..8)?.try_into().ok()?) as usize;
-    if size == 0 || count == 0 {
-        return None;
-    }
-    Some(HidBatch {
-        report_size: size,
-        bytes: payload.get(..count.checked_mul(size)?)?,
-    })
 }
 
 impl Probe {
@@ -784,8 +661,8 @@ fn run(sink: bool, parameters: gesture::Parameters) -> io::Result<()> {
     {
         let number = index + 1;
         let decoder = hid::Descriptor::read(handle).and_then(|descriptor| {
-            descriptor.describe(number);
-            hid::Decoder::new(descriptor, number)
+            descriptor.describe(number, write_log);
+            hid::Decoder::new(descriptor, number, write_log)
         });
         match decoder {
             Ok(decoder) => {
@@ -1005,7 +882,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .filter(|(_, source)| matches!(source, Source::Touchpad))
             .enumerate()
         {
-            hid::Descriptor::read(handle)?.describe(index + 1);
+            hid::Descriptor::read(handle)?.describe(index + 1, write_log);
         }
         return Ok(());
     }
@@ -1015,7 +892,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::hid_batch;
+    use inputflow_touchpad::raw::hid_batch;
 
     #[test]
     fn counts_each_report_in_a_batch() {

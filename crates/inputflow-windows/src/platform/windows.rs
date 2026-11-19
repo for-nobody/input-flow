@@ -67,7 +67,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use crate::keymap;
 
 /// Unique `dwExtraInfo` tag written into input synthesized by this program.
-pub const SELF_EXTRA_INFO_TAG: usize = 0x494E_5055; // ASCII "INPU"
+pub const SELF_EXTRA_INFO_TAG: usize = inputflow_touchpad::output::AGENT_INPUT_TAG;
 
 /// X-button identifiers carried in `MOUSEINPUT.mouseData`.
 const XBUTTON1: u32 = 1;
@@ -407,6 +407,7 @@ pub fn is_bypassed() -> bool {
 
 fn set_bypassed(bypassed: bool) {
     if BYPASS.swap(bypassed, Ordering::AcqRel) != bypassed {
+        super::touchpad::invalidate();
         STATE_REVISION.fetch_add(1, Ordering::AcqRel);
         super::shell::notify_runtime_state_changed();
     }
@@ -470,7 +471,9 @@ fn finish_capture(outcome: CaptureOutcome) {
         .lock()
         .ok()
         .and_then(|mut state| state.take());
-    CAPTURE_ACTIVE.store(false, Ordering::Release);
+    if CAPTURE_ACTIVE.swap(false, Ordering::AcqRel) {
+        super::touchpad::invalidate();
+    }
     if let Some(state) = state {
         let _ = state.response.try_send(outcome);
     }
@@ -585,6 +588,7 @@ fn resume_on_hook_thread() {
     }
     DIRECTION_CANDIDATE_ACTIVE.store(false, Ordering::Release);
     set_bypassed(false);
+    super::touchpad::acknowledge_recovery();
     send_log("resumed: interception active".to_string());
 }
 
@@ -650,6 +654,7 @@ fn begin_capture_on_hook_thread(timeout: Duration) -> Result<CaptureSession, Str
         response,
     });
     CAPTURE_ACTIVE.store(true, Ordering::Release);
+    super::touchpad::invalidate();
     send_log(format!("capture started: session_id={id}"));
     Ok(CaptureSession { id, receiver })
 }
@@ -1400,7 +1405,7 @@ fn physical_cursor_position() -> Option<(i32, i32)> {
     (unsafe { GetPhysicalCursorPos(&mut point) } != 0).then_some((point.x, point.y))
 }
 
-fn send_log(line: String) {
+pub(super) fn send_log(line: String) {
     if let Some(cell) = LOG_TX.get()
         && let Ok(sender) = cell.lock()
         && let Some(sender) = sender.as_ref()
@@ -1778,6 +1783,59 @@ fn make_mouse_input(button: MouseButton, down: bool) -> INPUT {
     input
 }
 
+pub(super) fn wake_touchpad_output() -> bool {
+    let thread_id = HOOK_THREAD_ID.load(Ordering::Acquire);
+    // SAFETY: The hook thread publishes its ID only after creating its queue.
+    thread_id != 0
+        && unsafe { PostThreadMessageW(thread_id, super::touchpad::CLICK_READY, 0, 0) } != 0
+}
+
+pub(super) fn send_touchpad_click(
+    button: MouseButton,
+    still_allowed: impl FnOnce() -> bool,
+) -> Option<inputflow_touchpad::output::InsertResult> {
+    let blocked = foreground_uipi_block().is_some();
+    if !still_allowed() {
+        return None;
+    }
+    let send = |inputs: &[INPUT]| {
+        if blocked {
+            return (0, ERROR_ACCESS_DENIED);
+        }
+        // SAFETY: inputs contains initialized records with the Win32 INPUT stride.
+        let inserted = unsafe {
+            SendInput(
+                inputs.len() as u32,
+                inputs.as_ptr(),
+                core::mem::size_of::<INPUT>() as i32,
+            )
+        };
+        let error = if inserted == inputs.len() as u32 {
+            0
+        } else {
+            // SAFETY: Read the calling thread's last error immediately after the call.
+            unsafe { GetLastError() }
+        };
+        (inserted, error)
+    };
+    let report = inputflow_touchpad::output::insert_pair(
+        make_mouse_input(button, true),
+        make_mouse_input(button, false),
+        send,
+    );
+    if report.inserted == 2 {
+        OUTPUT_SENT.fetch_add(1, Ordering::Relaxed);
+    } else {
+        OUTPUT_FAILED.fetch_add(1, Ordering::Relaxed);
+        set_bypassed(true);
+        send_log(format!(
+            "touchpad SendInput failed: inserted={} requested=2 last_error={}",
+            report.inserted, report.error
+        ));
+    }
+    Some(report)
+}
+
 /// Post `WM_QUIT` to the hook thread. Returns `false` if the call failed.
 pub fn post_quit(hook_thread_id: u32) -> bool {
     // SAFETY: `hook_thread_id` belongs to the hook thread, whose message queue
@@ -1978,6 +2036,10 @@ unsafe fn run_message_loop() {
         }
         if msg.message == WM_INPUTFLOW_CONTROL {
             handle_control_requests();
+            continue;
+        }
+        if msg.message == super::touchpad::CLICK_READY {
+            super::touchpad::process_clicks();
             continue;
         }
         // SAFETY: `msg` was just retrieved and is valid.

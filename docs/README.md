@@ -1,7 +1,7 @@
 # InputFlow 文档索引
 
 > 文档状态：当前索引
-> 最后更新：2026-10-11（Australia/Brisbane）
+> 最后更新：2026-11-19（Australia/Brisbane）
 
 本文是仓库文档的唯一入口。项目的详细进度只记录在
 [`status/CURRENT_STATUS.md`](status/CURRENT_STATUS.md)；历史文件不能作为当前状态依据。
@@ -21,6 +21,7 @@
 11. [`guides/BUILD_WINDOWS.md`](guides/BUILD_WINDOWS.md)：Windows 构建与验证命令。
 12. [`guides/USER_GUIDE.en-US.md`](guides/USER_GUIDE.en-US.md)／[`guides/USER_GUIDE.md`](guides/USER_GUIDE.md)：英语／中文用户指南。
 13. [`decisions/`](decisions/)：已接受的架构决策。
+14. [触控板 Touch Click 集成任务](tasks/TOUCHPAD_STAGE_3_TOUCH_CLICK_INTEGRATION.md)与[实机记录](records/TOUCHPAD_STAGE_3_TOUCH_CLICK.md)。
 
 ## 目录职责
 

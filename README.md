@@ -15,6 +15,9 @@ SHA-256 verified. See the [v0.9.0 release](https://github.com/for-nobody/input-f
 [the authoritative current status](docs/status/CURRENT_STATUS.md). G-POST is now the active task; its sampling-tool
 work and formal 1–2 hour, 24-hour, and 72-hour soak sessions have not started.
 
+The development checkout also includes experimental Touch Click for Precision Touchpads. It is off by default.
+See the [Stage 3 verification record](docs/records/TOUCHPAD_STAGE_3_TOUCH_CLICK.md) for device coverage and click-source requirements.
+
 ## Architecture and safety boundaries
 
 - `inputflow-agent.exe` is the only owner of hooks, tray state, the rule runtime, formal configuration, and IPC.

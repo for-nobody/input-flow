@@ -128,7 +128,8 @@ impl ProtocolHandler for AgentProtocolHandler {
             schema_version: current_schema_version(),
             capabilities: vec![
                 "status".to_string(),
-                "config_v4".to_string(),
+                "config_v5".to_string(),
+                "touch_click".to_string(),
                 "validate_apply".to_string(),
                 "pause_resume".to_string(),
                 "stats".to_string(),
@@ -400,6 +401,22 @@ fn status_dto(status: &RuntimeStatus) -> StatusResult {
         apply_reconciliation: apply_reconciliation.to_string(),
         reconciliation_request_id,
         last_error: status.last_error.clone(),
+        touchpad: Some(inputflow_protocol::TouchpadStatusResult {
+            experimental_enabled: status.touchpad.experimental_enabled,
+            click_enabled: status.touchpad.click_enabled,
+            device_available: status.touchpad.device_available,
+            output_allowed: status.touchpad.output_allowed,
+            reason: status.touchpad.reason.to_string(),
+            reports: status.touchpad.reports,
+            sink_reports: status.touchpad.sink_reports,
+            complete_contacts: status.touchpad.complete_contacts,
+            short_intents: status.touchpad.short_intents,
+            long_intents: status.touchpad.long_intents,
+            requested_inputs: status.touchpad.requested_inputs,
+            inserted_inputs: status.touchpad.inserted_inputs,
+            last_cancel: status.touchpad.last_cancel.map(str::to_string),
+            normalized_distance: status.touchpad.normalized_distance,
+        }),
     }
 }
 
@@ -528,10 +545,12 @@ mod tests {
             state_revision: 5,
             apply_reconciliation: ApplyReconciliation::Settled,
             last_error: None,
+            touchpad: Default::default(),
         };
         let wire = status_dto(&status);
         assert_eq!(wire.phase, "ready");
         assert_eq!(wire.apply_reconciliation, "settled");
+        assert_eq!(wire.touchpad.unwrap().reason, "disabled");
 
         let report = ApplyReport {
             outcome: ApplyOutcome::ValidationFailed,

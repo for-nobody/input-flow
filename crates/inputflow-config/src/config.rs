@@ -4,8 +4,8 @@
 //! `emergency_bypass_key`, and a list of `rules`. Schema v2 makes every key
 //! identity explicit: logical keys use canonical names and physical keys use a
 //! scan code plus extended flag. Schema v3 adds persistent per-rule enablement;
-//! schema v4 adds keyboard-activated mouse direction triggers. Schema v1/v2/v3
-//! documents remain readable and are migrated in memory; all writes use v4.
+//! schema v4 adds keyboard-activated mouse direction triggers and v5 adds
+//! Touch Click settings. Older documents migrate in memory; writes use v5.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -19,7 +19,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Current on-disk schema version.
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
+const DIRECTION_SCHEMA_VERSION: u32 = 4;
 /// Old string-key schema accepted for compatibility and explicit migration.
 pub const LEGACY_SCHEMA_VERSION: u32 = 1;
 /// Explicit-key schema accepted for compatibility.
@@ -55,13 +56,37 @@ static SAVE_LOCK: Mutex<()> = Mutex::new(());
 static SAVE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// An on-disk configuration document.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub schema_version: u32,
     pub emergency_bypass_key: KeyConfig,
     #[serde(default)]
     pub rules: Vec<RuleConfig>,
+    #[serde(default)]
+    pub touchpad: TouchpadConfig,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TouchpadConfig {
+    pub experimental_enabled: bool,
+    pub click_enabled: bool,
+    pub short_ms: u64,
+    pub hold_ms: u64,
+    pub movement_mm: f64,
+}
+
+impl Default for TouchpadConfig {
+    fn default() -> Self {
+        Self {
+            experimental_enabled: false,
+            click_enabled: false,
+            short_ms: 400,
+            hold_ms: 500,
+            movement_mm: 3.0,
+        }
+    }
 }
 
 /// Explicit key match/output identity used by schema v2.
@@ -182,6 +207,15 @@ struct ConfigV3 {
     rules: Vec<RuleConfigV3>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConfigV4 {
+    schema_version: u32,
+    emergency_bypass_key: KeyConfig,
+    #[serde(default)]
+    rules: Vec<RuleConfig>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RuleConfigV3 {
@@ -257,8 +291,8 @@ fn legacy_emergency_key_name() -> String {
     DEFAULT_EMERGENCY_KEY.to_string()
 }
 
-/// Result of parsing any supported schema into the current v4 document.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Result of parsing any supported schema into the current document.
+#[derive(Debug, Clone, PartialEq)]
 pub struct MigrationReport {
     pub source_schema_version: u32,
     pub config: Config,
@@ -276,7 +310,7 @@ impl std::fmt::Display for ConfigError {
 
 /// The result of loading and validating a config: a usable rule set plus any
 /// non-fatal problems (a missing/invalid config yields empty rules).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LoadedConfig {
     /// Current-schema document, migrated in memory when the source was v1.
     pub config: Config,
@@ -291,7 +325,7 @@ pub struct LoadedConfig {
 }
 
 /// A validated current-schema document resolved into runtime identities.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ValidatedConfig {
     pub config: Config,
     pub emergency_key: Key,
@@ -466,7 +500,7 @@ fn migration_notice(source_schema_version: u32) -> Option<String> {
     })
 }
 
-/// Parse a v1, v2, v3, or v4 JSON document, reject unknown/unsupported structures, and
+/// Parse a supported JSON document, reject unknown structures, and
 /// return a validated current-schema document without writing to disk.
 pub fn parse_and_migrate_json(text: &str) -> Result<MigrationReport, Vec<ConfigError>> {
     let value: Value = serde_json::from_str(text)
@@ -507,11 +541,23 @@ pub fn parse_and_migrate_json(text: &str) -> Result<MigrationReport, Vec<ConfigE
             })?;
             migrate_v3(previous)
         }
+        DIRECTION_SCHEMA_VERSION => {
+            let previous: ConfigV4 = serde_json::from_value(value).map_err(|error| {
+                vec![ConfigError(format!("invalid schema v4 document: {error}"))]
+            })?;
+            debug_assert_eq!(previous.schema_version, DIRECTION_SCHEMA_VERSION);
+            Config {
+                schema_version: SCHEMA_VERSION,
+                emergency_bypass_key: previous.emergency_bypass_key,
+                rules: previous.rules,
+                touchpad: TouchpadConfig::default(),
+            }
+        }
         SCHEMA_VERSION => serde_json::from_value(value)
-            .map_err(|error| vec![ConfigError(format!("invalid schema v4 document: {error}"))])?,
+            .map_err(|error| vec![ConfigError(format!("invalid schema v5 document: {error}"))])?,
         other => {
             return Err(vec![ConfigError(format!(
-                "unsupported schema_version {other} (supported: {LEGACY_SCHEMA_VERSION}, {KEY_IDENTITY_SCHEMA_VERSION}, {PREVIOUS_SCHEMA_VERSION}, {SCHEMA_VERSION})"
+                "unsupported schema_version {other} (supported: 1–{SCHEMA_VERSION})"
             ))]);
         }
     };
@@ -527,6 +573,7 @@ fn migrate_v1(legacy: ConfigV1) -> Config {
     debug_assert_eq!(legacy.schema_version, LEGACY_SCHEMA_VERSION);
     Config {
         schema_version: SCHEMA_VERSION,
+        touchpad: TouchpadConfig::default(),
         emergency_bypass_key: KeyConfig::Logical {
             key: legacy.emergency_bypass_key,
         },
@@ -578,6 +625,7 @@ fn migrate_v2(previous: ConfigV2) -> Config {
     debug_assert_eq!(previous.schema_version, KEY_IDENTITY_SCHEMA_VERSION);
     Config {
         schema_version: SCHEMA_VERSION,
+        touchpad: TouchpadConfig::default(),
         emergency_bypass_key: previous.emergency_bypass_key,
         rules: previous
             .rules
@@ -596,6 +644,7 @@ fn migrate_v3(previous: ConfigV3) -> Config {
     debug_assert_eq!(previous.schema_version, PREVIOUS_SCHEMA_VERSION);
     Config {
         schema_version: SCHEMA_VERSION,
+        touchpad: TouchpadConfig::default(),
         emergency_bypass_key: previous.emergency_bypass_key,
         rules: previous
             .rules
@@ -698,7 +747,7 @@ fn recovery_candidates(path: &Path) -> Vec<PathBuf> {
         .collect()
 }
 /// The validated, resolved form of a config.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 struct Resolved {
     config: Config,
     source_schema_version: u32,
@@ -716,6 +765,21 @@ fn validate(config: &Config) -> Result<Resolved, Vec<ConfigError>> {
             "unsupported schema_version {} (expected {SCHEMA_VERSION})",
             config.schema_version
         )));
+    }
+
+    let touchpad = config.touchpad;
+    if touchpad.short_ms == 0
+        || touchpad.short_ms >= touchpad.hold_ms
+        || touchpad.hold_ms > MAX_TIMEOUT_MS
+    {
+        errors.push(ConfigError(format!(
+            "touchpad requires 0 < short_ms < hold_ms <= {MAX_TIMEOUT_MS}"
+        )));
+    }
+    if !touchpad.movement_mm.is_finite() || touchpad.movement_mm <= 0.0 {
+        errors.push(ConfigError(
+            "touchpad.movement_mm must be finite and greater than zero".to_string(),
+        ));
     }
 
     let emergency_key = match parse_key(&config.emergency_bypass_key) {
@@ -1122,6 +1186,7 @@ fn temp_sibling(path: &Path, ext: &str) -> PathBuf {
 pub fn default_config() -> Config {
     Config {
         schema_version: SCHEMA_VERSION,
+        touchpad: TouchpadConfig::default(),
         emergency_bypass_key: KeyConfig::logical(DEFAULT_EMERGENCY_KEY),
         rules: Vec::new(),
     }
@@ -1144,6 +1209,7 @@ mod tests {
     fn sample_config() -> Config {
         Config {
             schema_version: SCHEMA_VERSION,
+            touchpad: TouchpadConfig::default(),
             emergency_bypass_key: logical("F12"),
             rules: vec![RuleConfig {
                 id: "hold-ctrl-right-click-copy".to_string(),
@@ -1160,8 +1226,37 @@ mod tests {
         }
     }
 
+    #[test]
+    fn touchpad_v4_migration_and_v5_round_trip_preserve_hidden_values() {
+        let migrated = parse_and_migrate_json(V4_GOLDEN).unwrap();
+        assert_eq!(migrated.source_schema_version, 4);
+        assert_eq!(migrated.config.touchpad, TouchpadConfig::default());
+        let mut config = migrated.config;
+        config.touchpad.click_enabled = true;
+        config.touchpad.movement_mm = 2.375;
+        let saved = parse_and_migrate_json(&to_json_pretty(&config)).unwrap();
+        assert_eq!(saved.source_schema_version, 5);
+        assert_eq!(saved.config, config);
+    }
+
+    #[test]
+    fn touchpad_validates_timing_and_finite_positive_movement_even_when_hidden() {
+        let mut config = sample_config();
+        config.touchpad.hold_ms = config.touchpad.short_ms;
+        assert!(validate_config(&config).is_err());
+        config.touchpad.hold_ms = 500;
+        for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            config.touchpad.movement_mm = bad;
+            assert!(validate_config(&config).is_err());
+        }
+    }
+
     fn load_from(text: &str) -> LoadedConfig {
-        let dir = std::env::temp_dir().join(format!("inputflow-config-str-{}", std::process::id()));
+        let sequence = SAVE_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "inputflow-config-str-{}-{sequence}",
+            std::process::id()
+        ));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.json");
         fs::write(&path, text).unwrap();
@@ -1240,7 +1335,7 @@ mod tests {
     #[test]
     fn v4_golden_round_trips_mouse_direction_groups() {
         let first = parse_and_migrate_json(V4_GOLDEN).expect("v4 fixture should parse");
-        assert_eq!(first.source_schema_version, SCHEMA_VERSION);
+        assert_eq!(first.source_schema_version, DIRECTION_SCHEMA_VERSION);
         assert_eq!(first.config.rules.len(), 2);
         assert!(matches!(
             first.config.rules[0].trigger,
@@ -1254,15 +1349,16 @@ mod tests {
         ));
 
         let text = serde_json::to_string_pretty(&first.config).unwrap();
-        let second = parse_and_migrate_json(&text).expect("serialized v4 should parse");
-        assert_eq!(second, first);
+        let second = parse_and_migrate_json(&text).expect("serialized v5 should parse");
+        assert_eq!(second.source_schema_version, SCHEMA_VERSION);
+        assert_eq!(second.config, first.config);
     }
 
     #[test]
     fn phase_f_acceptance_config_is_a_valid_four_direction_group() {
         let parsed = parse_and_migrate_json(DIRECTION_ACCEPTANCE)
             .expect("Phase F acceptance config should remain valid");
-        assert_eq!(parsed.source_schema_version, SCHEMA_VERSION);
+        assert_eq!(parsed.source_schema_version, DIRECTION_SCHEMA_VERSION);
         assert_eq!(parsed.config.rules.len(), 4);
         let directions = parsed
             .config
@@ -1541,6 +1637,7 @@ mod tests {
         };
         let mut config = Config {
             schema_version: SCHEMA_VERSION,
+            touchpad: TouchpadConfig::default(),
             emergency_bypass_key: logical("F12"),
             rules: vec![base.clone()],
         };
@@ -1964,6 +2061,7 @@ mod tests {
         for key in ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10"] {
             let config = Config {
                 schema_version: SCHEMA_VERSION,
+                touchpad: TouchpadConfig::default(),
                 emergency_bypass_key: logical(key),
                 rules: Vec::new(),
             };
@@ -2024,6 +2122,7 @@ mod tests {
             workers.push(std::thread::spawn(move || {
                 let config = Config {
                     schema_version: SCHEMA_VERSION,
+                    touchpad: TouchpadConfig::default(),
                     emergency_bypass_key: logical(key),
                     rules: Vec::new(),
                 };

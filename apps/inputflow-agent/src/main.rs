@@ -27,6 +27,7 @@ struct Args {
     config_path: PathBuf,
     settings_path: Option<PathBuf>,
     debug_input: bool,
+    observe_touchpad: bool,
     no_tray: bool,
     run_for: Option<Duration>,
     smoke_iterations: Option<usize>,
@@ -136,6 +137,7 @@ fn run_agent(args: Args, log: &Arc<AgentLog>) -> Result<(), String> {
     let mut options = RuntimeOptions::new(sink);
     options.config_path = args.config_path;
     options.debug_input = args.debug_input;
+    options.observe_touchpad = args.observe_touchpad;
 
     let (runtime, start) = Runtime::start(options)?;
     let runtime = Arc::new(runtime);
@@ -312,6 +314,7 @@ fn parse_args(arguments: impl IntoIterator<Item = String>) -> Result<ParseResult
     let mut config_path = default_data_dir().join("config.json");
     let mut settings_path = None;
     let mut debug_input = false;
+    let mut observe_touchpad = false;
     let mut no_tray = false;
     let mut run_for = None;
     let mut smoke_iterations = None;
@@ -336,6 +339,7 @@ fn parse_args(arguments: impl IntoIterator<Item = String>) -> Result<ParseResult
                 ));
             }
             "--debug-input" => debug_input = true,
+            "--observe-touchpad" => observe_touchpad = true,
             "--no-tray" => no_tray = true,
             "--run-for-ms" => {
                 index += 1;
@@ -366,6 +370,7 @@ fn parse_args(arguments: impl IntoIterator<Item = String>) -> Result<ParseResult
         config_path,
         settings_path,
         debug_input,
+        observe_touchpad,
         no_tray,
         run_for,
         smoke_iterations,
@@ -390,6 +395,7 @@ fn print_usage() {
     println!("InputFlow background agent");
     println!("usage: inputflow-agent [--config PATH] [--settings PATH] [--debug-input] [--help]");
     println!("  --debug-input             opt in to per-input local diagnostics");
+    println!("  --observe-touchpad        read-only touchpad recognition diagnostics");
     println!("  --run-for-ms N            exit after N milliseconds (verification)");
     println!("  --smoke[-iterations N]    exercise lifecycle operations (verification)");
     println!("  --no-tray                 verification only; requires a bounded run mode");

@@ -14,6 +14,8 @@ smoke；公开下载的 ZIP 已重新下载并验证 SHA-256。参见
 [当前状态](docs/status/CURRENT_STATUS.md)。G-POST 现为当前活动任务；采样工具改进及正式的 1～2 小时、
 24 小时和 72 小时长测尚未开始。
 
+开发工作树已接入默认关闭的实验性触控板点击。设备实测范围和点击来源条件见[触控板 Stage 3 记录](docs/records/TOUCHPAD_STAGE_3_TOUCH_CLICK.md)。
+
 ## 架构与安全边界
 
 - `inputflow-agent.exe` 是唯一的 Hook、托盘、规则运行时、正式配置和 IPC 服务所有者。

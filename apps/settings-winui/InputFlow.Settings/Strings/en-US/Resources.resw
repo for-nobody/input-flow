@@ -313,4 +313,104 @@
   <data name="KeyPicker_PhysicalScanCodeInvalid" xml:space="preserve"><value>Physical scan code must be from 1 through 65535.</value></data>
   <data name="KeyPicker_LogicalKeyRequired" xml:space="preserve"><value>Select a logical key.</value></data>
   <data name="KeyPicker_IdentityFormat" xml:space="preserve"><value>Display: {0}  Identity: {1}</value></data>
+  <data name="TouchpadExperimentTitle.Text" xml:space="preserve">
+    <value>Experimental features</value>
+  </data>
+  <data name="TouchpadExperimentEnabled.Header" xml:space="preserve">
+    <value>Touchpad support (experimental)</value>
+  </data>
+  <data name="TouchpadExperimentEnabled.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Touchpad support (experimental)</value>
+  </data>
+  <data name="TouchpadExperimentHelp.Text" xml:space="preserve">
+    <value>Saving this switch shows Touch Click in Rules and restores any previously enabled Touch Click rule. Windows touchpad settings are controlled separately.</value>
+  </data>
+  <data name="TouchpadSaveButton.Content" xml:space="preserve">
+    <value>Save changes</value>
+  </data>
+  <data name="TouchpadSaveButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Save configuration changes</value>
+  </data>
+  <data name="TouchClickTitle.Text" xml:space="preserve">
+    <value>Touch Click</value>
+  </data>
+  <data name="TouchClickEnabled.Header" xml:space="preserve">
+    <value>Enable Touch Click</value>
+  </data>
+  <data name="TouchClickEnabled.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Enable Touch Click</value>
+  </data>
+  <data name="TouchShort.Header" xml:space="preserve">
+    <value>Short touch (ms)</value>
+  </data>
+  <data name="TouchShort.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Short touch maximum in milliseconds</value>
+  </data>
+  <data name="TouchHold.Header" xml:space="preserve">
+    <value>Long touch (ms)</value>
+  </data>
+  <data name="TouchHold.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Long touch threshold in milliseconds</value>
+  </data>
+  <data name="TouchMovement.Header" xml:space="preserve">
+    <value>Movement (mm)</value>
+  </data>
+  <data name="TouchMovement.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Movement threshold in millimeters</value>
+  </data>
+  <data name="Touchpad_Pending" xml:space="preserve">
+    <value>Touchpad changes are pending save.</value>
+  </data>
+  <data name="Touchpad_LastKnown" xml:space="preserve">
+    <value>Last confirmed state while disconnected.</value>
+  </data>
+  <data name="Touchpad_Disabled" xml:space="preserve">
+    <value>Touchpad support is off.</value>
+  </data>
+  <data name="Touchpad_RuleDisabled" xml:space="preserve">
+    <value>Touch Click is off.</value>
+  </data>
+  <data name="Touchpad_Ready" xml:space="preserve">
+    <value>Ready. Short touch left-clicks and long touch right-clicks.</value>
+  </data>
+  <data name="Touchpad_Paused" xml:space="preserve">
+    <value>Touch Click is paused.</value>
+  </data>
+  <data name="Touchpad_Recording" xml:space="preserve">
+    <value>Touch Click is stopped during input recording.</value>
+  </data>
+  <data name="Touchpad_ObserveOnly" xml:space="preserve">
+    <value>The Agent is observing touchpad gestures without sending clicks.</value>
+  </data>
+  <data name="Touchpad_NativeTap" xml:space="preserve">
+    <value>Click output requires Windows single-finger tap to be off. To change it, go to Windows Settings → Bluetooth &amp; devices → Touchpad → Taps. Restore your original setting when you finish.</value>
+  </data>
+  <data name="Touchpad_NoDevice" xml:space="preserve">
+    <value>A supported touchpad is unavailable.</value>
+  </data>
+  <data name="Touchpad_ReadOnlyDevice" xml:space="preserve">
+    <value>Touchpad reports are readable. Physical button detection or millimeter calibration is unavailable.</value>
+  </data>
+  <data name="Touchpad_WindowsUnavailable" xml:space="preserve">
+    <value>Windows device registration or session notifications are unavailable.</value>
+  </data>
+  <data name="Touchpad_ConfigPending" xml:space="preserve">
+    <value>Touch Click is stopped while the Agent confirms the configuration.</value>
+  </data>
+  <data name="Touchpad_RecoveryWaiting" xml:space="preserve">
+    <value>Resume the Agent after the previous unexpected exit to allow new Touch Click gestures.</value>
+  </data>
+  <data name="Touchpad_OutputFault" xml:space="preserve">
+    <value>Click output failed. Restart the Agent after checking the cause.</value>
+  </data>
+  <data name="Touchpad_SessionInactive" xml:space="preserve">
+    <value>Touch Click is stopped while the Windows session is inactive.</value>
+  </data>
+  <data name="Touchpad_StatusUnknown" xml:space="preserve">
+    <value>Touchpad runtime state is unavailable.</value>
+  </data>
+  <data name="TouchpadExperimentEnabled.OnContent" xml:space="preserve"><value>On</value></data>
+  <data name="TouchpadExperimentEnabled.OffContent" xml:space="preserve"><value>Off</value></data>
+  <data name="TouchClickEnabled.OnContent" xml:space="preserve"><value>On</value></data>
+  <data name="TouchClickEnabled.OffContent" xml:space="preserve"><value>Off</value></data>
 </root>

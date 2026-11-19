@@ -17,7 +17,11 @@ const CONTACT_ID: u16 = 0x51;
 const CONTACT_COUNT: u16 = 0x54;
 const BUTTONS: u16 = 0x09;
 
-pub(super) struct Descriptor {
+fn api_error(operation: &str) -> io::Error {
+    io::Error::other(format!("{operation}: {}", io::Error::last_os_error()))
+}
+
+pub struct Descriptor {
     preparsed: Vec<usize>,
     caps: HIDP_CAPS,
     values: Vec<HIDP_VALUE_CAPS>,
@@ -36,15 +40,15 @@ fn check_status(operation: &str, status: NTSTATUS) -> io::Result<()> {
 }
 
 impl Descriptor {
-    pub(super) fn read(device: HANDLE) -> io::Result<Self> {
+    // Win32 validates the opaque device handle.
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
+    pub fn read(device: HANDLE) -> io::Result<Self> {
         let mut bytes = 0;
         // SAFETY: A null buffer queries the size of this device's preparsed data.
         let result =
             unsafe { GetRawInputDeviceInfoW(device, RIDI_PREPARSEDDATA, null_mut(), &mut bytes) };
         if result == u32::MAX {
-            return Err(super::api_error(
-                "GetRawInputDeviceInfoW(RIDI_PREPARSEDDATA size)",
-            ));
+            return Err(api_error("GetRawInputDeviceInfoW(RIDI_PREPARSEDDATA size)"));
         }
         if bytes == 0 {
             return Err(io::Error::other(
@@ -62,9 +66,7 @@ impl Descriptor {
             )
         };
         if result == u32::MAX {
-            return Err(super::api_error(
-                "GetRawInputDeviceInfoW(RIDI_PREPARSEDDATA data)",
-            ));
+            return Err(api_error("GetRawInputDeviceInfoW(RIDI_PREPARSEDDATA data)"));
         }
         if result == 0 {
             return Err(io::Error::other(
@@ -101,18 +103,18 @@ impl Descriptor {
         })
     }
 
-    pub(super) fn describe(&self, device: usize) {
-        log!(
+    pub fn describe(&self, device: usize, log: impl Fn(std::fmt::Arguments<'_>)) {
+        log(format_args!(
             "descriptor device={device} input_bytes={} preparsed_capacity={} links={} value_caps={} button_caps={}",
             self.caps.InputReportByteLength,
             self.preparsed.len() * size_of::<usize>(),
             self.caps.NumberLinkCollectionNodes,
             self.values.len(),
             self.buttons.len()
-        );
+        ));
         for value in &self.values {
             let (first, last) = value_usages(value);
-            log!(
+            log(format_args!(
                 "value device={device} report=0x{:02x} link={} link_usage=0x{:04x}/0x{:04x} usage=0x{:04x}/0x{first:04x}..0x{last:04x} bits={} count={} logical={}..{} physical={}..{} unit=0x{:x} unit_exp=0x{:x} absolute={} alias={}",
                 value.ReportID,
                 value.LinkCollection,
@@ -129,11 +131,11 @@ impl Descriptor {
                 value.UnitsExp,
                 value.IsAbsolute,
                 value.IsAlias
-            );
+            ));
         }
         for button in &self.buttons {
             let (first, last) = button_usages(button);
-            log!(
+            log(format_args!(
                 "button device={device} report=0x{:02x} link={} link_usage=0x{:04x}/0x{:04x} usage=0x{:04x}/0x{first:04x}..0x{last:04x} count={} alias={}",
                 button.ReportID,
                 button.LinkCollection,
@@ -142,7 +144,7 @@ impl Descriptor {
                 button.UsagePage,
                 button.ReportCount,
                 button.IsAlias
-            );
+            ));
         }
     }
 }
@@ -248,7 +250,7 @@ struct Finger {
     y: Field,
 }
 
-pub(super) struct Decoder {
+pub struct Decoder {
     descriptor: Descriptor,
     pub report_id: u8,
     count: Field,
@@ -258,13 +260,17 @@ pub(super) struct Decoder {
     report_buffer: Vec<u8>,
 }
 
-pub(super) struct Decoded {
+pub struct Decoded {
     pub frame: Frame,
     pub physical_button: Option<bool>,
 }
 
 impl Decoder {
-    pub(super) fn new(descriptor: Descriptor, device: usize) -> io::Result<Self> {
+    pub fn new(
+        descriptor: Descriptor,
+        device: usize,
+        log: impl Fn(std::fmt::Arguments<'_>),
+    ) -> io::Result<Self> {
         let mut count_caps = descriptor.values.iter().filter(|cap| {
             !cap.IsAlias && cap.LinkCollection == 0 && has_value(cap, DIGITIZER, CONTACT_COUNT)
         });
@@ -361,10 +367,10 @@ impl Decoder {
         let button_capacity = unsafe { HidP_MaxUsageListLength(HidP_Input, BUTTONS, data) };
         let physical_buttons = physical_buttons && button_capacity > 0;
         let report_buffer = vec![0; usize::from(descriptor.caps.InputReportByteLength)];
-        log!(
+        log(format_args!(
             "contact_decoder=ready device={device} report=0x{report_id:02x} bytes={} parallel_slots={slot_count} single_link={first_link} button_usage_supported={physical_buttons}",
             report_buffer.len()
-        );
+        ));
         Ok(Self {
             descriptor,
             report_id,
@@ -376,7 +382,11 @@ impl Decoder {
         })
     }
 
-    pub(super) fn scale(&self) -> Option<Scale> {
+    pub fn has_physical_button(&self) -> bool {
+        self.physical_buttons
+    }
+
+    pub fn scale(&self) -> Option<Scale> {
         let span = |field: Field| f64::from(field.max) - f64::from(field.min);
         let (x_span, y_span) = (span(self.first.x), span(self.first.y));
         (x_span > 0.0 && y_span > 0.0).then_some(Scale {
@@ -386,7 +396,7 @@ impl Decoder {
         })
     }
 
-    pub(super) fn decode(&mut self, report: &[u8]) -> io::Result<Option<Decoded>> {
+    pub fn decode(&mut self, report: &[u8]) -> io::Result<Option<Decoded>> {
         if report.first().copied() != Some(self.report_id) {
             return Ok(None);
         }

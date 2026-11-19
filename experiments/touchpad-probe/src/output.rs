@@ -1,3 +1,5 @@
+pub(super) use inputflow_touchpad::output::InsertResult as Result;
+use inputflow_touchpad::output::insert_pair;
 use std::mem::size_of;
 use std::time::Instant;
 
@@ -61,12 +63,6 @@ pub(super) fn tagged_token(extra: usize) -> Option<usize> {
     (extra & 0xffff_0000 == TAG).then_some(extra & TOKEN_MASK)
 }
 
-pub(super) struct Result {
-    pub inserted: u32,
-    pub error: u32,
-    pub repair: Option<(u32, u32)>,
-}
-
 pub(super) fn send(plan: Plan) -> Result {
     send_pair(plan.button, |flags| {
         let mut inputs = [INPUT::default(); 2];
@@ -99,16 +95,9 @@ pub(super) fn send(plan: Plan) -> Result {
     })
 }
 
-fn send_pair(button: Button, mut insert: impl FnMut(&[u32]) -> (u32, u32)) -> Result {
+fn send_pair(button: Button, insert: impl FnMut(&[u32]) -> (u32, u32)) -> Result {
     let (down, up) = button.flags();
-    let (inserted, error) = insert(&[down, up]);
-    // A partial insertion can leave our down outstanding. Attempt only its matching release.
-    let repair = (inserted == 1).then(|| insert(&[up]));
-    Result {
-        inserted,
-        error,
-        repair,
-    }
+    insert_pair(down, up, insert)
 }
 
 #[cfg(test)]

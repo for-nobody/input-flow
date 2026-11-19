@@ -3,9 +3,17 @@
 version = 4
 
 [[package]]
+name = "inputflow-touchpad"
+version = "0.1.0"
+dependencies = [
+ "windows-sys",
+]
+
+[[package]]
 name = "inputflow-touchpad-probe"
 version = "0.3.1"
 dependencies = [
+ "inputflow-touchpad",
  "windows-sys",
 ]
 

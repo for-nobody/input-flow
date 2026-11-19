@@ -448,7 +448,7 @@ impl Stage2 {
         flags: WPARAM,
         selection: u32,
         now: Instant,
-        token: Option<usize>,
+        extra: usize,
     ) {
         let Some((name, _)) = self.sample else {
             return;
@@ -495,6 +495,7 @@ impl Stage2 {
             }
             _ => return,
         };
+        let token = output::tagged_token(extra);
         let anchor = token.and_then(|token| {
             if matches!(message, WM_LBUTTONUP | WM_RBUTTONUP) {
                 self.receipts.remove(&token)
@@ -503,7 +504,13 @@ impl Stage2 {
             }
         });
         let latency = anchor.map(|anchor| now.saturating_duration_since(anchor).as_micros());
-        let source = if token.is_some() { "probe" } else { "untagged" };
+        let source = if token.is_some() {
+            "probe"
+        } else if extra == inputflow_touchpad::output::AGENT_INPUT_TAG {
+            "agent"
+        } else {
+            "untagged"
+        };
         log!(
             "stage2_target sample={name} kind={kind} source={source} at_us={} selection={selection} token={token:?} criterion_to_target_us={latency:?}",
             self.sample_time(now)
@@ -539,7 +546,7 @@ unsafe extern "system" fn target_proc(
     }
     let received = Instant::now();
     // SAFETY: Read the provenance belonging to this message before native edit handling.
-    let token = output::tagged_token(unsafe { GetMessageExtraInfo() } as usize);
+    let extra = unsafe { GetMessageExtraInfo() } as usize;
     // SAFETY: Preserve native edit selection and original window handling.
     let result = unsafe { DefSubclassProc(window, message, wparam, lparam) };
     if message == WM_MOUSELEAVE {
@@ -573,7 +580,7 @@ unsafe extern "system" fn target_proc(
         crate::with_probe(|probe| {
             probe
                 .stage2
-                .target_message(message, wparam, start.abs_diff(end), received, token)
+                .target_message(message, wparam, start.abs_diff(end), received, extra)
         });
     }
     result

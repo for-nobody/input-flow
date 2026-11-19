@@ -14,6 +14,7 @@ pub use config::{
     LEGACY_SCHEMA_VERSION, LoadedConfig, MAX_DIRECTION_DISTANCE_PX, MAX_DIRECTION_DURATION_MS,
     MAX_DIRECTION_OFF_AXIS_TOLERANCE_PX, MAX_TIMEOUT_MS, MIN_DIRECTION_DISTANCE_PX,
     MIN_DIRECTION_DURATION_MS, MIN_TIMEOUT_MS, MigrationReport, PREVIOUS_SCHEMA_VERSION,
-    RuleConfig, SCHEMA_VERSION, SaveReport, TriggerConfig, ValidatedConfig, default_config, load,
-    parse_and_migrate_json, save, save_with_report, to_json_pretty, validate_config,
+    RuleConfig, SCHEMA_VERSION, SaveReport, TouchpadConfig, TriggerConfig, ValidatedConfig,
+    default_config, load, parse_and_migrate_json, save, save_with_report, to_json_pretty,
+    validate_config,
 };

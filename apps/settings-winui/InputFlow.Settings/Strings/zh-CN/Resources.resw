@@ -313,4 +313,104 @@
   <data name="KeyPicker_PhysicalScanCodeInvalid" xml:space="preserve"><value>Physical scan code 必须在 1–65535 之间。</value></data>
   <data name="KeyPicker_LogicalKeyRequired" xml:space="preserve"><value>请选择逻辑键。</value></data>
   <data name="KeyPicker_IdentityFormat" xml:space="preserve"><value>显示：{0}　Identity：{1}</value></data>
+  <data name="TouchpadExperimentTitle.Text" xml:space="preserve">
+    <value>实验功能</value>
+  </data>
+  <data name="TouchpadExperimentEnabled.Header" xml:space="preserve">
+    <value>触控板支持（实验性）</value>
+  </data>
+  <data name="TouchpadExperimentEnabled.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>触控板支持（实验性）</value>
+  </data>
+  <data name="TouchpadExperimentHelp.Text" xml:space="preserve">
+    <value>保存后会在规则页显示触控点击，并恢复此前已启用的触控点击规则。Windows 触控板设置由你单独控制。</value>
+  </data>
+  <data name="TouchpadSaveButton.Content" xml:space="preserve">
+    <value>保存更改</value>
+  </data>
+  <data name="TouchpadSaveButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>保存配置更改</value>
+  </data>
+  <data name="TouchClickTitle.Text" xml:space="preserve">
+    <value>触控点击</value>
+  </data>
+  <data name="TouchClickEnabled.Header" xml:space="preserve">
+    <value>启用触控点击</value>
+  </data>
+  <data name="TouchClickEnabled.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>启用触控点击</value>
+  </data>
+  <data name="TouchShort.Header" xml:space="preserve">
+    <value>短触上限（毫秒）</value>
+  </data>
+  <data name="TouchShort.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>短触上限，单位毫秒</value>
+  </data>
+  <data name="TouchHold.Header" xml:space="preserve">
+    <value>长触门槛（毫秒）</value>
+  </data>
+  <data name="TouchHold.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>长触门槛，单位毫秒</value>
+  </data>
+  <data name="TouchMovement.Header" xml:space="preserve">
+    <value>移动阈值（毫米）</value>
+  </data>
+  <data name="TouchMovement.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>移动阈值，单位毫米</value>
+  </data>
+  <data name="Touchpad_Pending" xml:space="preserve">
+    <value>触控板更改尚未应用。</value>
+  </data>
+  <data name="Touchpad_LastKnown" xml:space="preserve">
+    <value>当前断线，以下为最后确认的状态。</value>
+  </data>
+  <data name="Touchpad_Disabled" xml:space="preserve">
+    <value>触控板支持已关闭。</value>
+  </data>
+  <data name="Touchpad_RuleDisabled" xml:space="preserve">
+    <value>触控点击已关闭。</value>
+  </data>
+  <data name="Touchpad_Ready" xml:space="preserve">
+    <value>已就绪。短触左击，长触右击。</value>
+  </data>
+  <data name="Touchpad_Paused" xml:space="preserve">
+    <value>触控点击已暂停。</value>
+  </data>
+  <data name="Touchpad_Recording" xml:space="preserve">
+    <value>输入录制期间停止触控点击。</value>
+  </data>
+  <data name="Touchpad_ObserveOnly" xml:space="preserve">
+    <value>Agent 正在只读观察触控板手势。</value>
+  </data>
+  <data name="Touchpad_NativeTap" xml:space="preserve">
+    <value>输出点击前须关闭 Windows 单指轻点。设置入口为 Windows 设置 → 蓝牙和设备 → 触摸板 → 点击。结束后请恢复原值。</value>
+  </data>
+  <data name="Touchpad_NoDevice" xml:space="preserve">
+    <value>未检测到可用的触控板。</value>
+  </data>
+  <data name="Touchpad_ReadOnlyDevice" xml:space="preserve">
+    <value>可读取触控板报告，但物理按钮识别或毫米换算不可用。</value>
+  </data>
+  <data name="Touchpad_WindowsUnavailable" xml:space="preserve">
+    <value>Windows 设备注册或会话通知不可用。</value>
+  </data>
+  <data name="Touchpad_ConfigPending" xml:space="preserve">
+    <value>Agent 核对配置期间停止触控点击。</value>
+  </data>
+  <data name="Touchpad_RecoveryWaiting" xml:space="preserve">
+    <value>上次 Agent 异常退出。恢复 Agent 后才允许新的触控点击。</value>
+  </data>
+  <data name="Touchpad_OutputFault" xml:space="preserve">
+    <value>点击输出失败。请在排查原因后重启 Agent。</value>
+  </data>
+  <data name="Touchpad_SessionInactive" xml:space="preserve">
+    <value>Windows 会话未处于活动状态，触控点击已停用。</value>
+  </data>
+  <data name="Touchpad_StatusUnknown" xml:space="preserve">
+    <value>触控板运行状态暂不可用。</value>
+  </data>
+  <data name="TouchpadExperimentEnabled.OnContent" xml:space="preserve"><value>开</value></data>
+  <data name="TouchpadExperimentEnabled.OffContent" xml:space="preserve"><value>关</value></data>
+  <data name="TouchClickEnabled.OnContent" xml:space="preserve"><value>开</value></data>
+  <data name="TouchClickEnabled.OffContent" xml:space="preserve"><value>关</value></data>
 </root>

@@ -167,6 +167,27 @@ pub struct StatusResult {
     pub apply_reconciliation: String,
     pub reconciliation_request_id: Option<u64>,
     pub last_error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub touchpad: Option<TouchpadStatusResult>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TouchpadStatusResult {
+    pub experimental_enabled: bool,
+    pub click_enabled: bool,
+    pub device_available: bool,
+    pub output_allowed: bool,
+    pub reason: String,
+    pub reports: u64,
+    pub sink_reports: u64,
+    pub complete_contacts: u64,
+    pub short_intents: u64,
+    pub long_intents: u64,
+    pub requested_inputs: u64,
+    pub inserted_inputs: u64,
+    pub last_cancel: Option<String>,
+    pub normalized_distance: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -489,12 +510,15 @@ mod tests {
         let ResponseBody::Success { result } = config_response.body else {
             panic!("get-config golden must be successful");
         };
-        let result: ConfigResult = serde_json::from_value(result).unwrap();
+        let config: ConfigResult = serde_json::from_value(result.clone()).unwrap();
         let config_golden = inputflow_config::parse_and_migrate_json(include_str!(
             "../../../fixtures/config/v4-valid.json"
         ))
         .unwrap();
-        assert_eq!(result.config, config_golden.config);
+        assert_eq!(config.config.schema_version, 4);
+        let migrated =
+            inputflow_config::parse_and_migrate_json(&result["config"].to_string()).unwrap();
+        assert_eq!(migrated.config, config_golden.config);
 
         let error_text = include_str!("../../../fixtures/protocol/v1/error-response.json");
         let error: ResponseEnvelope = serde_json::from_str(error_text).unwrap();

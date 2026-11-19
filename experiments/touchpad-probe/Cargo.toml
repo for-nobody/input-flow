@@ -7,6 +7,7 @@ publish = false
 [workspace]
 
 [dependencies]
+inputflow-touchpad = { path = "../../crates/inputflow-touchpad" }
 windows-sys = { version = "0.61.2", features = [
     "Win32_Devices_HumanInterfaceDevice",
     "Win32_Foundation",

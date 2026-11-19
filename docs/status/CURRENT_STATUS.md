@@ -2,9 +2,9 @@
 
 > 文档类型：当前进度唯一权威
 >
-> 最后更新：2026-10-26（Australia/Brisbane）
+> 最后更新：2026-11-19（Australia/Brisbane）
 >
-> 代码基线：`main`（`515e2f7...`）；`v0.9.0` 已作为 GitHub Pre-release 发布，tag 指向 `c18a0a8...`
+> 代码基线：`main`（`f44d0e0`）及 Stage 3 开发工作树。`v0.9.0` 已作为 GitHub Pre-release 发布，tag 指向 `c18a0a8...`
 
 ## 当前结论
 
@@ -40,6 +40,9 @@ G-POST 是当前活动任务，但采样工具改进和正式长测尚未开始�
 和 [`../archive/first-release/FIRST_RELEASE_RC_EXECUTION.md`](../archive/first-release/FIRST_RELEASE_RC_EXECUTION.md)。
 RC-01 的本地实施和复验矩阵见
 [`../releases/patches/RC-01-WinUI3-i18n-en-US-verification.md`](../releases/patches/RC-01-WinUI3-i18n-en-US-verification.md)。
+
+开发工作树已接入实验性触控板 Touch Click，默认关闭。已验证本机后台只读、正式设置启用、目标窗口点击及记事本选词和长触菜单。
+点击来源、实测范围和未覆盖场景见[触控板 Stage 3 记录](../records/TOUCHPAD_STAGE_3_TOUCH_CLICK.md)。
 
 ## 阶段状态
 
