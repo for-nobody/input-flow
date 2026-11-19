@@ -13,6 +13,7 @@ pub(super) struct Contact {
     pub point: Point,
 }
 
+#[derive(Clone, Copy)]
 pub(super) enum Frame {
     Empty,
     Single(Contact),

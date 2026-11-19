@@ -7,6 +7,7 @@ use windows_sys::Win32::Foundation::{HANDLE, NTSTATUS};
 use windows_sys::Win32::UI::Input::{GetRawInputDeviceInfoW, RIDI_PREPARSEDDATA};
 
 use crate::contact::{Contact, Frame, Point};
+use crate::gesture::Scale;
 
 const DIGITIZER: u16 = 0x0d;
 const GENERIC_DESKTOP: u16 = 0x01;
@@ -14,6 +15,7 @@ const FINGER: u16 = 0x22;
 const TIP: u16 = 0x42;
 const CONTACT_ID: u16 = 0x51;
 const CONTACT_COUNT: u16 = 0x54;
+const BUTTONS: u16 = 0x09;
 
 pub(super) struct Descriptor {
     preparsed: Vec<usize>,
@@ -111,7 +113,7 @@ impl Descriptor {
         for value in &self.values {
             let (first, last) = value_usages(value);
             log!(
-                "value device={device} report=0x{:02x} link={} link_usage=0x{:04x}/0x{:04x} usage=0x{:04x}/0x{first:04x}..0x{last:04x} bits={} count={} logical={}..{} physical={}..{} absolute={} alias={}",
+                "value device={device} report=0x{:02x} link={} link_usage=0x{:04x}/0x{:04x} usage=0x{:04x}/0x{first:04x}..0x{last:04x} bits={} count={} logical={}..{} physical={}..{} unit=0x{:x} unit_exp=0x{:x} absolute={} alias={}",
                 value.ReportID,
                 value.LinkCollection,
                 value.LinkUsagePage,
@@ -123,6 +125,8 @@ impl Descriptor {
                 value.LogicalMax,
                 value.PhysicalMin,
                 value.PhysicalMax,
+                value.Units,
+                value.UnitsExp,
                 value.IsAbsolute,
                 value.IsAlias
             );
@@ -182,6 +186,7 @@ struct Field {
     bits: u16,
     min: i32,
     max: i32,
+    span_mm: Option<f64>,
 }
 
 impl Field {
@@ -202,6 +207,7 @@ impl Field {
             bits: cap.BitSize,
             min: cap.LogicalMin,
             max: cap.LogicalMax,
+            span_mm: physical_millimeters(cap),
         })
     }
 
@@ -247,8 +253,14 @@ pub(super) struct Decoder {
     pub report_id: u8,
     count: Field,
     first: Finger,
+    physical_buttons: bool,
     usages: Vec<u16>,
     report_buffer: Vec<u8>,
+}
+
+pub(super) struct Decoded {
+    pub frame: Frame,
+    pub physical_button: Option<bool>,
 }
 
 impl Decoder {
@@ -336,9 +348,21 @@ impl Decoder {
         if usage_capacity == 0 {
             return Err(io::Error::other("no digitizer button usages available"));
         }
+        let physical_buttons = descriptor.buttons.iter().any(|button| {
+            let (first, last) = button_usages(button);
+            !button.IsAlias
+                && button.ReportID == report_id
+                && button.LinkCollection == 0
+                && button.UsagePage == BUTTONS
+                && first <= 3
+                && last >= 1
+        });
+        // SAFETY: Same preparsed data as above, queried for the Button usage page.
+        let button_capacity = unsafe { HidP_MaxUsageListLength(HidP_Input, BUTTONS, data) };
+        let physical_buttons = physical_buttons && button_capacity > 0;
         let report_buffer = vec![0; usize::from(descriptor.caps.InputReportByteLength)];
         log!(
-            "contact_decoder=ready device={device} report=0x{report_id:02x} bytes={} parallel_slots={slot_count} single_link={first_link}",
+            "contact_decoder=ready device={device} report=0x{report_id:02x} bytes={} parallel_slots={slot_count} single_link={first_link} button_usage_supported={physical_buttons}",
             report_buffer.len()
         );
         Ok(Self {
@@ -346,12 +370,23 @@ impl Decoder {
             report_id,
             count,
             first,
-            usages: vec![0; usage_capacity as usize],
+            physical_buttons,
+            usages: vec![0; usage_capacity.max(button_capacity) as usize],
             report_buffer,
         })
     }
 
-    pub(super) fn decode(&mut self, report: &[u8]) -> io::Result<Option<Frame>> {
+    pub(super) fn scale(&self) -> Option<Scale> {
+        let span = |field: Field| f64::from(field.max) - f64::from(field.min);
+        let (x_span, y_span) = (span(self.first.x), span(self.first.y));
+        (x_span > 0.0 && y_span > 0.0).then_some(Scale {
+            x_span,
+            y_span,
+            millimeters: self.first.x.span_mm.zip(self.first.y.span_mm),
+        })
+    }
+
+    pub(super) fn decode(&mut self, report: &[u8]) -> io::Result<Option<Decoded>> {
         if report.first().copied() != Some(self.report_id) {
             return Ok(None);
         }
@@ -363,45 +398,82 @@ impl Decoder {
             )));
         }
         let data = self.descriptor.preparsed.as_ptr() as PHIDP_PREPARSED_DATA;
-        match self.count.read(data, report)? {
-            0 => return Ok(Some(Frame::Empty)),
-            1 => {}
-            _ => return Ok(Some(Frame::Multiple)),
-        }
-
-        // A parallel frame with Contact Count=1 makes only the first slot valid.
-        // Later slots may contain padding with the same Contact ID, including zero.
-        let id = self.first.id.read(data, report)?;
-        let x = self.first.x.read(data, report)?;
-        let y = self.first.y.read(data, report)?;
         self.report_buffer.copy_from_slice(report);
+        let physical_button = if self.physical_buttons {
+            Some(
+                self.active_usages(data, BUTTONS, 0)?
+                    .iter()
+                    .any(|usage| (1..=3).contains(usage)),
+            )
+        } else {
+            None
+        };
+        let frame = match self.count.read(data, report)? {
+            0 => Frame::Empty,
+            1 => {
+                // A parallel frame with Contact Count=1 makes only the first slot valid.
+                let id = self.first.id.read(data, report)?;
+                let x = self.first.x.read(data, report)?;
+                let y = self.first.y.read(data, report)?;
+                let tip = self
+                    .active_usages(data, DIGITIZER, self.first.id.link)?
+                    .contains(&TIP);
+                Frame::Single(Contact {
+                    id,
+                    tip,
+                    point: Point { x, y },
+                })
+            }
+            _ => Frame::Multiple,
+        };
+        Ok(Some(Decoded {
+            frame,
+            physical_button,
+        }))
+    }
+
+    fn active_usages(
+        &mut self,
+        data: PHIDP_PREPARSED_DATA,
+        page: u16,
+        link: u16,
+    ) -> io::Result<&[u16]> {
         let mut usage_len = self.usages.len() as u32;
         // SAFETY: The caller-owned usage list and mutable report copy match HidP's capacities.
-        check_status("Tip Switch (HidP_GetUsages)", unsafe {
+        check_status("HidP_GetUsages", unsafe {
             HidP_GetUsages(
                 HidP_Input,
-                DIGITIZER,
-                self.first.id.link,
+                page,
+                link,
                 self.usages.as_mut_ptr(),
                 &mut usage_len,
                 data,
                 self.report_buffer.as_mut_ptr(),
-                report.len() as u32,
+                self.report_buffer.len() as u32,
             )
         })?;
-        let usages = self
-            .usages
+        self.usages
             .get(..usage_len as usize)
-            .ok_or_else(|| io::Error::other("invalid HID usage list length"))?;
-        Ok(Some(Frame::Single(Contact {
-            id,
-            tip: usages.contains(&TIP),
-            point: Point { x, y },
-        })))
+            .ok_or_else(|| io::Error::other("invalid HID usage list length"))
     }
 }
 
 fn has_value(cap: &HIDP_VALUE_CAPS, page: u16, usage: u16) -> bool {
     let (first, last) = value_usages(cap);
     cap.UsagePage == page && (first..=last).contains(&usage)
+}
+
+fn physical_millimeters(cap: &HIDP_VALUE_CAPS) -> Option<f64> {
+    let base_mm = match cap.Units {
+        0x11 => 10.0, // SI linear length in centimeters.
+        0x13 => 25.4, // English linear length in inches.
+        _ => return None,
+    };
+    let exponent = match cap.UnitsExp {
+        0..=7 => cap.UnitsExp as i32,
+        8..=15 => cap.UnitsExp as i32 - 16,
+        _ => return None,
+    };
+    let physical_span = f64::from(cap.PhysicalMax) - f64::from(cap.PhysicalMin);
+    (physical_span > 0.0).then(|| physical_span * base_mm * 10f64.powi(exponent))
 }
