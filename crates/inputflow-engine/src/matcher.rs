@@ -528,6 +528,36 @@ impl Matcher {
         replay
     }
 
+    /// Reconcile input after returning from another desktop, where releases
+    /// may have occurred without reaching the hooks. Pending events belong to
+    /// the old desktop. A withheld down still held owns its eventual release.
+    pub fn reconcile_session_input(
+        &mut self,
+        held_keys: impl Iterator<Item = Key>,
+        held_buttons: &[MouseButton],
+    ) {
+        self.keys.reconcile_held(held_keys);
+        self.buttons.reconcile_held(held_buttons);
+        for event in self.pending.take_replay() {
+            if event.is_key_down()
+                && let Some(key) = event.tracking_key()
+                && self.keys.is_physically_held(key)
+                && !self.keys.is_seen_down(key)
+            {
+                self.keys.mark_consumed(key);
+            }
+            if event.is_button_down()
+                && let Some(button) = event.button()
+                && self.buttons.is_physically_held(button)
+                && !self.buttons.is_seen_down(button)
+            {
+                self.buttons.mark_consumed(button);
+            }
+        }
+        self.active = None;
+        self.double_tap = None;
+    }
+
     /// Focus/capture changes must never deliver an old candidate to a new target.
     pub fn discard_double_tap(&mut self) {
         if let Some(tap) = self.double_tap.take() {
@@ -1480,6 +1510,85 @@ mod tests {
         assert!(matches!(
             matcher.on_event(down(8, 35, Key::Digit5)).1,
             Resolution::Matched { .. }
+        ));
+    }
+
+    #[test]
+    fn session_sync_rearms_f9_after_missed_win_l_and_mouse_releases() {
+        let clock = ManualClock::new(0);
+        let mut matcher = matcher_with(
+            clock.clone(),
+            vec![Rule {
+                id: "panel.start".into(),
+                trigger: Trigger::DoubleTap { key: Key::F9 },
+                action: Action::Numpad(crate::NumpadAction::Start),
+            }],
+            16,
+        );
+        matcher.set_mode_availability(ModeAvailability {
+            numpad_ready: true,
+            ..Default::default()
+        });
+        matcher.on_event(down(1, 0, Key::LeftWin));
+        matcher.on_event(down(2, 1, Key::L));
+        matcher.buttons.mark_physical_down(MouseButton::Left);
+        assert_eq!(
+            matcher.on_event(down(3, 2, Key::F9)).0,
+            Decision::PassThrough
+        );
+        matcher.on_event(up(4, 3, Key::F9));
+
+        matcher.reconcile_session_input([Key::LeftWin].into_iter(), &[]);
+        assert_eq!(
+            matcher.on_event(down(5, 4, Key::F9)).0,
+            Decision::PassThrough
+        );
+        matcher.on_event(up(6, 5, Key::F9));
+        matcher.on_event(up(7, 6, Key::LeftWin));
+        matcher.reconcile_session_input(std::iter::empty(), &[MouseButton::Left]);
+        assert_eq!(
+            matcher.on_event(down(8, 7, Key::F9)).0,
+            Decision::PassThrough
+        );
+        matcher.on_event(up(9, 8, Key::F9));
+
+        matcher.reconcile_session_input(std::iter::empty(), &[]);
+        assert!(matches!(
+            matcher.on_event(down(10, 10, Key::F9)).0,
+            Decision::Suppress { .. }
+        ));
+        clock.advance(40);
+        matcher.on_event(up(11, 50, Key::F9));
+        clock.advance(50);
+        matcher.on_event(down(12, 100, Key::F9));
+        clock.advance(40);
+        assert!(matches!(
+            matcher.on_event(up(13, 140, Key::F9)).1,
+            Resolution::Matched {
+                action: Action::Numpad(crate::NumpadAction::Start),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn session_sync_discards_old_prefix_and_owns_its_still_held_release() {
+        let clock = ManualClock::new(0);
+        let mut matcher = matcher_with(clock, vec![double_tap(Key::F9)], 16);
+        assert!(matches!(
+            matcher.on_event(down(1, 0, Key::F9)).0,
+            Decision::Suppress { .. }
+        ));
+        matcher.reconcile_session_input([Key::F9].into_iter(), &[]);
+        assert!(!matcher.has_active_double_tap());
+        assert!(matcher.poll_timeouts().is_empty());
+        assert!(matches!(
+            matcher.on_event(up(2, 10, Key::F9)),
+            (Decision::Suppress { .. }, Resolution::Pending)
+        ));
+        assert!(matches!(
+            matcher.on_event(down(3, 20, Key::F9)).0,
+            Decision::Suppress { .. }
         ));
     }
 

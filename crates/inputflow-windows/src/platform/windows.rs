@@ -24,7 +24,7 @@
 //! replay/action ordered before any subsequent pass-through event. A thread timer
 //! (`SetTimer`) drives `Hold` / `Hold+MouseButton` deadlines via `WM_TIMER`.
 
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -43,6 +43,10 @@ use windows_sys::Win32::Security::{
     TOKEN_QUERY, TokenIntegrityLevel, TokenUIAccess,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::StationsAndDesktops::{
+    CloseDesktop, DESKTOP_READOBJECTS, GetThreadDesktop, GetUserObjectInformationW, HDESK,
+    OpenInputDesktop, UOI_NAME,
+};
 use windows_sys::Win32::System::Threading::{
     GetCurrentProcess, GetCurrentProcessId, GetCurrentThreadId, OpenProcess, OpenProcessToken,
     PROCESS_QUERY_LIMITED_INFORMATION,
@@ -51,17 +55,19 @@ use windows_sys::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetThreadDpiAwarenessContext,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    INPUT, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP,
-    KEYEVENTF_SCANCODE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN,
-    MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_XDOWN,
-    MOUSEEVENTF_XUP, MOUSEINPUT, SendInput,
+    GetAsyncKeyState, INPUT, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY,
+    KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
+    MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
+    MOUSEEVENTF_XDOWN, MOUSEEVENTF_XUP, MOUSEINPUT, SendInput, VK_CONTROL, VK_LBUTTON, VK_MBUTTON,
+    VK_MENU, VK_RBUTTON, VK_SHIFT, VK_XBUTTON1, VK_XBUTTON2,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetForegroundWindow, GetMessageW, GetPhysicalCursorPos,
-    GetWindowThreadProcessId, HC_ACTION, KBDLLHOOKSTRUCT, KillTimer, LLMHF_INJECTED, MSG,
-    MSLLHOOKSTRUCT, PM_NOREMOVE, PeekMessageW, PostThreadMessageW, SetTimer, SetWindowsHookExW,
-    TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_APP, WM_MOUSEHWHEEL,
-    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT, WM_TIMER,
+    GetSystemMetrics, GetWindowThreadProcessId, HC_ACTION, KBDLLHOOKSTRUCT, KillTimer,
+    LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT, PM_NOREMOVE, PeekMessageW, PostThreadMessageW,
+    SM_SWAPBUTTON, SetTimer, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
+    WH_KEYBOARD_LL, WH_MOUSE_LL, WM_APP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT,
+    WM_TIMER,
 };
 
 use crate::keymap;
@@ -85,6 +91,7 @@ const SHUTDOWN_TOMBSTONE_DRAIN_MS: u64 = 2_000;
 const CONTROL_ACK_TIMEOUT_MS: u64 = 2_000;
 /// Private thread message used only to wake the hook thread for queued controls.
 const WM_INPUTFLOW_CONTROL: u32 = WM_APP + 1;
+const WM_INPUTFLOW_SESSION_INPUT: u32 = WM_APP + 2;
 const CONTROL_PENDING: u8 = 0;
 const CONTROL_RUNNING: u8 = 1;
 const CONTROL_CANCELLED: u8 = 2;
@@ -95,6 +102,8 @@ const CONTROL_COMPLETE: u8 = 3;
 static MATCHER: OnceLock<Mutex<Matcher>> = OnceLock::new();
 /// Thread id of the live hook/message-loop owner, or zero outside its lifetime.
 static HOOK_THREAD_ID: AtomicU32 = AtomicU32::new(0);
+static SESSION_INPUT_REVISION: AtomicU64 = AtomicU64::new(0);
+static SYNCED_SESSION_INPUT_REVISION: AtomicU64 = AtomicU64::new(0);
 /// Control requests are executed only by the hook thread. This makes pause,
 /// replay, resume, timer resolution, and physical callbacks one serial stream.
 static CONTROL_REQUESTS: OnceLock<Mutex<VecDeque<ControlRequest>>> = OnceLock::new();
@@ -142,8 +151,9 @@ static CURRENT_PROCESS_SECURITY: OnceLock<Option<ProcessSecurity>> = OnceLock::n
 /// Start instant of the current hold window, if one is in progress.
 static HOLD_START: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
 /// Physical held-key set used to detect auto-repeat downs (low-level hooks have
-/// no repeat bit). Only ever touched from the hook thread.
-static HELD_KEYS: OnceLock<Mutex<BTreeSet<Key>>> = OnceLock::new();
+/// no repeat bit). Keep the observed virtual key for an OS state query on
+/// desktop return, while continuing to identify key releases by scan code.
+static HELD_KEYS: OnceLock<Mutex<BTreeMap<Key, u16>>> = OnceLock::new();
 
 /// The single explicit recording session. It observes one physical down without
 /// modifying matcher state or suppressing input.
@@ -361,6 +371,8 @@ pub fn reset_runtime_state() -> Result<(), String> {
     }
     set_bypassed(false);
     SHUTTING_DOWN.store(false, Ordering::Relaxed);
+    SESSION_INPUT_REVISION.store(0, Ordering::Relaxed);
+    SYNCED_SESSION_INPUT_REVISION.store(0, Ordering::Relaxed);
     SEQ.store(0, Ordering::Relaxed);
     OUTPUT_SENT.store(0, Ordering::Relaxed);
     OUTPUT_FAILED.store(0, Ordering::Relaxed);
@@ -443,14 +455,14 @@ fn debug_log_enabled() -> bool {
     DEBUG_LOG.load(Ordering::Relaxed)
 }
 
-fn held_keys() -> &'static Mutex<BTreeSet<Key>> {
-    HELD_KEYS.get_or_init(|| Mutex::new(BTreeSet::new()))
+fn held_keys() -> &'static Mutex<BTreeMap<Key, u16>> {
+    HELD_KEYS.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
 /// Update the physical held-key set for a keyboard event and report whether a
 /// key-down is an auto-repeat (the key was already held). A key-up removes the
 /// key and is never a repeat. On a poisoned lock we fail safe (non-repeat).
-fn track_held_key(key: Key, up: bool) -> bool {
+fn track_held_key(key: Key, vk: u16, up: bool) -> bool {
     let Ok(mut held) = held_keys().lock() else {
         return false;
     };
@@ -458,10 +470,102 @@ fn track_held_key(key: Key, up: bool) -> bool {
         held.remove(&key);
         false
     } else {
-        let repeat = held.contains(&key);
-        held.insert(key);
-        repeat
+        held.insert(key, vk).is_some()
     }
+}
+
+pub(super) fn request_session_input_sync() {
+    SESSION_INPUT_REVISION.fetch_add(1, Ordering::AcqRel);
+    let owner = HOOK_THREAD_ID.load(Ordering::Acquire);
+    if owner != 0 {
+        // SAFETY: The hook owner publishes its ID after creating its message queue.
+        unsafe { PostThreadMessageW(owner, WM_INPUTFLOW_SESSION_INPUT, 0, 0) };
+    }
+}
+
+pub(super) fn session_input_sync_pending() -> bool {
+    SESSION_INPUT_REVISION.load(Ordering::Acquire)
+        != SYNCED_SESSION_INPUT_REVISION.load(Ordering::Acquire)
+}
+
+fn desktop_name(desktop: HDESK) -> Option<[u16; 256]> {
+    let mut name = [0_u16; 256];
+    // SAFETY: The buffer is writable and its size is passed in bytes.
+    let read = unsafe {
+        GetUserObjectInformationW(
+            desktop,
+            UOI_NAME,
+            name.as_mut_ptr().cast(),
+            size_of_val(&name) as u32,
+            std::ptr::null_mut(),
+        )
+    };
+    (read != 0).then_some(name)
+}
+
+fn hook_desktop_accepts_input() -> bool {
+    // SAFETY: The input desktop handle is owned and closed below. The thread
+    // desktop is borrowed. Only the desktop names are retrieved.
+    unsafe {
+        let input = OpenInputDesktop(0, 0, DESKTOP_READOBJECTS);
+        if input.is_null() {
+            return false;
+        }
+        let active = desktop_name(input);
+        CloseDesktop(input);
+        active.is_some() && active == desktop_name(GetThreadDesktop(GetCurrentThreadId()))
+    }
+}
+
+fn async_key_down(vk: u16) -> bool {
+    // SAFETY: The caller supplies a Win32 virtual key. Only the down bit is used.
+    unsafe { GetAsyncKeyState(i32::from(vk)) < 0 }
+}
+
+fn reconcile_session_input() {
+    let revision = SESSION_INPUT_REVISION.load(Ordering::Acquire);
+    if revision == SYNCED_SESSION_INPUT_REVISION.load(Ordering::Acquire)
+        || !hook_desktop_accepts_input()
+    {
+        return;
+    }
+    let (Some(matcher), Ok(mut held)) = (MATCHER.get(), held_keys().lock()) else {
+        return;
+    };
+    let Ok(mut matcher) = matcher.lock() else {
+        return;
+    };
+    // GetAsyncKeyState can return zero on an inactive desktop. Sample only on
+    // the hook desktop, outside the callback for the next physical key.
+    held.retain(|_, vk| async_key_down(*vk));
+    // SAFETY: SM_SWAPBUTTON queries system configuration without side effects.
+    let swapped = unsafe { GetSystemMetrics(SM_SWAPBUTTON) != 0 };
+    let buttons = [
+        (
+            if swapped { VK_RBUTTON } else { VK_LBUTTON },
+            MouseButton::Left,
+        ),
+        (
+            if swapped { VK_LBUTTON } else { VK_RBUTTON },
+            MouseButton::Right,
+        ),
+        (VK_MBUTTON, MouseButton::Middle),
+        (VK_XBUTTON1, MouseButton::XButton1),
+        (VK_XBUTTON2, MouseButton::XButton2),
+    ];
+    let held_buttons: Vec<_> = buttons
+        .into_iter()
+        .filter_map(|(vk, button)| async_key_down(vk).then_some(button))
+        .collect();
+    matcher.reconcile_session_input(held.keys().copied(), &held_buttons);
+    DIRECTION_CANDIDATE_ACTIVE.store(false, Ordering::Release);
+    LAST_HOOK_MOUSE_POINT_VALID.store(false, Ordering::Release);
+    DOUBLE_TAP_TARGET.store(0, Ordering::Relaxed);
+    if let Ok(mut start) = hold_start_cell().lock() {
+        *start = None;
+    }
+    SYNCED_SESSION_INPUT_REVISION.store(revision, Ordering::Release);
+    super::touchpad::wake_worker();
 }
 
 fn control_requests() -> &'static Mutex<VecDeque<ControlRequest>> {
@@ -2147,11 +2251,16 @@ unsafe fn run_message_loop() {
         if msg.message == WM_TIMER {
             // Deadline tick: drive the matcher's Hold / Hold+MouseButton
             // deadlines. There is no window to translate/dispatch a timer to.
+            reconcile_session_input();
             drive_timeouts();
             continue;
         }
         if msg.message == WM_INPUTFLOW_CONTROL {
             handle_control_requests();
+            continue;
+        }
+        if msg.message == WM_INPUTFLOW_SESSION_INPUT {
+            reconcile_session_input();
             continue;
         }
         if msg.message == super::touchpad::CLICK_READY {
@@ -2204,7 +2313,8 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
         let info = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
         let (up, extended, injected) = keymap::keyboard_flags(info.flags);
         let scan_code = info.scanCode as u16;
-        let key = keymap::hook_key(info.vkCode as u16, scan_code, extended);
+        let vk = info.vkCode as u16;
+        let key = keymap::hook_key(vk, scan_code, extended);
 
         // Our own synthesized events pass through, so replay never recurses. Do
         // this before the held-key bookkeeping so replayed events do not affect
@@ -2221,7 +2331,11 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
         // Low-level hooks expose no repeat bit; derive auto-repeat from the
         // maintained physical held-key set (M6 P0 #2).
         let tracking_key = Key::physical(scan_code, extended).unwrap_or(key);
-        let repeat = track_held_key(tracking_key, up);
+        let state_vk = match vk {
+            VK_SHIFT | VK_CONTROL | VK_MENU => keymap::key_to_vk(key).unwrap_or(vk),
+            _ => vk,
+        };
+        let repeat = track_held_key(tracking_key, state_vk, up);
 
         let event = InputEvent {
             seq: next_seq(),

@@ -579,9 +579,10 @@ impl Worker {
         }
 
         let occupied = self.devices.values().any(|device| device.occupied);
+        let session_inactive =
+            self.sleeping || self.locked || windows::session_input_sync_pending();
         let blocked = paused
-            || self.sleeping
-            || self.locked
+            || session_inactive
             || CONFIG_PENDING.load(Ordering::Acquire)
             || !self.session_notifications
             || RECOVERY_WAITING.load(Ordering::Acquire);
@@ -607,7 +608,7 @@ impl Worker {
         }
         let numpad_reason = if registration_failed {
             Some("registration_failed")
-        } else if self.locked || self.sleeping {
+        } else if session_inactive {
             Some("session_inactive")
         } else if CONFIG_PENDING.load(Ordering::Acquire) {
             Some("config_pending")
@@ -671,7 +672,7 @@ impl Worker {
             "recovery_waiting"
         } else if CONFIG_PENDING.load(Ordering::Acquire) {
             "config_pending"
-        } else if self.locked || self.sleeping {
+        } else if session_inactive {
             "session_inactive"
         } else if paused {
             "paused"
@@ -940,6 +941,9 @@ unsafe extern "system" fn window_proc(window: HWND, msg: u32, wp: WPARAM, lp: LP
                 if wp == WTS_SESSION_LOCK as usize || wp == WTS_SESSION_UNLOCK as usize =>
             {
                 worker.locked = wp == WTS_SESSION_LOCK as usize;
+                if !worker.locked {
+                    windows::request_session_input_sync();
+                }
                 invalidate();
                 worker.refresh(now);
             }

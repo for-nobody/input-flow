@@ -78,6 +78,12 @@ impl KeyState {
         !self.consumed.is_empty()
     }
 
+    pub(crate) fn reconcile_held(&mut self, held: impl Iterator<Item = Key>) {
+        self.physically_held = held.collect();
+        self.seen_down
+            .retain(|key| self.physically_held.contains(key));
+    }
+
     /// Clear all tracking (used when pausing / entering bypass).
     pub fn clear(&mut self) {
         self.physically_held.clear();
@@ -153,6 +159,12 @@ impl MouseState {
 
     pub fn has_consumed(&self) -> bool {
         !self.consumed.is_empty()
+    }
+
+    pub(crate) fn reconcile_held(&mut self, held: &[MouseButton]) {
+        self.physically_held = held.iter().copied().collect();
+        self.seen_down
+            .retain(|button| self.physically_held.contains(button));
     }
 
     /// Clear all tracking (used when pausing / entering bypass).
