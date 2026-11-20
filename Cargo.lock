@@ -19,6 +19,7 @@ name = "inputflow-config"
 version = "0.9.0"
 dependencies = [
  "inputflow-engine",
+ "inputflow-touchpad",
  "serde",
  "serde_json",
  "windows-sys",
@@ -52,6 +53,8 @@ dependencies = [
 name = "inputflow-touchpad"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "serde_json",
  "windows-sys",
 ]
 

@@ -14,9 +14,13 @@ for Rust and the C# settings DTOs.
   extended bit; existing rules become enabled.
 - `fixtures/config/v3-valid.json` freezes persistent per-rule `enabled`. Rust and C# migrate it
   to v4 without changing rule order, identity, action, or enablement.
-- `fixtures/config/v4-valid.json` is the current write contract. It adds keyboard-activated
+- `fixtures/config/v4-valid.json` freezes the public preview write contract. It adds keyboard-activated
   mouse-direction rules with direction, screen-pixel distance, monotonic time
   window, and off-axis tolerance. Rust and C# round-trip the same shape.
+- `fixtures/config/v8-panel-diagonal.json` exercises the experimental panel write contract,
+  with stable IDs and a diagonal between two keyboard actions.
+- `fixtures/config/panel-geometry.json` is shared by the Rust and C# geometry tests and
+  covers a concave outline, shared gaps and unassigned background.
 - `fixtures/config/v2-phase-b-manual-acceptance.json` is a deliberately narrow live-input
   acceptance configuration. A physical `Oem1` or logical `CapsLock` starts a
   candidate, `F9` completes it, and a successful match emits `C`. Releasing the

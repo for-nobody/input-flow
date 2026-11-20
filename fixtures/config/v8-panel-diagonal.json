@@ -1,0 +1,33 @@
+{
+  "schema_version": 8,
+  "emergency_bypass_key": {"match": "logical", "key": "F12"},
+  "rules": [],
+  "touchpad": {
+    "experimental_enabled": true,
+    "click_enabled": false,
+    "short_ms": 400,
+    "hold_ms": 500,
+    "movement_mm": 3.0
+  },
+  "panel": {
+    "enabled": true,
+    "start": {"type": "double_tap", "key": {"match": "logical", "key": "F9"}},
+    "stop": {"type": "double_tap", "key": {"match": "logical", "key": "F10"}},
+    "guide": "always",
+    "default_layout": "diagonal",
+    "layouts": [{
+      "id": "diagonal",
+      "name": "Diagonal",
+      "select": null,
+      "geometry": {
+        "gap": [0.005, 0.005],
+        "regions": [
+          {"id": "lower", "name": "A", "action": {"type": "key_chord", "keys": [{"match": "logical", "key": "A"}]},
+           "faces": [[[0, 0], [1, 1], [0, 1]]]},
+          {"id": "upper", "name": "B", "action": {"type": "key_chord", "keys": [{"match": "logical", "key": "B"}]},
+           "faces": [[[0, 0], [1, 0], [1, 1]]]}
+        ]
+      }
+    }]
+  }
+}

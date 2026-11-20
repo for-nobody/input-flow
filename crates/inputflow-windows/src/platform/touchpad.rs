@@ -640,7 +640,20 @@ impl Worker {
         } else {
             None
         };
-        self.numpad.refresh(numpad_reason, occupied, now);
+        let size = self
+            .devices
+            .iter()
+            .filter_map(|(&handle, device)| {
+                let (width, height) = device.scale.millimeters?;
+                let microns = [
+                    (width * 1000.0).round() as u32,
+                    (height * 1000.0).round() as u32,
+                ];
+                (microns[0] > 0 && microns[1] > 0).then_some((handle, microns))
+            })
+            .min_by_key(|(handle, _)| *handle)
+            .map(|(_, size)| size);
+        self.numpad.refresh(numpad_reason, occupied, size, now);
         let capable = self.devices.values().any(|device| {
             device.decoder.has_physical_button() && device.scale.millimeters.is_some()
         });
@@ -832,14 +845,12 @@ impl Worker {
                 competing || frame.physical_button == Some(true),
                 now,
             );
-            if (self.observe_numpad || numpad::is_active())
-                && let Some(layout) = inputflow_touchpad::numpad::Layout::new(logical_bounds)
-            {
+            if self.observe_numpad || numpad::is_active() {
                 self.numpad.frame(numpad::Report {
                     device: handle,
                     frame: frame.frame,
                     physical_button: frame.physical_button,
-                    layout,
+                    bounds: logical_bounds,
                     occupied,
                     competing,
                     now,

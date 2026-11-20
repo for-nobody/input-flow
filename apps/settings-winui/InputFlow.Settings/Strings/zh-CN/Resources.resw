@@ -520,4 +520,98 @@
   <data name="Numpad_Counts" xml:space="preserve"><value>确认接触 {0} · 取消 {1} · 插入按键事件 {2}</value></data>
   <data name="Touchpad_NumpadActive" xml:space="preserve"><value>数字键盘工作期间暂停触控点击。</value></data>
   <data name="Presentation_NumpadActive" xml:space="preserve"><value>请先退出数字键盘，再开启演示激光笔。</value></data>
+  <data name="Panel_Title" xml:space="preserve"><value>触控板虚拟操作面板</value></data>
+  <data name="Panel_LegacyTitle" xml:space="preserve"><value>触控板数字键盘</value></data>
+  <data name="Panel_Manage" xml:space="preserve"><value>管理预设</value></data>
+  <data name="Panel_Layouts" xml:space="preserve"><value>预设列表</value></data>
+  <data name="Panel_Back" xml:space="preserve"><value>返回规则</value></data>
+  <data name="Panel_New" xml:space="preserve"><value>新建自定义预设</value></data>
+  <data name="Panel_NewDefaultName" xml:space="preserve"><value>自定义布局</value></data>
+  <data name="Panel_AddPreset" xml:space="preserve"><value>从预设添加</value></data>
+  <data name="Panel_DefaultFormat" xml:space="preserve"><value>{0}（默认）</value></data>
+  <data name="Panel_Default" xml:space="preserve"><value>面板启动时默认打开</value></data>
+  <data name="Panel_NotDefault" xml:space="preserve"><value>面板启动后可切换至此</value></data>
+  <data name="Panel_Switch" xml:space="preserve"><value>布局切换快捷键</value></data>
+  <data name="Panel_Rename" xml:space="preserve"><value>重命名</value></data>
+  <data name="Panel_Copy" xml:space="preserve"><value>复制</value></data>
+  <data name="Panel_CopyFormat" xml:space="preserve"><value>{0} 副本</value></data>
+  <data name="Panel_Delete" xml:space="preserve"><value>删除预设</value></data>
+  <data name="Panel_DeleteConfirm" xml:space="preserve"><value>从草稿中删除「{0}」？</value></data>
+  <data name="Panel_SetDefault" xml:space="preserve"><value>设为默认</value></data>
+  <data name="Panel_NoLayouts" xml:space="preserve"><value>暂无布局。可以新建自定义预设或从预设添加。</value></data>
+  <data name="Panel_PresetNumbers" xml:space="preserve"><value>数字键盘</value></data>
+  <data name="Panel_PresetMedia" xml:space="preserve"><value>媒体</value></data>
+  <data name="Panel_PresetSlides" xml:space="preserve"><value>演示控制</value></data>
+  <data name="Panel_PresetShortcutConflict" xml:space="preserve"><value>默认快捷键已被使用。预设已添加，切换快捷键留空。</value></data>
+  <data name="Panel_Name" xml:space="preserve"><value>名称</value></data>
+  <data name="Panel_Done" xml:space="preserve"><value>完成</value></data>
+  <data name="Panel_EditCanvas" xml:space="preserve"><value>编辑画布</value></data>
+  <data name="Panel_Preview" xml:space="preserve"><value>布局轮廓预览</value></data>
+  <data name="Panel_WindowTitle" xml:space="preserve"><value>编辑画布 · {0}</value></data>
+  <data name="Panel_Canvas" xml:space="preserve"><value>触控板布局画布</value></data>
+  <data name="Panel_SaveDraft" xml:space="preserve"><value>保存到草稿</value></data>
+  <data name="Panel_Undo" xml:space="preserve"><value>撤销</value></data>
+  <data name="Panel_Redo" xml:space="preserve"><value>恢复</value></data>
+  <data name="Panel_EditRegion" xml:space="preserve"><value>编辑区域</value></data>
+  <data name="Panel_DeleteRegions" xml:space="preserve"><value>删除选区</value></data>
+  <data name="Panel_Merge" xml:space="preserve"><value>合并区域</value></data>
+  <data name="Panel_MergeInherit" xml:space="preserve"><value>继承此区域的名称和动作</value></data>
+  <data name="Panel_Tools" xml:space="preserve"><value>画布工具</value></data>
+  <data name="Panel_SelectTool" xml:space="preserve"><value>选择</value></data>
+  <data name="Panel_RectangleTool" xml:space="preserve"><value>矩形分割</value></data>
+  <data name="Panel_LineTool" xml:space="preserve"><value>直线分割</value></data>
+  <data name="Panel_WholeBoard" xml:space="preserve"><value>整个板面</value></data>
+  <data name="Panel_SelectedRegion" xml:space="preserve"><value>选中区域</value></data>
+  <data name="Panel_LineScope" xml:space="preserve"><value>直线分割范围</value></data>
+  <data name="Panel_LineHelp" xml:space="preserve"><value>拖动设置切线。切线一侧保留原动作。</value></data>
+  <data name="Panel_RectangleHelp" xml:space="preserve"><value>拖出矩形对角点。切割选区时，矩形外保留原动作。</value></data>
+  <data name="Panel_SelectHelp" xml:space="preserve"><value>单击选择，Ctrl+单击增减选区。拖动公共边或区域内部可调整位置。</value></data>
+  <data name="Panel_EmptyRegion" xml:space="preserve"><value>未绑定区域</value></data>
+  <data name="Panel_SelectOne" xml:space="preserve"><value>请先选中一个区域。</value></data>
+  <data name="Panel_SplitPreview" xml:space="preserve"><value>新分区保留轮廓，动作留空。</value></data>
+  <data name="Panel_RegionList" xml:space="preserve"><value>区域与输出绑定</value></data>
+  <data name="Panel_RegionLabel" xml:space="preserve"><value>{0} · {1}</value></data>
+  <data name="Panel_Dimensions" xml:space="preserve"><value>有效感应面 {0:0.#} × {1:0.#} 毫米</value></data>
+  <data name="Panel_Schematic" xml:space="preserve"><value>示意比例</value></data>
+  <data name="Panel_Action" xml:space="preserve"><value>动作</value></data>
+  <data name="Panel_ActionKey" xml:space="preserve"><value>发送按键或快捷键</value></data>
+  <data name="Panel_ActionDigit" xml:space="preserve"><value>数字</value></data>
+  <data name="Panel_ActionOperator" xml:space="preserve"><value>运算符</value></data>
+  <data name="Panel_ActionDigitLabel" xml:space="preserve"><value>发送数字 {0}</value></data>
+  <data name="Panel_ActionOperatorLabel" xml:space="preserve"><value>发送运算符 {0}</value></data>
+  <data name="Panel_ActionKeysLabel" xml:space="preserve"><value>发送快捷键 · {0}</value></data>
+  <data name="Panel_AddKey" xml:space="preserve"><value>添加按键</value></data>
+  <data name="Panel_RemoveKey" xml:space="preserve"><value>移除按键</value></data>
+  <data name="Panel_KeyNumber" xml:space="preserve"><value>输出按键 {0}</value></data>
+  <data name="Panel_RecordingKey" xml:space="preserve"><value>按下要录制的按键，或按 Esc 取消。</value></data>
+  <data name="Panel_CloseTitle" xml:space="preserve"><value>关闭画布</value></data>
+  <data name="Panel_CloseMessage" xml:space="preserve"><value>画布有未保存的更改。关闭前保存到草稿吗？</value></data>
+  <data name="Panel_Discard" xml:space="preserve"><value>放弃更改</value></data>
+  <data name="Panel_Continue" xml:space="preserve"><value>继续编辑</value></data>
+  <data name="Panel_InvalidGeometry" xml:space="preserve"><value>板面分区或轮廓数量超出范围。</value></data>
+  <data name="Panel_InvalidRegion" xml:space="preserve"><value>每个区域需要唯一标识、名称和轮廓。</value></data>
+  <data name="Panel_InvalidPolygon" xml:space="preserve"><value>轮廓越界、自交或没有可用面积。</value></data>
+  <data name="Panel_Overlap" xml:space="preserve"><value>预览轮廓与其他区域重叠。</value></data>
+  <data name="Panel_InvalidAction" xml:space="preserve"><value>请选择有效且互不重复的按键或一个数字。Num Lock 保留。</value></data>
+  <data name="Panel_InvalidCut" xml:space="preserve"><value>切割需要生成有效的新分区。</value></data>
+  <data name="Panel_InvalidMerge" xml:space="preserve"><value>请选择以公共边相连的区域。</value></data>
+  <data name="Panel_InvalidEdgeMove" xml:space="preserve"><value>移动后相邻轮廓将无法保持有效。</value></data>
+  <data name="Panel_LayoutRemoved" xml:space="preserve"><value>此预设已从主草稿删除。本窗口保留了您的编辑。</value></data>
+  <data name="Panel_LayoutConflict" xml:space="preserve"><value>主草稿中的同一布局已有改动。本窗口保留了您的编辑。</value></data>
+  <data name="Panel_Active" xml:space="preserve"><value>操作面板运行中。使用退出快捷键或 Esc 结束。</value></data>
+  <data name="Panel_Ready" xml:space="preserve"><value>操作面板已就绪。用进入快捷键启动。</value></data>
+  <data name="Panel_NativeTap" xml:space="preserve"><value>请先关闭 Windows 单指轻点以单击，再使用面板输出。</value></data>
+  <data name="Panel_NativeTapUnknown" xml:space="preserve"><value>无法确认 Windows 单指轻点状态，面板输出已停用。</value></data>
+  <data name="Panel_Start" xml:space="preserve"><value>进入虚拟操作面板</value></data>
+  <data name="Panel_Stop" xml:space="preserve"><value>退出虚拟操作面板</value></data>
+  <data name="Panel_Guide" xml:space="preserve"><value>虚拟操作面板屏幕提示</value></data>
+  <data name="Panel_LegacyGuide" xml:space="preserve"><value>数字键盘屏幕提示</value></data>
+  <data name="Panel_PresentationActive" xml:space="preserve"><value>退出演示激光笔后再开启操作面板。</value></data>
+  <data name="Panel_FocusUnavailable" xml:space="preserve"><value>请将焦点移到接收面板动作的控件。</value></data>
+  <data name="Panel_FocusWatchUnavailable" xml:space="preserve"><value>Windows 焦点监视不可用，面板输出已停用。</value></data>
+  <data name="Panel_OverlayFailed" xml:space="preserve"><value>无法打开或绘制虚拟操作面板提示。</value></data>
+  <data name="Panel_OutputFault" xml:space="preserve"><value>面板输出失败后已停用。请重新应用配置或重启 Agent。</value></data>
+  <data name="Panel_DeviceUnavailable" xml:space="preserve"><value>面板需要可读取物理按钮状态的精确式触控板。</value></data>
+  <data name="Panel_Paused" xml:space="preserve"><value>恢复 Agent 后可使用操作面板。</value></data>
+  <data name="Panel_RecordingMode" xml:space="preserve"><value>结束快捷键录制后可开启操作面板。</value></data>
 </root>

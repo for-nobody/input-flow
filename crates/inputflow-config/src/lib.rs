@@ -9,7 +9,7 @@ mod config;
 mod numpad;
 mod presentation;
 
-pub use numpad::{NumpadConfig, NumpadGuide};
+pub use numpad::{NumpadConfig, NumpadGuide, PanelAction, PanelLayout, PanelOperator, PanelOutput};
 pub use presentation::{MovementMode, PresentationConfig, Preset, Style, parse_color};
 
 pub use config::{

@@ -6,12 +6,14 @@ public enum NumpadGuide { Always, TwoSeconds, UntilFirstInput, Never }
 
 public sealed record NumpadDocument(bool Enabled, RuleTrigger Start, RuleTrigger Stop, NumpadGuide Guide)
 {
+    public VirtualPanelDocument? Panel { get; init; }
+
     public static NumpadDocument CreateDefault() => new(false,
         new DoubleTapTrigger(KeyIdentity.Logical("F9")),
         new DoubleTapTrigger(KeyIdentity.Logical("F10")),
         NumpadGuide.UntilFirstInput);
 
-    internal static NumpadDocument Parse(JsonElement value)
+    internal static NumpadDocument Parse(JsonElement value, bool isPanel = false)
     {
         var defaults = CreateDefault();
         return new(
@@ -25,10 +27,13 @@ public sealed record NumpadDocument(bool Enabled, RuleTrigger Start, RuleTrigger
                 "until_first_input" => NumpadGuide.UntilFirstInput,
                 "never" => NumpadGuide.Never,
                 _ => throw new FormatException("Unknown numpad guide policy"),
-            } : defaults.Guide);
+            } : defaults.Guide)
+        {
+            Panel = isPanel ? VirtualPanelDocument.Parse(value) : null,
+        };
     }
 
-    internal void Write(Utf8JsonWriter writer)
+    internal void Write(Utf8JsonWriter writer, bool isPanel)
     {
         writer.WriteStartObject();
         writer.WriteBoolean("enabled", Enabled);
@@ -44,6 +49,10 @@ public sealed record NumpadDocument(bool Enabled, RuleTrigger Start, RuleTrigger
             NumpadGuide.Never => "never",
             _ => throw new ArgumentOutOfRangeException(nameof(Guide)),
         });
+        if (isPanel)
+        {
+            (Panel ?? VirtualPanelDocument.CreateDefault()).Write(writer);
+        }
         writer.WriteEndObject();
     }
 }

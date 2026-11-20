@@ -20,7 +20,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Current on-disk schema version.
-pub const SCHEMA_VERSION: u32 = 7;
+pub const SCHEMA_VERSION: u32 = 8;
+const NUMPAD_SCHEMA_VERSION: u32 = 7;
 const PRESENTATION_SCHEMA_VERSION: u32 = 6;
 const TOUCH_CLICK_SCHEMA_VERSION: u32 = 5;
 const DIRECTION_SCHEMA_VERSION: u32 = 4;
@@ -70,8 +71,52 @@ pub struct Config {
     pub touchpad: TouchpadConfig,
     #[serde(default)]
     pub presentation: PresentationConfig,
-    #[serde(default)]
+    #[serde(rename = "panel")]
     pub numpad: crate::NumpadConfig,
+}
+
+impl Config {
+    fn clear_conflicting_panel_defaults(&mut self) {
+        let emergency = parse_key(&self.emergency_bypass_key).ok();
+        let ordinary = self
+            .rules
+            .iter()
+            .filter(|rule| rule.enabled)
+            .filter_map(|rule| resolve_rule(rule).ok());
+        let mut base = ordinary.collect::<Vec<_>>();
+        if self.presentation.enabled {
+            base.extend(self.presentation.resolved_rules(emergency, &mut Vec::new()));
+        }
+        let panel_rules = self.numpad.resolved_rules(None, &mut Vec::new());
+        base.extend(panel_rules.into_iter().filter(|rule| {
+            !matches!(
+                rule.action,
+                Action::Numpad(inputflow_engine::NumpadAction::Select(_))
+            )
+        }));
+        for layout in &mut self.numpad.layouts {
+            let Some(binding) = &layout.select else {
+                continue;
+            };
+            let mut errors = Vec::new();
+            let id = format!("panel.layouts[{}].select", layout.id);
+            let candidate = resolve_mode_rule(
+                id,
+                binding,
+                Action::Numpad(inputflow_engine::NumpadAction::Select(layout.id.clone())),
+                emergency,
+                &mut errors,
+            );
+            if !errors.is_empty()
+                || RuleIndex::compile(base.iter().cloned().chain(candidate.clone()).collect())
+                    .is_err()
+            {
+                layout.select = None;
+            } else {
+                base.extend(candidate);
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -249,6 +294,21 @@ struct ConfigV6 {
     presentation: PresentationConfig,
     #[serde(rename = "schema_version")]
     _schema_version: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConfigV7 {
+    #[serde(rename = "schema_version")]
+    _schema_version: u32,
+    emergency_bypass_key: KeyConfig,
+    #[serde(default)]
+    rules: Vec<RuleConfig>,
+    #[serde(default)]
+    touchpad: TouchpadConfig,
+    #[serde(default)]
+    presentation: PresentationConfig,
+    numpad: Option<crate::numpad::LegacyNumpad>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -562,7 +622,7 @@ pub fn parse_and_migrate_json(text: &str) -> Result<MigrationReport, Vec<ConfigE
         }
     };
 
-    let config = match source_schema_version {
+    let mut config = match source_schema_version {
         LEGACY_SCHEMA_VERSION => {
             let legacy: ConfigV1 = serde_json::from_value(value).map_err(|error| {
                 vec![ConfigError(format!("invalid schema v1 document: {error}"))]
@@ -624,6 +684,19 @@ pub fn parse_and_migrate_json(text: &str) -> Result<MigrationReport, Vec<ConfigE
                 numpad: crate::NumpadConfig::default(),
             }
         }
+        NUMPAD_SCHEMA_VERSION => {
+            let previous: ConfigV7 = serde_json::from_value(value).map_err(|error| {
+                vec![ConfigError(format!("invalid schema v7 document: {error}"))]
+            })?;
+            Config {
+                schema_version: SCHEMA_VERSION,
+                emergency_bypass_key: previous.emergency_bypass_key,
+                rules: previous.rules,
+                touchpad: previous.touchpad,
+                presentation: previous.presentation,
+                numpad: previous.numpad.map(Into::into).unwrap_or_default(),
+            }
+        }
         SCHEMA_VERSION => serde_json::from_value(value).map_err(|error| {
             vec![ConfigError(format!(
                 "invalid schema v{SCHEMA_VERSION} document: {error}"
@@ -636,6 +709,9 @@ pub fn parse_and_migrate_json(text: &str) -> Result<MigrationReport, Vec<ConfigE
         }
     };
 
+    if source_schema_version < SCHEMA_VERSION {
+        config.clear_conflicting_panel_defaults();
+    }
     validate(&config)?;
     Ok(MigrationReport {
         source_schema_version,
@@ -859,6 +935,12 @@ fn validate(config: &Config) -> Result<Resolved, Vec<ConfigError>> {
             "unsupported schema_version {} (expected {SCHEMA_VERSION})",
             config.schema_version
         )));
+    }
+    // Leave room for the v1 request and response envelopes around the document.
+    if serde_json::to_vec(config).is_ok_and(|bytes| bytes.len() > 960 * 1024) {
+        errors.push(ConfigError(
+            "configuration exceeds the Named Pipe document size limit".into(),
+        ));
     }
 
     let touchpad = config.touchpad;
@@ -1092,7 +1174,7 @@ pub(crate) fn resolve_trigger(trigger: &TriggerConfig) -> Result<Trigger, String
     })
 }
 
-fn parse_key(config: &KeyConfig) -> Result<Key, String> {
+pub(crate) fn parse_key(config: &KeyConfig) -> Result<Key, String> {
     match config {
         KeyConfig::Logical { key } => {
             Key::from_name(key).ok_or_else(|| format!("unknown logical key `{key}`"))
@@ -1393,7 +1475,7 @@ mod tests {
         config.presentation.movement = crate::MovementMode::Absolute;
         let mut legacy = serde_json::to_value(&config).unwrap();
         legacy["schema_version"] = 6.into();
-        legacy.as_object_mut().unwrap().remove("numpad");
+        legacy.as_object_mut().unwrap().remove("panel");
         let report = parse_and_migrate_json(&legacy.to_string()).unwrap();
         assert_eq!(report.source_schema_version, 6);
         assert_eq!(report.config, config);
@@ -1409,7 +1491,7 @@ mod tests {
         config.numpad.enabled = true;
         let validated = validate_config(&config).unwrap();
         assert!(validated.rules.is_empty());
-        assert_eq!(validated.mode_rules.len(), 2);
+        assert_eq!(validated.mode_rules.len(), 5);
         config.presentation.enabled = true;
         config.presentation.start = config.numpad.start.clone();
         let errors = validate_config(&config).unwrap_err();
@@ -1432,6 +1514,128 @@ mod tests {
                 .numpad,
             config.numpad
         );
+    }
+
+    #[test]
+    fn v7_panel_migration_keeps_classic_coordinates_bindings_and_explicit_empty_v8() {
+        use inputflow_touchpad::panel::{Hit, Surface};
+        let mut source = serde_json::to_value(default_config()).unwrap();
+        source.as_object_mut().unwrap().remove("panel");
+        source["schema_version"] = 7.into();
+        source["numpad"] = serde_json::json!({
+            "enabled": true, "guide": "two_seconds",
+            "start": {"type":"double_tap", "key":{"match":"logical","key":"F7"}},
+            "stop": {"type":"double_tap", "key":{"match":"logical","key":"F8"}}
+        });
+        let migrated = parse_and_migrate_json(&source.to_string()).unwrap().config;
+        assert!(migrated.numpad.enabled);
+        assert_eq!(migrated.numpad.guide, crate::NumpadGuide::TwoSeconds);
+        assert_eq!(
+            migrated.numpad.start,
+            TriggerConfig::DoubleTap { key: logical("F7") }
+        );
+        assert_eq!(
+            migrated.numpad.default_layout.as_deref(),
+            Some("classic-numpad")
+        );
+        let geometry = &migrated.numpad.layouts[0].geometry;
+        let surface = Surface::compile(geometry);
+        assert_eq!(surface.hit(geometry, [0.5, 0.375]), Hit::Region(4));
+        assert_eq!(surface.hit(geometry, [0.5, 0.875]), Hit::Region(10));
+        assert_eq!(
+            surface.hit(geometry, [1.0 / 3.0 + 0.04 / 3.0, 0.375]),
+            Hit::Gap
+        );
+        assert!(geometry.regions[11].action.is_none());
+        assert_eq!(
+            parse_and_migrate_json(&to_json_pretty(&migrated))
+                .unwrap()
+                .config,
+            migrated
+        );
+        let mut empty = migrated;
+        empty.numpad.layouts.clear();
+        empty.numpad.default_layout = None;
+        assert_eq!(
+            parse_and_migrate_json(&to_json_pretty(&empty))
+                .unwrap()
+                .config,
+            empty
+        );
+        let mut missing = serde_json::to_value(empty).unwrap();
+        missing.as_object_mut().unwrap().remove("panel");
+        assert!(parse_and_migrate_json(&missing.to_string()).is_err());
+    }
+
+    #[test]
+    fn panel_default_shortcuts_share_laser_scope_but_not_ordinary_or_each_other() {
+        let mut config = default_config();
+        config.touchpad.experimental_enabled = true;
+        config.numpad.enabled = true;
+        config.presentation.enabled = true;
+        assert!(validate_config(&config).is_ok());
+        config.numpad.layouts[1].select = config.numpad.layouts[0].select.clone();
+        assert!(
+            validate_config(&config)
+                .unwrap_err()
+                .iter()
+                .any(|error| error.0.contains("panel.layouts[numpad].select")
+                    && error.0.contains("panel.layouts[media].select"))
+        );
+        config.numpad.layouts[1].select = None;
+        config.rules.push(RuleConfig {
+            id: "ordinary-alt".into(),
+            enabled: true,
+            trigger: config.numpad.layouts[0].select.clone().unwrap(),
+            action: ActionConfig::KeyChord {
+                keys: vec![logical("A")],
+            },
+        });
+        assert!(validate_config(&config).is_err());
+    }
+
+    #[test]
+    fn diagonal_panel_fixture_shares_action_and_coordinate_contract_with_settings() {
+        use inputflow_touchpad::panel::{Hit, Surface};
+        let config = parse_and_migrate_json(include_str!(
+            "../../../fixtures/config/v8-panel-diagonal.json"
+        ))
+        .unwrap()
+        .config;
+        let layout = &config.numpad.layouts[0];
+        let surface = Surface::compile(&layout.geometry);
+        for (point, expected) in [([0.25, 0.75], Key::A), ([0.75, 0.25], Key::B)] {
+            let Hit::Region(index) = surface.hit(&layout.geometry, point) else {
+                panic!("point did not hit a region")
+            };
+            assert!(
+                matches!(layout.geometry.regions[index].action.as_ref().unwrap().resolve(),
+                Ok(crate::PanelOutput::Keys(keys)) if keys == [expected])
+            );
+        }
+        assert_eq!(
+            parse_and_migrate_json(&to_json_pretty(&config))
+                .unwrap()
+                .config,
+            config
+        );
+    }
+
+    #[test]
+    fn fractional_canvas_points_survive_wire_value_and_disk_round_trips() {
+        let values = [
+            0.00042005430297630535_f64,
+            0.9954903089067185,
+            0.13544203495048735,
+        ];
+        for value in values {
+            // IPC parses to a JSON value before decoding the document. Small
+            // changes in the binary value would make Settings retain its draft.
+            let wire = serde_json::to_string(&value).unwrap();
+            let decoded: Value = serde_json::from_str(&wire).unwrap();
+            let observed: f64 = serde_json::from_value(decoded).unwrap();
+            assert_eq!(observed.to_bits(), value.to_bits(), "{wire}");
+        }
     }
 
     #[test]

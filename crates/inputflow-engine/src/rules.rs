@@ -87,10 +87,11 @@ pub enum Action {
     Numpad(NumpadAction),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NumpadAction {
     Start,
     Stop,
+    Select(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,7 +123,7 @@ impl Action {
             Self::Presentation(PresentationAction::Start) => modes.presentation_ready,
             Self::Presentation(_) => modes.presentation_ready && modes.presentation_active,
             Self::Numpad(NumpadAction::Start) => modes.numpad_ready,
-            Self::Numpad(NumpadAction::Stop) => modes.numpad_active,
+            Self::Numpad(_) => modes.numpad_active,
             Self::KeyChord(_) => true,
         }
     }
@@ -214,11 +215,50 @@ pub struct RuleIndex {
     /// Mouse direction groups keyed by their keyboard activation identity.
     directions: BTreeMap<Key, MouseDirectionGroup>,
     double_taps: BTreeMap<Key, (String, Action)>,
+    mode_indices: [Option<Box<RuleIndex>>; 2],
 }
 
 impl RuleIndex {
     /// Compile a set of rules, rejecting duplicates. Returns all errors at once.
     pub fn compile(rules: Vec<Rule>) -> Result<Self, Vec<RuleError>> {
+        let mut seen_ids = BTreeSet::new();
+        let mut common = Vec::new();
+        let mut local = [Vec::new(), Vec::new()];
+        for rule in rules {
+            if !seen_ids.insert(rule.id.clone()) {
+                return Err(vec![RuleError::DuplicateId(rule.id)]);
+            }
+            match rule.action {
+                Action::Presentation(
+                    PresentationAction::Stop
+                    | PresentationAction::Select(_)
+                    | PresentationAction::ToggleMouse
+                    | PresentationAction::Clear,
+                ) => local[0].push(rule),
+                Action::Numpad(NumpadAction::Stop | NumpadAction::Select(_)) => local[1].push(rule),
+                _ => common.push(rule),
+            }
+        }
+        let mut index = Self::compile_flat(common.clone())?;
+        for (slot, scoped) in index.mode_indices.iter_mut().zip(local) {
+            if !scoped.is_empty() {
+                *slot = Some(Box::new(Self::compile_flat(
+                    common.iter().cloned().chain(scoped).collect(),
+                )?));
+            }
+        }
+        Ok(index)
+    }
+
+    pub(crate) fn for_modes(&self, modes: ModeAvailability) -> &Self {
+        match (modes.presentation_active, modes.numpad_active) {
+            (true, false) => self.mode_indices[0].as_deref().unwrap_or(self),
+            (false, true) => self.mode_indices[1].as_deref().unwrap_or(self),
+            _ => self,
+        }
+    }
+
+    fn compile_flat(rules: Vec<Rule>) -> Result<Self, Vec<RuleError>> {
         let mut errors = Vec::new();
         let mut seen_ids = BTreeSet::new();
         let mut seen_triggers = BTreeMap::new();

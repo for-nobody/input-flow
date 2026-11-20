@@ -4,4 +4,5 @@ pub mod gesture;
 pub mod hid;
 pub mod numpad;
 pub mod output;
+pub mod panel;
 pub mod raw;

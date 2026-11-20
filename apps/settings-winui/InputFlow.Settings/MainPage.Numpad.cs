@@ -15,11 +15,20 @@ public sealed partial class MainPage
         bool visible = Supports("touchpad_numpad") && draft is { SchemaVersion: >= 7, Touchpad.ExperimentalEnabled: true };
         NumpadEnabled.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         bool showCard = visible && draft!.Numpad.Enabled;
+        bool virtualPanel = Supports("touchpad_virtual_panel") && draft is { SchemaVersion: >= 8 };
+        NumpadCardTitle.Text = AppResources.Get(virtualPanel ? "Panel_Title" : "Panel_LegacyTitle");
+        NumpadEnabled.Header = NumpadCardTitle.Text;
+        AutomationProperties.SetName(NumpadEnabled, (string)NumpadEnabled.Header);
+        PanelManageButton.Visibility = virtualPanel ? Visibility.Visible : Visibility.Collapsed;
+        PanelManageButton.Content = AppResources.Get("Panel_Manage");
+        PanelManageButton.IsEnabled = !_busy;
         NumpadCard.Visibility = showCard ? Visibility.Visible : Visibility.Collapsed;
-        if (!showCard && _presentationBinding?.Operation is PresentationOperation.NumpadStart or PresentationOperation.NumpadStop)
+        if (!showCard && _presentationBinding?.Operation is PresentationOperation.NumpadStart or PresentationOperation.NumpadStop or PresentationOperation.PanelSelect)
         {
             CancelRuleEdit();
         }
+        if (!showCard || !virtualPanel) ShowPanelManagement(false);
+        else RefreshPanelManagement();
         if (!visible) return;
 
         _refreshingNumpad = true;
@@ -31,22 +40,37 @@ public sealed partial class MainPage
         _refreshingNumpad = false;
         if (!showCard) return;
 
-        UpdateNumpadBinding(NumpadStart, AppResources.Get("Numpad_Start"), config.Start);
-        UpdateNumpadBinding(NumpadStop, AppResources.Get("Numpad_Stop"), config.Stop);
+        UpdateNumpadBinding(NumpadStart, AppResources.Get(virtualPanel ? "Panel_Start" : "Numpad_Start"), config.Start);
+        UpdateNumpadBinding(NumpadStop, AppResources.Get(virtualPanel ? "Panel_Stop" : "Numpad_Stop"), config.Stop);
+        string guideLabel = AppResources.Get(virtualPanel ? "Panel_Guide" : "Panel_LegacyGuide");
+        AutomationProperties.SetName(NumpadGuideChoice, guideLabel);
         NumpadStatus? status = _coordinator?.LatestStatus?.Numpad;
         string state = AppResources.Get(status?.Reason switch
         {
+            "no_layout" => "Panel_NoLayouts",
+            "ready" when virtualPanel && status.Phase == "active" => "Panel_Active",
+            "ready" when virtualPanel => "Panel_Ready",
+            "native_tap_enabled" when virtualPanel => "Panel_NativeTap",
+            "native_tap_unknown" when virtualPanel => "Panel_NativeTapUnknown",
             "ready" when status.Phase == "active" => "Numpad_Active",
             "ready" => "Numpad_Ready",
+            "presentation_active" when virtualPanel => "Panel_PresentationActive",
             "presentation_active" => "Numpad_PresentationActive",
             "native_tap_enabled" => "Numpad_NativeTap",
             "native_tap_unknown" => "Numpad_NativeTapUnknown",
+            "focus_unavailable" when virtualPanel => "Panel_FocusUnavailable",
             "focus_unavailable" => "Numpad_FocusUnavailable",
+            "focus_watch_unavailable" when virtualPanel => "Panel_FocusWatchUnavailable",
             "focus_watch_unavailable" => "Numpad_FocusWatchUnavailable",
+            "overlay_failed" when virtualPanel => "Panel_OverlayFailed",
             "overlay_failed" => "Numpad_OverlayFailed",
+            "output_fault" when virtualPanel => "Panel_OutputFault",
             "output_fault" => "Numpad_OutputFault",
+            "device_unavailable" or "device_read_only" when virtualPanel => "Panel_DeviceUnavailable",
             "device_unavailable" or "device_read_only" => "Numpad_DeviceUnavailable",
+            "paused" when virtualPanel => "Panel_Paused",
             "paused" => "Numpad_Paused",
+            "recording" when virtualPanel => "Panel_RecordingMode",
             "recording" => "Numpad_Recording",
             "session_inactive" => "Numpad_SessionInactive",
             "recovery_waiting" => "Numpad_RecoveryWaiting",
@@ -87,9 +111,12 @@ public sealed partial class MainPage
         if (!_draft.IsLoaded) return;
         NumpadDocument config = _draft.Draft.Numpad;
         bool start = ReferenceEquals(sender, NumpadStart);
+        bool panel = Supports("touchpad_virtual_panel");
+        string label = AppResources.Get(panel
+            ? (start ? "Panel_Start" : "Panel_Stop") : (start ? "Numpad_Start" : "Numpad_Stop"));
         OpenBindingEditor(new BindingEdit(
             start ? PresentationOperation.NumpadStart : PresentationOperation.NumpadStop,
-            null, AppResources.Get(start ? "Numpad_Start" : "Numpad_Stop"), false),
+            null, label, false),
             start ? config.Start : config.Stop);
     }
 }

@@ -100,6 +100,7 @@ public sealed partial class MainPage : Page
     public async Task<bool> PrepareToCloseAsync()
     {
         await CancelCaptureBestEffortAsync().ConfigureAwait(true);
+        if (!await ClosePanelEditorsAsync()) return false;
         if (!HasUnsavedChanges)
         {
             return true;
@@ -1289,6 +1290,7 @@ public sealed partial class MainPage : Page
         SecondaryKeyPicker.CaptureEnabled = !locked;
         RecordMouseButtonButton.IsEnabled = !locked;
         foreach (KeyPicker picker in _actionPickers) picker.CaptureEnabled = !locked;
+        foreach (PanelCanvasWindow window in _panelEditors.Values) window.SetRecording(locked);
     }
 
     private void SetEmergencyKey_Click(object sender, RoutedEventArgs e)

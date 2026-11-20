@@ -5,4 +5,8 @@ edition = "2024"
 license = "MIT"
 
 [dependencies]
+serde = { workspace = true }
 windows-sys = { workspace = true, features = ["Win32_Devices_HumanInterfaceDevice", "Win32_UI_Input"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }

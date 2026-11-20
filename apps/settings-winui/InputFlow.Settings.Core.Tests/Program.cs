@@ -88,6 +88,78 @@ Run("draft never mutates formal snapshot", () =>
     Assert(session.FormalSnapshot.Rules[0].Enabled, "formal snapshot was mutated through the draft");
 });
 
+Run("v8 diagonal panel and shared concave geometry round-trip", () =>
+{
+    ConfigDocument config = ParseFixture(root, "v8-panel-diagonal.json");
+    VirtualPanelDocument panel = config.Numpad.Panel!;
+    Assert(config.SchemaVersion == 8 && panel.DefaultLayout == "diagonal", "default layout is missing");
+    PanelGeometry geometry = panel.Layouts.Single().Geometry;
+    var surface = new PanelSurface(geometry);
+    Assert(surface.Hit(new(.25, .75)).RegionId == "lower" && surface.Hit(new(.75, .25)).RegionId == "upper",
+        "diagonal regions disagree with the Agent fixture");
+    Assert(surface.Hit(new(.5, .5)).Gap, "diagonal gap is missing");
+    var edge = surface.Seams.Single();
+    PanelGeometry moved = PanelGeometryEditor.MoveEdge(geometry, edge, new(.22, -.22)).Geometry!;
+    Assert(new PanelSurface(moved).Hit(new(.65, .35)).RegionId == "lower", "dragging diagonal did not move old B point into A");
+    Assert(moved.Regions[0].Action is PanelKeys keys && keys.Keys.Single().LogicalKey == "A", "action changed while moving edge");
+    ConfigDocument readback = ConfigCodec.Parse(ConfigCodec.ToJsonElement(config));
+    Assert(ConfigCodec.DeepEquals(config, readback), "panel wire shape changed");
+    ConfigDocument empty = config with { Numpad = config.Numpad with { Panel = panel.Remove("diagonal") } };
+    ConfigDocument emptyReadback = ConfigCodec.Parse(ConfigCodec.ToJsonElement(empty));
+    Assert(emptyReadback.Numpad.Panel is { DefaultLayout: null, Layouts.Count: 0 }, "an empty panel must stay empty");
+    using JsonDocument shared = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "fixtures", "config", "panel-geometry.json")));
+    PanelGeometry concave = VirtualPanelDocument.ParseGeometry(shared.RootElement, action => new PanelDigit(action.GetInt32()));
+    Assert(PanelGeometryEditor.Validate(concave) is null, "shared concave geometry is invalid");
+    var lShape = new PanelSurface(concave);
+    Assert(lShape.Hit(new(.25, .5)).RegionId == "left" && lShape.Hit(new(.8, .1)).RegionId is null
+        && lShape.Hit(new(.5, .25)).Gap && lShape.Hit(new(1, 1)).RegionId == "left", "shared geometry mismatch");
+    PanelSeam bottom = lShape.Seams.Single(seam => seam.Edge.Start.Y == .5 && seam.Edge.End.Y == .5);
+    PanelGeometry concaveMove = PanelGeometryEditor.MoveEdge(concave, bottom, new(0, .06)).Geometry!;
+    Assert(new PanelSurface(concaveMove).Hit(new(.7, .53)).RegionId == "triangle"
+        && new PanelSurface(concaveMove).Hit(new(.3, .53)).RegionId == "left", "moving an L-shaped edge moved the other branch");
+});
+
+Run("panel draw, swap, fill, move, merge and history preserve outlines and actions", () =>
+{
+    static PanelRegion Region(string id, PanelAction? action, IReadOnlyList<PanelPoint> face) =>
+        new(id, id, action, [face]);
+    PanelRegion a = Region("a", new PanelDigit(1), PanelGeometryEditor.Rectangle(.05, .05, .2, .2));
+    PanelRegion b = Region("b", new PanelDigit(2), [new(.5, .1), new(.9, .1), new(.7, .45)]);
+    PanelRegion empty = Region("empty", null, PanelGeometryEditor.Rectangle(.45, .55, .85, .9));
+    PanelGeometry baseGeometry = new(new(.005, .005), [a, b, empty]);
+    var surface = new PanelSurface(baseGeometry);
+    var history = new PanelHistory(baseGeometry);
+    PanelEdit swapped = PanelGeometryEditor.MoveRegion(baseGeometry, surface, "a", new(.1, .1), new(.7, .2), "Blank");
+    history.Commit(swapped);
+    Assert(history.Current.Regions[0].Action is PanelDigit { Digit: 2 } && history.Current.Regions[1].Action is PanelDigit { Digit: 1 }
+        && ReferenceEquals(history.Current.Regions[1].Faces, b.Faces), "swap must adapt content to target outline");
+    history.Undo();
+    history.Commit(PanelGeometryEditor.MoveRegion(baseGeometry, surface, "a", new(.1, .1), new(1.1, .5), "Blank"));
+    Assert(history.CanRedo && !history.IsDirty, "cancelled movement cleared redo or changed geometry");
+    history.Redo();
+    history.Undo();
+    history.Commit(PanelGeometryEditor.MoveRegion(baseGeometry, surface, "a", new(.1, .1), new(.6, .7), "Blank"));
+    Assert(!history.CanRedo && history.Current.Regions[0].Action is null &&
+        history.Current.Regions[2].Action is PanelDigit { Digit: 1 }, "fill must clear the source content");
+    var exactRestore = new PanelHistory(baseGeometry);
+    exactRestore.Commit(PanelGeometryEditor.Replace(baseGeometry, a with { Name = "Changed" }));
+    exactRestore.Commit(PanelGeometryEditor.Replace(exactRestore.Current, a));
+    Assert(!exactRestore.IsDirty && exactRestore.CanUndo, "manually restoring identical content should allow closing without a prompt");
+    history.Undo();
+    PanelGeometry moved = PanelGeometryEditor.MoveRegion(baseGeometry, surface, "a", new(.1, .1), new(.3, .3), "Blank").Geometry!;
+    Assert(new PanelSurface(moved).Hit(new(.3, .3)).RegionId == "a" && new PanelSurface(moved).Hit(new(.1, .1)).RegionId is null,
+        "free movement did not leave background");
+    Assert(PanelGeometryEditor.MoveRegion(baseGeometry, surface, "a", new(.1, .1), new(.99, .5), "Blank").Error is not null,
+        "out-of-bounds drop must be rejected");
+    PanelGeometry board = new(new(.005, .005), []);
+    PanelGeometry split = PanelGeometryEditor.CutLine(board, new(new(0, 0), new(1, 1)), null, "Blank").Geometry!;
+    Assert(split.Regions.Count == 2 && new PanelSurface(split).Seams.Count == 1, "empty board did not cut into two triangles");
+    PanelGeometry joined = PanelGeometryEditor.Merge(split, split.Regions.Select(region => region.Id).ToHashSet(), split.Regions[0].Id).Geometry!;
+    Assert(new PanelSurface(joined).Seams.Count == 0 && PanelGeometryEditor.Outline(joined.Regions[0]).Count() == 4, "merged seam is still visible");
+    PanelGeometry cut = PanelGeometryEditor.CutRectangle(joined, new(.3, .3), new(.6, .6), joined.Regions[0].Id, "Blank").Geometry!;
+    Assert(cut.Regions.Count == 2 && PanelGeometryEditor.Validate(cut) is null, "rectangle cut failed to preserve the surrounding region");
+});
+
 Run("numpad v7 edits survive hiding and v6 keeps its wire shape", () =>
 {
     ConfigDocument legacy = ParseFixture(root, "v4-valid.json") with { SchemaVersion = 6 };
@@ -324,6 +396,36 @@ Run("UI language preference rejects corrupt and unsupported values", () =>
 });
 
 Console.WriteLine($"InputFlow.Settings.Core tests passed: {passed}");
+
+if (args.Contains("--live-panel", StringComparer.Ordinal))
+{
+    await using var gateway = new AgentConnectionCoordinator();
+    await gateway.ConnectAsync();
+    Assert(gateway.Handshake?.Capabilities.Contains("touchpad_virtual_panel") == true, "isolated Agent must support the v8 panel");
+    ConfigDocument baseline = await gateway.GetConfigAsync();
+    VirtualPanelDocument panel = baseline.Numpad.Panel!;
+    var original = PanelLayout.Blank("Live contract diagonal");
+    var line = new PanelEdge(new(0.00042005430297630535, 0), new(1, 0.9954903089067185));
+    PanelGeometry geometry = PanelGeometryEditor.CutLine(original.Geometry, line, null, "Unbound").Geometry!;
+    geometry = geometry with
+    {
+        Regions = geometry.Regions.Select((region, i) => region with
+        {
+            Name = i == 0 ? "A" : "B",
+            Action = new PanelKeys([KeyIdentity.Logical(i == 0 ? "A" : "B")]),
+        }).ToArray(),
+    };
+    PanelLayout layout = original with { Geometry = geometry };
+    ConfigDocument draft = baseline with { Numpad = baseline.Numpad with { Panel = panel.Add(layout) } };
+    var service = new ConfigSaveService(gateway);
+    SaveResult result = await service.SaveAsync(draft, baseline, overwriteExternalChanges: false);
+    Assert(result.IsApplied, $"live fractional panel save did not reconcile: {result.Kind} {result.Message}");
+    ConfigDocument formal = await gateway.GetConfigAsync();
+    Assert(ConfigCodec.DeepEquals(draft, formal), "live panel geometry or binding changed in round-trip");
+    result = await service.SaveAsync(baseline, formal, overwriteExternalChanges: false);
+    Assert(result.IsApplied && ConfigCodec.DeepEquals(await gateway.GetConfigAsync(), baseline), "failed to restore the isolated baseline");
+    Console.WriteLine("PASS live Settings v8 fractional draft, Agent apply, readback and baseline restoration");
+}
 
 void Run(string name, Action test)
 {

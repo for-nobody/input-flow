@@ -24,6 +24,7 @@
 14. [触控板 Touch Click 集成任务](tasks/TOUCHPAD_STAGE_3_TOUCH_CLICK_INTEGRATION.md)与[实机记录](records/TOUCHPAD_STAGE_3_TOUCH_CLICK.md)。
 15. [触控板演示激光笔、同键双击任务](tasks/TOUCHPAD_STAGE_4_PRESENTATION_POINTER.md)与[验证记录](records/TOUCHPAD_STAGE_4_PRESENTATION_POINTER.md)。
 16. [触控板数字键盘任务](tasks/TOUCHPAD_STAGE_5_NUMPAD.md)与[实施和验证记录](records/TOUCHPAD_STAGE_5_NUMPAD.md)。
+17. [触控板虚拟操作面板任务](tasks/TOUCHPAD_STAGE_6_VIRTUAL_PANEL.md)与[实施和验收记录](records/TOUCHPAD_STAGE_6_VIRTUAL_PANEL.md)。
 
 ## 目录职责
 

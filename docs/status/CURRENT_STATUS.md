@@ -4,7 +4,7 @@
 >
 > 最后更新：2026-11-20（Australia/Brisbane）
 >
-> 代码基线：`main`（`124c7e5`）及 Stage 5 开发工作树。`v0.9.0` 已作为 GitHub Pre-release 发布，tag 指向 `c18a0a8...`
+> 代码基线：`main`（`d2dfed9`）及 Stage 6 开发工作树。`v0.9.0` 已作为 GitHub Pre-release 发布，tag 指向 `c18a0a8...`
 
 ## 当前结论
 
@@ -54,6 +54,11 @@ Stage 5 已接入实验性触控板数字键盘、Schema v7 和 Settings 双语�
 关闭后，单机双框实测在 Settings 关闭时由左框收到 `505`，右框保持空白，焦点留在左框。操作者确认 `5 → 6 → 5` 折返，目标没有新增数字。
 触控板数字改用键盘顶排扫描码。Num Lock 开启和关闭时，板面 2 均已在 Windows 计算器和记事本中实测送达 `2`。
 进度、自动测试和实际目标送达范围见[Stage 5 记录](../records/TOUCHPAD_STAGE_5_NUMPAD.md)。
+
+Stage 6 开发工作树已将数字键盘并入实验性触控板虚拟操作面板。Schema v8 保存多套布局和区域，
+v7 数字键盘迁移为经典布局。WinUI 已接入预设管理和独立画布，Agent 可执行区域动作。
+主流程的两级保存和实体触碰证据，以及仍待补齐的应用与设备矩阵见
+[Stage 6 执行记录](../records/TOUCHPAD_STAGE_6_VIRTUAL_PANEL.md)。
 
 ## 阶段状态
 
@@ -193,7 +198,8 @@ H 本机分发结果：
 
 ## 下一步
 
-开发工作树继续按[触控板 Stage 5 任务](../tasks/TOUCHPAD_STAGE_5_NUMPAD.md)验证数字送达、模式生命周期和盲输。
+开发工作树按[触控板 Stage 6 任务](../tasks/TOUCHPAD_STAGE_6_VIRTUAL_PANEL.md)复验数字与运算、媒体、
+翻页、模式切换及设备生命周期。
 
 保持已发布 tag 和附件不变，按 [`../tasks/POST_RELEASE_SOAK.md`](../tasks/POST_RELEASE_SOAK.md) 执行
 当前活动任务 G-POST。先准备可跨进程重启、睡眠和多 session 的低频采样工具，再使用真正发布的 ZIP

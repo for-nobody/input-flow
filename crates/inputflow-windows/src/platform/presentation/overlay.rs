@@ -225,47 +225,145 @@ impl Overlay {
         self.present(clip)
     }
 
-    pub(in crate::platform) fn numpad(&mut self, highlight: Option<u8>) -> io::Result<()> {
-        use inputflow_touchpad::numpad::{DIGITS, HEIGHT, WIDTH, cell_bounds};
+    pub(in crate::platform) fn panel<A>(
+        &mut self,
+        geometry: &inputflow_touchpad::panel::Geometry<A>,
+        surface: &inputflow_touchpad::panel::Surface,
+        highlight: Option<usize>,
+    ) -> io::Result<()> {
+        let clip = self.panel_background();
+        let pixel = |[x, y]: [f64; 2]| POINT {
+            x: 6 + (x * f64::from(self.width - 12)).round() as i32,
+            y: 6 + (y * f64::from(self.height - 12)).round() as i32,
+        };
+        // SAFETY: The worker owns the DC, selected bitmap and all GDI handles below.
+        unsafe {
+            let old_pen = SelectObject(self.dc, GetStockObject(NULL_PEN));
+            for (i, region) in geometry.regions.iter().enumerate() {
+                let color = if highlight == Some(i) {
+                    0x00b95a18
+                } else if region.action.is_none() {
+                    0x0029211d
+                } else {
+                    0x00473831
+                };
+                let brush = CreateSolidBrush(color);
+                let old_brush = SelectObject(self.dc, brush);
+                for face in &region.faces {
+                    let points: Vec<_> = face.iter().copied().map(pixel).collect();
+                    Polygon(self.dc, points.as_ptr(), points.len() as i32);
+                }
+                SelectObject(self.dc, old_brush);
+                DeleteObject(brush);
+            }
+            SelectObject(self.dc, old_pen);
+            let gap = (geometry.gap[0] * f64::from(self.width - 12)
+                + geometry.gap[1] * f64::from(self.height - 12))
+            .ceil() as i32;
+            let pen = CreatePen(PS_SOLID, gap.max(1), 0x00201713);
+            let old = SelectObject(self.dc, pen);
+            for [a, b] in surface.seams().iter().copied() {
+                let (a, b) = (pixel(a), pixel(b));
+                MoveToEx(self.dc, a.x, a.y, null_mut());
+                LineTo(self.dc, b.x, b.y);
+            }
+            SelectObject(self.dc, old);
+            DeleteObject(pen);
+            for region in &geometry.regions {
+                let union = CreateRectRgn(0, 0, 0, 0);
+                let mut label_face = None;
+                let mut area = 0;
+                for face in &region.faces {
+                    let points: Vec<_> = face.iter().copied().map(pixel).collect();
+                    let part = CreatePolygonRgn(points.as_ptr(), points.len() as i32, WINDING);
+                    CombineRgn(union, union, part, RGN_OR);
+                    DeleteObject(part);
+                    let width = points.iter().map(|point| point.x).max().unwrap_or_default()
+                        - points.iter().map(|point| point.x).min().unwrap_or_default();
+                    let height = points.iter().map(|point| point.y).max().unwrap_or_default()
+                        - points.iter().map(|point| point.y).min().unwrap_or_default();
+                    if width * height > area {
+                        area = width * height;
+                        label_face = Some((points, width, height));
+                    }
+                }
+                if let Some((points, width, height)) = label_face {
+                    let x = points.iter().map(|point| point.x).sum::<i32>() / points.len() as i32;
+                    let y = points.iter().map(|point| point.y).sum::<i32>() / points.len() as i32;
+                    SelectClipRgn(self.dc, union);
+                    self.draw_label(
+                        &region.name,
+                        RECT {
+                            left: x - width / 2,
+                            right: x + width / 2,
+                            top: y - height / 2,
+                            bottom: y + height / 2,
+                        },
+                    );
+                    SelectClipRgn(self.dc, null_mut());
+                }
+                DeleteObject(union);
+            }
+        }
+        self.finish_panel(clip)
+    }
 
+    pub(in crate::platform) fn message(&mut self, message: &str) -> io::Result<()> {
+        let clip = self.panel_background();
+        // SAFETY: The HWND, DC and DIB belong to this worker.
+        unsafe {
+            self.draw_label(
+                message,
+                RECT {
+                    left: 6,
+                    top: 0,
+                    right: self.width - 6,
+                    bottom: self.height,
+                },
+            );
+        }
+        self.finish_panel(clip)
+    }
+
+    unsafe fn draw_label(&self, label: &str, mut bounds: RECT) {
+        let text: Vec<_> = label.encode_utf16().collect();
+        // SAFETY: The synchronous GDI calls read live text, bounds and a valid memory DC.
+        unsafe {
+            let old = SelectObject(self.dc, GetStockObject(DEFAULT_GUI_FONT));
+            SetTextColor(self.dc, 0x00ffffff);
+            SetBkMode(self.dc, TRANSPARENT as i32);
+            DrawTextW(
+                self.dc,
+                text.as_ptr(),
+                text.len() as i32,
+                &mut bounds,
+                DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_END_ELLIPSIS | DT_NOPREFIX,
+            );
+            SelectObject(self.dc, old);
+        }
+    }
+
+    fn panel_background(&self) -> Rect {
         let clip = Rect {
             left: 0,
             top: 0,
             right: self.width,
             bottom: self.height,
         };
-        // SAFETY: The DIB buffer belongs to this overlay and is bounded at creation.
+        // SAFETY: The DIB is valid for the bounded pixel count and is worker-owned.
         let pixels =
             unsafe { slice::from_raw_parts_mut(self.bits, (self.width * self.height) as usize) };
-        let mut canvas = Canvas {
-            pixels,
-            width: self.width as usize,
-            clip,
-        };
-        canvas.fill_rect(clip, 0xf0131720);
-        for (row, digits) in DIGITS.iter().enumerate() {
-            for (column, &digit) in digits.iter().enumerate() {
-                let Some(digit) = digit else { continue };
-                let [left, top, right, bottom] = cell_bounds(row, column);
-                let x = |unit| 8 + unit * (self.width - 16) / WIDTH;
-                let y = |unit| 8 + unit * (self.height - 16) / HEIGHT;
-                let rect = Rect {
-                    left: x(left),
-                    top: y(top),
-                    right: x(right),
-                    bottom: y(bottom),
-                };
-                let color = if highlight == Some(digit) {
-                    0xff185ab9
-                } else {
-                    0xff313847
-                };
-                canvas.fill_rect(rect, color);
-                canvas.digit(
-                    digit,
-                    (rect.left + rect.right - 23) / 2,
-                    (rect.top + rect.bottom - 38) / 2,
-                );
+        pixels.fill(0xff131720);
+        clip
+    }
+
+    fn finish_panel(&mut self, clip: Rect) -> io::Result<()> {
+        // SAFETY: Flush GDI before accessing the worker-owned DIB bytes. GDI does
+        // not preserve the alpha byte of drawn pixels.
+        unsafe {
+            GdiFlush();
+            for pixel in slice::from_raw_parts_mut(self.bits, (self.width * self.height) as usize) {
+                *pixel |= 0xff000000;
             }
         }
         self.present(clip)

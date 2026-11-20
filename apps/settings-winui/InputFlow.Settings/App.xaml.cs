@@ -14,6 +14,7 @@ public partial class App : Application
         UiLanguagePreferenceStore.CreateDefault();
 
     internal static string LanguagePreference { get; private set; } = UiLanguagePreference.System;
+    internal static void ActivateMainWindow() => (Current as App)?._window?.Activate();
 
     public App()
     {

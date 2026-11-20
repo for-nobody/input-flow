@@ -520,4 +520,98 @@
   <data name="Numpad_Counts" xml:space="preserve"><value>Confirmed contacts {0} · Cancellations {1} · Inserted key events {2}</value></data>
   <data name="Touchpad_NumpadActive" xml:space="preserve"><value>Touch Click is paused while the numpad is active.</value></data>
   <data name="Presentation_NumpadActive" xml:space="preserve"><value>Exit the numpad before starting the presentation pointer.</value></data>
+  <data name="Panel_Title" xml:space="preserve"><value>Touchpad virtual panel</value></data>
+  <data name="Panel_LegacyTitle" xml:space="preserve"><value>Touchpad numpad</value></data>
+  <data name="Panel_Manage" xml:space="preserve"><value>Manage presets</value></data>
+  <data name="Panel_Layouts" xml:space="preserve"><value>Presets</value></data>
+  <data name="Panel_Back" xml:space="preserve"><value>Back to rules</value></data>
+  <data name="Panel_New" xml:space="preserve"><value>New custom preset</value></data>
+  <data name="Panel_NewDefaultName" xml:space="preserve"><value>Custom layout</value></data>
+  <data name="Panel_AddPreset" xml:space="preserve"><value>Add from presets</value></data>
+  <data name="Panel_DefaultFormat" xml:space="preserve"><value>{0} (default)</value></data>
+  <data name="Panel_Default" xml:space="preserve"><value>Default on entry</value></data>
+  <data name="Panel_NotDefault" xml:space="preserve"><value>Available after the panel starts</value></data>
+  <data name="Panel_Switch" xml:space="preserve"><value>Layout switch shortcut</value></data>
+  <data name="Panel_Rename" xml:space="preserve"><value>Rename</value></data>
+  <data name="Panel_Copy" xml:space="preserve"><value>Copy</value></data>
+  <data name="Panel_CopyFormat" xml:space="preserve"><value>{0} copy</value></data>
+  <data name="Panel_Delete" xml:space="preserve"><value>Delete preset</value></data>
+  <data name="Panel_DeleteConfirm" xml:space="preserve"><value>Delete “{0}” from the draft?</value></data>
+  <data name="Panel_SetDefault" xml:space="preserve"><value>Set default</value></data>
+  <data name="Panel_NoLayouts" xml:space="preserve"><value>No saved layouts. Create a custom preset or add a built-in preset.</value></data>
+  <data name="Panel_PresetNumbers" xml:space="preserve"><value>Numpad</value></data>
+  <data name="Panel_PresetMedia" xml:space="preserve"><value>Media</value></data>
+  <data name="Panel_PresetSlides" xml:space="preserve"><value>Presentation controls</value></data>
+  <data name="Panel_PresetShortcutConflict" xml:space="preserve"><value>The default shortcut is already used. This preset has been added with an empty switch shortcut.</value></data>
+  <data name="Panel_Name" xml:space="preserve"><value>Name</value></data>
+  <data name="Panel_Done" xml:space="preserve"><value>Done</value></data>
+  <data name="Panel_EditCanvas" xml:space="preserve"><value>Edit canvas</value></data>
+  <data name="Panel_Preview" xml:space="preserve"><value>Layout outline preview</value></data>
+  <data name="Panel_WindowTitle" xml:space="preserve"><value>Edit canvas · {0}</value></data>
+  <data name="Panel_Canvas" xml:space="preserve"><value>Touchpad layout canvas</value></data>
+  <data name="Panel_SaveDraft" xml:space="preserve"><value>Save to draft</value></data>
+  <data name="Panel_Undo" xml:space="preserve"><value>Undo</value></data>
+  <data name="Panel_Redo" xml:space="preserve"><value>Redo</value></data>
+  <data name="Panel_EditRegion" xml:space="preserve"><value>Edit region</value></data>
+  <data name="Panel_DeleteRegions" xml:space="preserve"><value>Delete selected regions</value></data>
+  <data name="Panel_Merge" xml:space="preserve"><value>Merge regions</value></data>
+  <data name="Panel_MergeInherit" xml:space="preserve"><value>Keep the name and action from</value></data>
+  <data name="Panel_Tools" xml:space="preserve"><value>Canvas tools</value></data>
+  <data name="Panel_SelectTool" xml:space="preserve"><value>Select</value></data>
+  <data name="Panel_RectangleTool" xml:space="preserve"><value>Rectangle split</value></data>
+  <data name="Panel_LineTool" xml:space="preserve"><value>Line split</value></data>
+  <data name="Panel_WholeBoard" xml:space="preserve"><value>Whole board</value></data>
+  <data name="Panel_SelectedRegion" xml:space="preserve"><value>Selected region</value></data>
+  <data name="Panel_LineScope" xml:space="preserve"><value>Line split scope</value></data>
+  <data name="Panel_LineHelp" xml:space="preserve"><value>Drag to place the dividing line. The first side keeps the original action.</value></data>
+  <data name="Panel_RectangleHelp" xml:space="preserve"><value>Drag between opposite corners. In a selected region, the outside keeps the original action.</value></data>
+  <data name="Panel_SelectHelp" xml:space="preserve"><value>Click to select, Ctrl+click to extend selection. Drag a shared edge or a region interior to edit its position.</value></data>
+  <data name="Panel_EmptyRegion" xml:space="preserve"><value>Unbound region</value></data>
+  <data name="Panel_SelectOne" xml:space="preserve"><value>Select one region first.</value></data>
+  <data name="Panel_SplitPreview" xml:space="preserve"><value>The new outlined region starts unbound.</value></data>
+  <data name="Panel_RegionList" xml:space="preserve"><value>Regions and output bindings</value></data>
+  <data name="Panel_RegionLabel" xml:space="preserve"><value>{0} · {1}</value></data>
+  <data name="Panel_Dimensions" xml:space="preserve"><value>Sensing area {0:0.#} × {1:0.#} mm</value></data>
+  <data name="Panel_Schematic" xml:space="preserve"><value>Schematic aspect ratio</value></data>
+  <data name="Panel_Action" xml:space="preserve"><value>Action</value></data>
+  <data name="Panel_ActionKey" xml:space="preserve"><value>Send keys</value></data>
+  <data name="Panel_ActionDigit" xml:space="preserve"><value>Digit</value></data>
+  <data name="Panel_ActionOperator" xml:space="preserve"><value>Arithmetic operator</value></data>
+  <data name="Panel_ActionDigitLabel" xml:space="preserve"><value>Send digit {0}</value></data>
+  <data name="Panel_ActionOperatorLabel" xml:space="preserve"><value>Send operator {0}</value></data>
+  <data name="Panel_ActionKeysLabel" xml:space="preserve"><value>Send keys · {0}</value></data>
+  <data name="Panel_AddKey" xml:space="preserve"><value>Add key</value></data>
+  <data name="Panel_RemoveKey" xml:space="preserve"><value>Remove key</value></data>
+  <data name="Panel_KeyNumber" xml:space="preserve"><value>Output key {0}</value></data>
+  <data name="Panel_RecordingKey" xml:space="preserve"><value>Press a key to record it, or press Esc to cancel.</value></data>
+  <data name="Panel_CloseTitle" xml:space="preserve"><value>Close canvas</value></data>
+  <data name="Panel_CloseMessage" xml:space="preserve"><value>The canvas has changes. Save them to the draft before closing?</value></data>
+  <data name="Panel_Discard" xml:space="preserve"><value>Discard changes</value></data>
+  <data name="Panel_Continue" xml:space="preserve"><value>Continue editing</value></data>
+  <data name="Panel_InvalidGeometry" xml:space="preserve"><value>The board exceeds its geometry limits.</value></data>
+  <data name="Panel_InvalidRegion" xml:space="preserve"><value>Each region needs a unique ID, a name and an outline.</value></data>
+  <data name="Panel_InvalidPolygon" xml:space="preserve"><value>The outline is out of bounds, self-intersecting, or has no usable area.</value></data>
+  <data name="Panel_Overlap" xml:space="preserve"><value>The proposed outline overlaps another region.</value></data>
+  <data name="Panel_InvalidAction" xml:space="preserve"><value>Use valid, distinct keys or a single digit. Num Lock is reserved.</value></data>
+  <data name="Panel_InvalidCut" xml:space="preserve"><value>This cut must create a usable new region.</value></data>
+  <data name="Panel_InvalidMerge" xml:space="preserve"><value>Select regions connected by a shared edge.</value></data>
+  <data name="Panel_InvalidEdgeMove" xml:space="preserve"><value>This edge movement cannot keep both adjoining outlines valid.</value></data>
+  <data name="Panel_LayoutRemoved" xml:space="preserve"><value>This preset was deleted in the main draft. The canvas still holds your edits.</value></data>
+  <data name="Panel_LayoutConflict" xml:space="preserve"><value>The same layout changed in the main draft. The canvas still holds your edits.</value></data>
+  <data name="Panel_Active" xml:space="preserve"><value>Panel active. Use the exit shortcut or Esc to stop.</value></data>
+  <data name="Panel_Ready" xml:space="preserve"><value>Panel ready. Use the entry shortcut to start.</value></data>
+  <data name="Panel_NativeTap" xml:space="preserve"><value>Turn off Windows single-finger tap-to-click before using panel output.</value></data>
+  <data name="Panel_NativeTapUnknown" xml:space="preserve"><value>The Windows single-finger tap setting could not be verified. Panel output is disabled.</value></data>
+  <data name="Panel_Start" xml:space="preserve"><value>Enter the virtual panel</value></data>
+  <data name="Panel_Stop" xml:space="preserve"><value>Exit the virtual panel</value></data>
+  <data name="Panel_Guide" xml:space="preserve"><value>Virtual panel screen guide</value></data>
+  <data name="Panel_LegacyGuide" xml:space="preserve"><value>Numpad screen guide</value></data>
+  <data name="Panel_PresentationActive" xml:space="preserve"><value>Exit the laser pointer before starting the panel.</value></data>
+  <data name="Panel_FocusUnavailable" xml:space="preserve"><value>Focus a target control to send a panel action.</value></data>
+  <data name="Panel_FocusWatchUnavailable" xml:space="preserve"><value>Windows focus monitoring is unavailable. Panel output is disabled.</value></data>
+  <data name="Panel_OverlayFailed" xml:space="preserve"><value>The virtual panel guide could not be opened or drawn.</value></data>
+  <data name="Panel_OutputFault" xml:space="preserve"><value>Panel output stopped after an input delivery failure. Reapply the configuration or restart the Agent.</value></data>
+  <data name="Panel_DeviceUnavailable" xml:space="preserve"><value>The panel requires a compatible Precision Touchpad with observable button state.</value></data>
+  <data name="Panel_Paused" xml:space="preserve"><value>Resume the Agent to use the panel.</value></data>
+  <data name="Panel_RecordingMode" xml:space="preserve"><value>Finish shortcut recording before starting the panel.</value></data>
 </root>

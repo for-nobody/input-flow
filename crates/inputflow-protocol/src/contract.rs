@@ -187,6 +187,10 @@ pub struct NumpadStatusResult {
     pub requested_inputs: u64,
     pub inserted_inputs: u64,
     pub last_cancel: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_layout: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size_um: Option<[u32; 2]>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -557,12 +561,11 @@ mod tests {
         let ResponseBody::Success { result } = config_response.body else {
             panic!("get-config golden must be successful");
         };
-        let config: ConfigResult = serde_json::from_value(result.clone()).unwrap();
         let config_golden = inputflow_config::parse_and_migrate_json(include_str!(
             "../../../fixtures/config/v4-valid.json"
         ))
         .unwrap();
-        assert_eq!(config.config.schema_version, 4);
+        assert_eq!(result["config"]["schema_version"], 4);
         let migrated =
             inputflow_config::parse_and_migrate_json(&result["config"].to_string()).unwrap();
         assert_eq!(migrated.config, config_golden.config);

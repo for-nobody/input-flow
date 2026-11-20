@@ -173,7 +173,7 @@ public sealed record TouchpadDocument
 
 public sealed record ConfigDocument
 {
-    public const uint CurrentSchemaVersion = 7;
+    public const uint CurrentSchemaVersion = 8;
     public const uint CompatibleSchemaVersion = 4;
 
     public uint SchemaVersion { get; init; } = CurrentSchemaVersion;
@@ -249,8 +249,12 @@ public static class ConfigCodec
             Touchpad = touchpad,
             Presentation = sourceVersion >= 6 && root.TryGetProperty("presentation", out JsonElement presentation)
                 ? PresentationCodec.Parse(presentation) : PresentationDocument.CreateDefault(),
-            Numpad = sourceVersion >= 7 && root.TryGetProperty("numpad", out JsonElement numpad)
-                ? NumpadDocument.Parse(numpad) : NumpadDocument.CreateDefault(),
+            Numpad = sourceVersion switch
+            {
+                >= 8 => NumpadDocument.Parse(root.GetProperty("panel"), isPanel: true),
+                7 when root.TryGetProperty("numpad", out JsonElement numpad) => NumpadDocument.Parse(numpad),
+                _ => NumpadDocument.CreateDefault(),
+            },
         };
     }
 
@@ -313,8 +317,9 @@ public static class ConfigCodec
         }
         if (config.SchemaVersion >= 7)
         {
-            writer.WritePropertyName("numpad");
-            config.Numpad.Write(writer);
+            bool isPanel = config.SchemaVersion >= 8;
+            writer.WritePropertyName(isPanel ? "panel" : "numpad");
+            config.Numpad.Write(writer, isPanel);
         }
         writer.WriteEndObject();
         writer.Flush();
@@ -368,7 +373,7 @@ public static class ConfigCodec
         return new KeyChordAction(keys);
     }
 
-    private static KeyIdentity ParseKey(JsonElement key)
+    internal static KeyIdentity ParseKey(JsonElement key)
     {
         string mode = RequiredString(key, "match");
         return mode switch
@@ -442,7 +447,7 @@ public static class ConfigCodec
         writer.WriteEndObject();
     }
 
-    private static void WriteKey(Utf8JsonWriter writer, KeyIdentity key)
+    internal static void WriteKey(Utf8JsonWriter writer, KeyIdentity key)
     {
         writer.WriteStartObject();
         switch (key.Mode)

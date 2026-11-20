@@ -133,6 +133,7 @@ struct ActiveChord {
     first: Key,
     first_tracking_key: Key,
     scope: ChordScope,
+    mode: (bool, bool),
 }
 
 /// A `Hold+MouseButton` rule: first wait for the key's threshold, then wait for
@@ -276,8 +277,15 @@ impl Matcher {
             return self.pass_through(event);
         }
 
+        if matches!(&self.active, Some(Active::Chording(chord))
+            if chord.scope == ChordScope::ModeOnly && chord.mode != self.active_mode())
+            && (event.tracking_key().is_some() || event.button().is_some())
+        {
+            return self.cancel_active_and_pass(event);
+        }
+
         // No enabled rules: nothing is a candidate, everything passes through.
-        if self.index.is_empty() {
+        if self.rule_index().is_empty() {
             return self.pass_through(event);
         }
 
@@ -494,7 +502,7 @@ impl Matcher {
 
     /// Whether the installed rule index contains any mouse-direction group.
     pub fn has_mouse_direction_rules(&self) -> bool {
-        self.index.has_mouse_directions()
+        self.rule_index().has_mouse_directions()
     }
 
     /// Whether a keyboard-activated direction candidate is currently waiting
@@ -534,14 +542,29 @@ impl Matcher {
     pub fn set_mode_availability(&mut self, modes: ModeAvailability) {
         if self.modes != modes {
             if self.double_tap.is_some_and(|tap| {
-                self.index.double_tap(tap.key).is_some_and(|(_, action)| {
-                    action.available(self.modes) && !action.available(modes)
-                })
+                self.rule_index()
+                    .double_tap(tap.key)
+                    .is_some_and(|(_, action)| {
+                        action.available(self.modes)
+                            && self
+                                .index
+                                .for_modes(modes)
+                                .double_tap(tap.key)
+                                .is_none_or(|(_, next)| next != action || !next.available(modes))
+                    })
             }) {
                 self.discard_double_tap();
             }
             self.modes = modes;
         }
+    }
+
+    fn rule_index(&self) -> &RuleIndex {
+        self.index.for_modes(self.modes)
+    }
+
+    fn active_mode(&self) -> (bool, bool) {
+        (self.modes.presentation_active, self.modes.numpad_active)
     }
 
     fn action_available(&self, action: &Action) -> bool {
@@ -640,7 +663,7 @@ impl Matcher {
                 if !self.keys.any_physically_held()
                     && !self.buttons.any_physically_held()
                     && self
-                        .index
+                        .rule_index()
                         .double_tap(key)
                         .is_some_and(|(_, action)| self.action_available(action))
                 {
@@ -668,7 +691,7 @@ impl Matcher {
         cursor: Option<(i32, i32)>,
     ) -> Option<(Decision, Resolution)> {
         if let Some((id, timeout, action)) = self
-            .index
+            .rule_index()
             .hold(key)
             .filter(|(_, _, action)| self.action_available(action))
             .cloned()
@@ -676,7 +699,7 @@ impl Matcher {
             return Some(self.start_hold(key, tracking_key, event, id, timeout, action));
         }
         if let Some(rule) = self
-            .index
+            .rule_index()
             .hold_button(key)
             .filter(|(_, _, _, action)| self.action_available(action))
             .cloned()
@@ -684,11 +707,11 @@ impl Matcher {
             return Some(self.start_hold_button(key, tracking_key, event, rule));
         }
         if let Some((x, y)) = cursor
-            && let Some(group) = self.index.mouse_directions(key).cloned()
+            && let Some(group) = self.rule_index().mouse_directions(key).cloned()
         {
             return Some(self.start_direction(key, tracking_key, event, x, y, group));
         }
-        self.index
+        self.rule_index()
             .chord_scope(key, self.modes)
             .map(|scope| self.start_chord(key, tracking_key, scope, event))
     }
@@ -761,7 +784,7 @@ impl Matcher {
                     });
                     Some((decision, Resolution::Pending))
                 } else {
-                    let (rule_id, action) = self.index.double_tap(tap.key).cloned()?;
+                    let (rule_id, action) = self.rule_index().double_tap(tap.key).cloned()?;
                     self.active = None;
                     self.double_tap = None;
                     self.pending.clear();
@@ -881,6 +904,7 @@ impl Matcher {
             first: key,
             first_tracking_key: tracking_key,
             scope,
+            mode: self.active_mode(),
         }));
         (
             Decision::Suppress {
@@ -987,7 +1011,7 @@ impl Matcher {
         if event.is_key_down() && !event.is_repeat() {
             for second in event.key_identities().into_iter().flatten() {
                 if let Some((rule_id, action)) = self
-                    .index
+                    .rule_index()
                     .second_key(first, second)
                     .filter(|(_, action)| self.action_available(action))
                     .cloned()
@@ -1019,7 +1043,7 @@ impl Matcher {
     ) -> (Decision, Resolution) {
         if event.is_button_down() {
             if let Some((rule_id, action)) = self
-                .index
+                .rule_index()
                 .second_button(first, button)
                 .filter(|(_, action)| self.action_available(action))
                 .cloned()
@@ -1503,6 +1527,94 @@ mod tests {
                 rule_id: "temporary".into(),
                 action: Action::Presentation(crate::PresentationAction::ToggleMouse),
             }
+        );
+    }
+
+    #[test]
+    fn shared_mode_chord_dispatches_only_in_its_own_scope_and_never_crosses_modes() {
+        let chord = Trigger::KeyChord {
+            first: Key::LeftAlt,
+            second: Key::Digit1,
+        };
+        let panel = Action::Numpad(crate::NumpadAction::Select("numbers".into()));
+        let laser = Action::Presentation(crate::PresentationAction::Select("ring".into()));
+        let mut matcher = matcher_with(
+            ManualClock::new(0),
+            vec![
+                Rule {
+                    id: "panel".into(),
+                    trigger: chord.clone(),
+                    action: panel.clone(),
+                },
+                Rule {
+                    id: "laser".into(),
+                    trigger: chord,
+                    action: laser.clone(),
+                },
+            ],
+            16,
+        );
+        let ready = ModeAvailability {
+            numpad_ready: true,
+            presentation_ready: true,
+            ..Default::default()
+        };
+        matcher.set_mode_availability(ready);
+        assert_eq!(
+            matcher.on_event(down(1, 0, Key::LeftAlt)).0,
+            Decision::PassThrough
+        );
+        assert_eq!(
+            matcher.on_event(down(2, 1, Key::Digit1)).0,
+            Decision::PassThrough
+        );
+        matcher.on_event(up(3, 2, Key::Digit1));
+        matcher.on_event(up(4, 3, Key::LeftAlt));
+        for (i, (modes, expected)) in [
+            (
+                ModeAvailability {
+                    numpad_active: true,
+                    ..ready
+                },
+                panel,
+            ),
+            (
+                ModeAvailability {
+                    presentation_active: true,
+                    ..ready
+                },
+                laser,
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let seq = 5 + 4 * i as u64;
+            matcher.set_mode_availability(modes);
+            assert!(matches!(
+                matcher.on_event(down(seq, 4, Key::LeftAlt)).0,
+                Decision::Suppress { .. }
+            ));
+            assert!(matches!(matcher.on_event(down(seq + 1, 5, Key::Digit1)).1,
+                Resolution::Matched { action, .. } if action == expected));
+            assert!(matches!(
+                matcher.on_event(up(seq + 2, 6, Key::Digit1)).0,
+                Decision::Suppress { .. }
+            ));
+            matcher.on_event(up(seq + 3, 7, Key::LeftAlt));
+        }
+        let alt = down(13, 8, Key::LeftAlt);
+        matcher.on_event(alt);
+        matcher.set_mode_availability(ModeAvailability {
+            numpad_active: true,
+            ..ready
+        });
+        assert_eq!(
+            matcher.on_event(down(14, 9, Key::Digit1)),
+            (
+                Decision::PassThrough,
+                Resolution::Failed { replay: vec![alt] }
+            )
         );
     }
 

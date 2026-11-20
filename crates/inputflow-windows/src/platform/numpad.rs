@@ -1,14 +1,14 @@
 use std::collections::VecDeque;
 use std::mem::size_of;
 use std::ptr::null_mut;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use inputflow_config::{NumpadConfig, NumpadGuide};
+use inputflow_config::{NumpadConfig, NumpadGuide, PanelLayout, PanelOutput};
 use inputflow_engine::NumpadAction;
 use inputflow_touchpad::contact::Frame;
-use inputflow_touchpad::numpad::{Event, Layout, Recognizer};
+use inputflow_touchpad::panel::{Event, Recognizer, Surface};
 use windows_sys::Win32::Foundation::{HANDLE, HWND};
 use windows_sys::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
@@ -29,7 +29,9 @@ use super::{presentation, touchpad, windows};
 
 pub(super) const DIGIT_READY: u32 = WM_APP + 33;
 const QUEUE_LIMIT: usize = 16;
-static SETTINGS: Mutex<(bool, NumpadGuide)> = Mutex::new((false, NumpadGuide::UntilFirstInput));
+static SETTINGS: Mutex<Option<Arc<NumpadConfig>>> = Mutex::new(None);
+static SELECT_REQUESTED: Mutex<Option<String>> = Mutex::new(None);
+static MODE_NOTICE: AtomicU8 = AtomicU8::new(0);
 static CONFIGURED: AtomicBool = AtomicBool::new(false);
 static READY: AtomicBool = AtomicBool::new(false);
 static STOP: AtomicBool = AtomicBool::new(false);
@@ -39,10 +41,10 @@ static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
 static ACTIVE: AtomicU64 = AtomicU64::new(0);
 static INPUT_REVISION: AtomicU64 = AtomicU64::new(1);
 static LAST_SUCCESS: AtomicU64 = AtomicU64::new(0);
-static PENDING: Mutex<VecDeque<Digit>> = Mutex::new(VecDeque::new());
+static PENDING: Mutex<VecDeque<QueuedAction>> = Mutex::new(VecDeque::new());
 static STATUS: Mutex<NumpadStatus> = Mutex::new(NumpadStatus::new());
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NumpadStatus {
     pub configured: bool,
     pub phase: &'static str,
@@ -53,6 +55,8 @@ pub struct NumpadStatus {
     pub requested_inputs: u64,
     pub inserted_inputs: u64,
     pub last_cancel: Option<&'static str>,
+    pub active_layout: Option<String>,
+    pub size_um: Option<[u32; 2]>,
 }
 
 impl NumpadStatus {
@@ -67,6 +71,8 @@ impl NumpadStatus {
             requested_inputs: 0,
             inserted_inputs: 0,
             last_cancel: None,
+            active_layout: None,
+            size_um: None,
         }
     }
 }
@@ -78,7 +84,9 @@ impl Default for NumpadStatus {
 }
 
 pub fn status() -> NumpadStatus {
-    STATUS.lock().map_or(NumpadStatus::new(), |status| *status)
+    STATUS
+        .lock()
+        .map_or(NumpadStatus::new(), |status| status.clone())
 }
 
 fn update_status(update: impl FnOnce(&mut NumpadStatus)) {
@@ -90,7 +98,7 @@ fn update_status(update: impl FnOnce(&mut NumpadStatus)) {
 pub fn configure(experimental: bool, config: &NumpadConfig) {
     let enabled = experimental && config.enabled;
     if let Ok(mut settings) = SETTINGS.lock() {
-        *settings = (enabled, config.guide);
+        *settings = Some(Arc::new(config.clone()));
     }
     CONFIGURED.store(enabled, Ordering::Release);
     FAULT.store(false, Ordering::Release);
@@ -116,6 +124,9 @@ pub(crate) fn request_stop() {
     STOP.store(true, Ordering::Release);
     READY.store(false, Ordering::Release);
     START_REQUESTED.store(false, Ordering::Release);
+    if let Ok(mut selection) = SELECT_REQUESTED.lock() {
+        selection.take();
+    }
     if ACTIVE.swap(0, Ordering::AcqRel) != 0 {
         touchpad::invalidate();
     }
@@ -130,12 +141,26 @@ pub(crate) fn input_changed() {
 }
 
 pub(crate) fn enqueue(action: NumpadAction) {
-    if action == NumpadAction::Stop {
-        request_stop();
-    } else if is_ready() && !is_active() {
-        START_REQUESTED.store(true, Ordering::Release);
-        touchpad::wake_worker();
+    match action {
+        NumpadAction::Stop => request_stop(),
+        NumpadAction::Start if presentation::is_active() => mode_notice(1),
+        NumpadAction::Start if is_ready() && !is_active() => {
+            START_REQUESTED.store(true, Ordering::Release);
+            touchpad::wake_worker();
+        }
+        NumpadAction::Select(id) if is_active() => {
+            if let Ok(mut selection) = SELECT_REQUESTED.lock() {
+                *selection = Some(id);
+            }
+            touchpad::wake_worker();
+        }
+        _ => {}
     }
+}
+
+pub(super) fn mode_notice(mode: u8) {
+    MODE_NOTICE.store(mode, Ordering::Release);
+    touchpad::wake_worker();
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -263,13 +288,13 @@ impl ContactGuard {
     }
 }
 
-struct Digit {
+struct QueuedAction {
     session: u64,
     guard: ContactGuard,
-    value: u8,
+    output: PanelOutput,
 }
 
-impl Digit {
+impl QueuedAction {
     fn can_send(&self) -> bool {
         ACTIVE.load(Ordering::Acquire) == self.session
             && is_ready()
@@ -282,31 +307,31 @@ impl Digit {
 }
 
 pub(super) fn process_digits() {
-    let digit = PENDING.lock().ok().and_then(|mut queue| queue.pop_front());
-    let Some(digit) = digit else { return };
-    if let Some(result) = windows::send_touchpad_digit(digit.value, || digit.can_send()) {
+    let action = PENDING.lock().ok().and_then(|mut queue| queue.pop_front());
+    let Some(action) = action else { return };
+    if let Some(result) = windows::send_touchpad_action(&action.output, || action.can_send()) {
         update_status(|status| {
-            status.requested_inputs += 2;
+            status.requested_inputs += u64::from(result.requested);
             status.inserted_inputs += u64::from(result.inserted);
         });
-        if result.inserted == 2 {
-            LAST_SUCCESS.store(digit.session, Ordering::Release);
+        if result.inserted == result.requested {
+            LAST_SUCCESS.store(action.session, Ordering::Release);
         } else {
             FAULT.store(true, Ordering::Release);
             request_stop();
         }
     } else {
-        cancelled(digit.guard.changed().unwrap_or("output_guard"));
+        cancelled(action.guard.changed().unwrap_or("output_guard"));
     }
 }
 
-fn queue_digit(digit: Digit) {
+fn queue_action(action: QueuedAction) {
     if let Ok(mut pending) = PENDING.lock() {
         if pending.len() >= QUEUE_LIMIT {
             cancelled("output_queue_full");
             return;
         }
-        pending.push_back(digit);
+        pending.push_back(action);
         if !windows::wake_touchpad_output(DIGIT_READY) {
             pending.pop_back();
             cancelled("hook_unavailable");
@@ -345,33 +370,27 @@ struct Guide {
     overlay: Overlay,
     policy: NumpadGuide,
     start: Instant,
-    drawn: Option<u8>,
+    drawn: Option<usize>,
 }
 
 impl Guide {
-    fn new(policy: NumpadGuide, now: Instant) -> std::io::Result<Option<Self>> {
+    fn new(
+        policy: NumpadGuide,
+        layout: &PanelLayout,
+        surface: &Surface,
+        size: Option<[u32; 2]>,
+        now: Instant,
+    ) -> std::io::Result<Option<Self>> {
         if policy == NumpadGuide::Never {
             return Ok(None);
         }
-        // SAFETY: The foreground HWND is used immediately by Win32 and never dereferenced here.
-        let monitor = unsafe { MonitorFromWindow(GetForegroundWindow(), MONITOR_DEFAULTTONEAREST) };
-        let mut info = MONITORINFO {
-            cbSize: size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        // SAFETY: GetMonitorInfoW writes to the initialized MONITORINFO.
-        if unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        let right = info.rcWork.right - 20;
-        let bottom = info.rcWork.bottom - 20;
-        let mut overlay = Overlay::new(Rect {
-            left: right - 216,
-            top: bottom - 284,
-            right,
-            bottom,
-        })?;
-        overlay.numpad(None)?;
+        let mut overlay = corner_overlay(
+            300,
+            size.map_or(180, |[w, h]| {
+                (300.0 * f64::from(h) / f64::from(w)).clamp(76.0, 420.0) as i32
+            }),
+        )?;
+        overlay.panel(&layout.geometry, surface, None)?;
         Ok(Some(Self {
             overlay,
             policy,
@@ -390,8 +409,31 @@ impl Guide {
     }
 }
 
+fn corner_overlay(width: i32, height: i32) -> std::io::Result<Overlay> {
+    // SAFETY: The foreground HWND is used immediately by Win32 and never dereferenced here.
+    let monitor = unsafe { MonitorFromWindow(GetForegroundWindow(), MONITOR_DEFAULTTONEAREST) };
+    let mut info = MONITORINFO {
+        cbSize: size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: GetMonitorInfoW writes to the initialized MONITORINFO.
+    if unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let right = info.rcWork.right - 20;
+    let bottom = info.rcWork.bottom - 20;
+    Overlay::new(Rect {
+        left: right - width,
+        top: bottom - height,
+        right,
+        bottom,
+    })
+}
+
 struct Session {
     id: u64,
+    layout: PanelLayout,
+    surface: Surface,
     contact: Contact,
     guide: Option<Guide>,
     _focus_watch: Option<FocusWatch>,
@@ -401,13 +443,14 @@ pub(super) struct Controller {
     observe: bool,
     session: Option<Session>,
     session_fault: Option<&'static str>,
+    notice: Option<(Overlay, Instant)>,
 }
 
 pub(super) struct Report {
     pub device: usize,
     pub frame: Frame,
     pub physical_button: Option<bool>,
-    pub layout: Layout,
+    pub bounds: [(i32, i32); 2],
     pub occupied: bool,
     pub competing: bool,
     pub now: Instant,
@@ -420,10 +463,18 @@ impl Controller {
             observe,
             session: None,
             session_fault: None,
+            notice: None,
         }
     }
 
-    fn start(&mut self, guide: NumpadGuide, occupied: bool, now: Instant) {
+    fn start(
+        &mut self,
+        layout: PanelLayout,
+        policy: NumpadGuide,
+        size: Option<[u32; 2]>,
+        occupied: bool,
+        now: Instant,
+    ) {
         let focus_watch = match FocusWatch::new() {
             Ok(watch) => Some(watch),
             Err(_) if self.observe => None,
@@ -433,7 +484,8 @@ impl Controller {
                 return;
             }
         };
-        let guide = match Guide::new(guide, now) {
+        let surface = Surface::compile(&layout.geometry);
+        let guide = match Guide::new(policy, &layout, &surface, size, now) {
             Ok(guide) => guide,
             Err(error) => {
                 self.session_fault = Some("overlay_failed");
@@ -444,6 +496,8 @@ impl Controller {
         let id = NEXT_SESSION.fetch_add(1, Ordering::Relaxed);
         self.session = Some(Session {
             id,
+            layout,
+            surface,
             guide,
             _focus_watch: focus_watch,
             contact: Contact {
@@ -468,7 +522,30 @@ impl Controller {
         self.stop();
     }
 
-    pub fn refresh(&mut self, blocked: Option<&'static str>, occupied: bool, now: Instant) {
+    pub fn refresh(
+        &mut self,
+        blocked: Option<&'static str>,
+        occupied: bool,
+        size: Option<[u32; 2]>,
+        now: Instant,
+    ) {
+        if self.notice.as_ref().is_some_and(|(_, until)| now >= *until) {
+            self.notice = None;
+        }
+        let notice = MODE_NOTICE.swap(0, Ordering::AcqRel);
+        if notice != 0 {
+            let message = if notice == 1 {
+                "Exit the laser pointer first / 请先退出演示激光笔 (Esc)"
+            } else {
+                "Exit the virtual panel first / 请先退出虚拟操作面板 (Esc)"
+            };
+            if let Ok(mut overlay) = corner_overlay(380, 52)
+                && overlay.message(message).is_ok()
+            {
+                self.notice = Some((overlay, now + Duration::from_secs(2)));
+            }
+        }
+        update_status(|status| status.size_um = size);
         if !self.observe
             && !is_configured()
             && self.session.is_none()
@@ -476,9 +553,14 @@ impl Controller {
         {
             return;
         }
-        let (configured, guide) = SETTINGS
-            .lock()
-            .map_or((false, NumpadGuide::Never), |settings| *settings);
+        let settings = SETTINGS.lock().ok().and_then(|settings| settings.clone());
+        let configured = is_configured();
+        let target = settings.as_ref().and_then(|config| {
+            config
+                .layouts
+                .iter()
+                .find(|layout| Some(&layout.id) == config.default_layout.as_ref())
+        });
         let stopped = STOP.swap(false, Ordering::AcqRel);
         if stopped {
             self.stop();
@@ -492,6 +574,8 @@ impl Controller {
             "output_fault"
         } else if let Some(reason) = blocked {
             reason
+        } else if target.is_none() {
+            "no_layout"
         } else {
             self.session_fault.unwrap_or("ready")
         };
@@ -500,11 +584,34 @@ impl Controller {
             self.stop();
         }
         let start_requested = START_REQUESTED.swap(false, Ordering::AcqRel);
-        if self.session.is_none() && !stopped {
-            if self.observe && blocked.is_none() {
-                self.start(NumpadGuide::Never, occupied, now);
-            } else if ready && start_requested && !STOP.load(Ordering::Acquire) {
-                self.start(guide, occupied, now);
+        let selection = SELECT_REQUESTED
+            .lock()
+            .ok()
+            .and_then(|mut request| request.take());
+        if !stopped && !STOP.load(Ordering::Acquire) {
+            if self.session.is_none() && self.observe && blocked.is_none() {
+                self.start(
+                    PanelLayout::classic(),
+                    NumpadGuide::Never,
+                    size,
+                    occupied,
+                    now,
+                );
+            } else if ready && let Some(config) = settings.as_ref() {
+                let next = match (self.session.as_ref(), selection) {
+                    (None, _) if start_requested => target,
+                    (Some(session), Some(id)) if session.layout.id != id => {
+                        config.layouts.iter().find(|layout| layout.id == id)
+                    }
+                    _ => None,
+                };
+                if let Some(layout) = next {
+                    self.stop();
+                    if let Ok(mut pending) = PENDING.lock() {
+                        pending.clear();
+                    }
+                    self.start(layout.clone(), config.guide, size, occupied, now);
+                }
             }
         }
         let reason = self.session_fault.unwrap_or(reason);
@@ -528,6 +635,10 @@ impl Controller {
             status.configured = configured;
             status.phase = phase;
             status.reason = reason;
+            status.active_layout = self
+                .session
+                .as_ref()
+                .map(|session| session.layout.id.clone());
         });
     }
 
@@ -536,7 +647,7 @@ impl Controller {
             device: handle,
             frame,
             physical_button,
-            layout,
+            bounds,
             occupied,
             competing,
             now,
@@ -577,10 +688,22 @@ impl Controller {
                 contact.interrupt("focus_or_modifiers", occupied);
                 Some(Event::Cancelled("focus_or_modifiers"))
             } else {
-                contact.recognizer.observe(frame, layout, now)
+                contact.recognizer.observe(
+                    frame,
+                    bounds,
+                    &session.layout.geometry,
+                    &session.surface,
+                    now,
+                )
             }
         } else if contact.device.is_none_or(|device| device == handle) {
-            contact.recognizer.observe(frame, layout, now)
+            contact.recognizer.observe(
+                frame,
+                bounds,
+                &session.layout.geometry,
+                &session.surface,
+                now,
+            )
         } else {
             None
         };
@@ -590,7 +713,7 @@ impl Controller {
             contact.guard.take()
         };
         if let Some(event) = event {
-            Self::record(self.observe, session.id, guard, event);
+            Self::record(self.observe, session, guard, event);
         }
     }
 
@@ -598,20 +721,26 @@ impl Controller {
         if let Some(session) = &mut self.session
             && let Some(event) = session.contact.interrupt(reason, occupied)
         {
-            Self::record(self.observe, session.id, None, event);
+            Self::record(self.observe, session, None, event);
         }
     }
 
-    fn record(observe: bool, session: u64, guard: Option<ContactGuard>, event: Event) {
+    fn record(observe: bool, session: &Session, guard: Option<ContactGuard>, event: Event) {
         match event {
             Event::Cancelled(reason) => cancelled(reason),
             Event::Confirmed(value) => {
                 update_status(|status| status.confirmed += 1);
-                if !observe && let Some(guard) = guard {
-                    queue_digit(Digit {
-                        session,
+                if !observe
+                    && let Some(guard) = guard
+                    && let Some(output) = session.layout.geometry.regions[value]
+                        .action
+                        .as_ref()
+                        .and_then(|action| action.resolve().ok())
+                {
+                    queue_action(QueuedAction {
+                        session: session.id,
                         guard,
-                        value,
+                        output,
                     });
                 }
             }
@@ -632,14 +761,17 @@ impl Controller {
         if let Some(reason) = session.contact.guard.and_then(ContactGuard::changed)
             && let Some(event) = session.contact.interrupt(reason, occupied)
         {
-            Self::record(self.observe, session.id, None, event);
+            Self::record(self.observe, session, None, event);
         }
         if let Some(guide) = &mut session.guide {
             let highlight = session.contact.recognizer.highlight();
             if guide.expired(session.id, now) {
                 session.guide = None;
             } else if guide.drawn != highlight {
-                match guide.overlay.numpad(highlight) {
+                match guide
+                    .overlay
+                    .panel(&session.layout.geometry, &session.surface, highlight)
+                {
                     Ok(()) => guide.drawn = highlight,
                     Err(error) => {
                         self.stop();

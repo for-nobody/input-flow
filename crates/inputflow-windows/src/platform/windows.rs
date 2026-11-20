@@ -1608,7 +1608,7 @@ fn dispatch_command(command: &Command) -> OutputReport {
                 true
             }
             Action::Numpad(action) => {
-                super::numpad::enqueue(*action);
+                super::numpad::enqueue(action.clone());
                 true
             }
             Action::KeyChord(_) => false,
@@ -1694,9 +1694,11 @@ fn drive_timeouts_with_dispatch(
 fn sync_matcher_context(matcher: &mut Matcher) {
     matcher.set_recording(is_capture_active());
     matcher.set_mode_availability(ModeAvailability {
-        presentation_ready: super::presentation::is_ready() && !super::numpad::is_active(),
+        presentation_ready: super::presentation::is_ready()
+            || (super::presentation::is_configured() && super::numpad::is_active()),
         presentation_active: super::presentation::is_active(),
-        numpad_ready: super::numpad::is_ready(),
+        numpad_ready: super::numpad::is_ready()
+            || (super::numpad::is_configured() && super::presentation::is_active()),
         numpad_active: super::numpad::is_active(),
     });
     if matcher.has_active_double_tap() {
@@ -1865,19 +1867,36 @@ pub(super) fn send_touchpad_click(
     button: MouseButton,
     still_allowed: impl FnOnce() -> bool,
 ) -> Option<inputflow_touchpad::output::InsertResult> {
-    send_touchpad_pair(
-        make_mouse_input(button, true),
-        make_mouse_input(button, false),
+    send_touchpad_inputs(
+        &[
+            make_mouse_input(button, true),
+            make_mouse_input(button, false),
+        ],
         still_allowed,
     )
 }
 
-pub(super) fn send_touchpad_digit(
-    digit: u8,
+pub(super) fn send_touchpad_action(
+    action: &inputflow_config::PanelOutput,
     still_allowed: impl FnOnce() -> bool,
 ) -> Option<inputflow_touchpad::output::InsertResult> {
-    let [down, up] = touchpad_digit_inputs(digit)?;
-    send_touchpad_pair(down, up, still_allowed)
+    match action {
+        inputflow_config::PanelOutput::Digit(digit) => {
+            send_touchpad_inputs(&touchpad_digit_inputs(*digit)?, still_allowed)
+        }
+        inputflow_config::PanelOutput::Keys(keys) => {
+            let inputs: Vec<_> = keys
+                .iter()
+                .map(|&key| make_action_key_input(key, false))
+                .chain(
+                    keys.iter()
+                        .rev()
+                        .map(|&key| make_action_key_input(key, true)),
+                )
+                .collect();
+            send_touchpad_inputs(&inputs, still_allowed)
+        }
+    }
 }
 
 fn touchpad_digit_inputs(digit: u8) -> Option<[INPUT; 2]> {
@@ -1891,9 +1910,8 @@ fn touchpad_digit_inputs(digit: u8) -> Option<[INPUT; 2]> {
     ])
 }
 
-fn send_touchpad_pair(
-    down: INPUT,
-    up: INPUT,
+fn send_touchpad_inputs(
+    inputs: &[INPUT],
     still_allowed: impl FnOnce() -> bool,
 ) -> Option<inputflow_touchpad::output::InsertResult> {
     let blocked = foreground_uipi_block().is_some();
@@ -1920,15 +1938,15 @@ fn send_touchpad_pair(
         };
         (inserted, error)
     };
-    let report = inputflow_touchpad::output::insert_pair(down, up, send);
-    if report.inserted == 2 {
+    let report = inputflow_touchpad::output::insert_chord(inputs, send);
+    if report.inserted == report.requested {
         OUTPUT_SENT.fetch_add(1, Ordering::Relaxed);
     } else {
         OUTPUT_FAILED.fetch_add(1, Ordering::Relaxed);
         set_bypassed(true);
         send_log(format!(
-            "touchpad SendInput failed: inserted={} requested=2 last_error={}",
-            report.inserted, report.error
+            "touchpad SendInput failed: inserted={} requested={} last_error={}",
+            report.inserted, report.requested, report.error
         ));
     }
     Some(report)

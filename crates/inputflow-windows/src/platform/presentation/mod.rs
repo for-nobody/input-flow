@@ -97,6 +97,10 @@ pub(crate) fn request_stop() {
 }
 
 pub(crate) fn enqueue(action: PresentationAction) {
+    if action == PresentationAction::Start && super::numpad::is_active() {
+        super::numpad::mode_notice(2);
+        return;
+    }
     if action == PresentationAction::Stop {
         request_stop();
         return;

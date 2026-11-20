@@ -11,7 +11,7 @@ namespace InputFlow_Settings;
 
 public sealed partial class MainPage
 {
-    private enum PresentationOperation { Start, Stop, Mouse, Clear, Preset, NumpadStart, NumpadStop }
+    private enum PresentationOperation { Start, Stop, Mouse, Clear, Preset, NumpadStart, NumpadStop, PanelSelect }
     private sealed record BindingEdit(PresentationOperation Operation, string? PresetId, string Label, bool Optional);
 
     private BindingEdit? _presentationBinding;
@@ -227,6 +227,12 @@ public sealed partial class MainPage
     private void SavePresentationBinding(RuleTrigger? trigger)
     {
         if (_presentationBinding is not { } slot) return;
+        if (slot.Operation == PresentationOperation.PanelSelect)
+        {
+            if (CurrentPanel is { } panel && panel.Layouts.FirstOrDefault(layout => layout.Id == slot.PresetId) is { } selected)
+                SetPanel(panel.Replace(selected with { Select = trigger }));
+            return;
+        }
         if (slot.Operation is PresentationOperation.NumpadStart or PresentationOperation.NumpadStop)
         {
             if (trigger is not null)

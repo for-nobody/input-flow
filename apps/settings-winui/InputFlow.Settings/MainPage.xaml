@@ -139,12 +139,13 @@
                                     <Border x:Name="NumpadCard" Visibility="Collapsed" Padding="12" Margin="0,0,0,8"
                                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6">
                                         <StackPanel Spacing="6">
-                                            <TextBlock x:Uid="NumpadTitle" FontWeight="SemiBold" />
+                                            <TextBlock x:Name="NumpadCardTitle" x:Uid="NumpadTitle" FontWeight="SemiBold" />
                                             <TextBlock x:Name="NumpadState" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
                                             <TextBlock x:Name="NumpadCounts" TextWrapping="Wrap" />
                                             <StackPanel Orientation="Horizontal" Spacing="6">
                                                 <Button x:Name="NumpadStart" Click="NumpadBinding_Click" />
                                                 <Button x:Name="NumpadStop" Click="NumpadBinding_Click" />
+                                                <Button x:Name="PanelManageButton" Visibility="Collapsed" Click="PanelManage_Click" />
                                             </StackPanel>
                                             <ComboBox x:Name="NumpadGuideChoice" x:Uid="NumpadGuideChoice" SelectionChanged="NumpadGuide_Changed">
                                                 <ComboBoxItem x:Uid="NumpadGuideAlways" />
@@ -184,6 +185,17 @@
                                 </DataTemplate>
                             </ListView.ItemTemplate>
                         </ListView>
+                        <ScrollViewer x:Name="PanelManagement" Visibility="Collapsed" HorizontalScrollBarVisibility="Disabled">
+                            <Grid x:Name="PanelManageGrid" ColumnSpacing="16" RowSpacing="10" Margin="0,0,8,10"
+                                  SizeChanged="PanelManageGrid_SizeChanged">
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition x:Name="PanelSidebarColumn" Width="248"/></Grid.ColumnDefinitions>
+                                <StackPanel x:Name="PanelDetails" Spacing="9" />
+                                <Expander x:Name="PanelSidebar" Grid.Column="1" HorizontalAlignment="Stretch" IsExpanded="True">
+                                    <StackPanel x:Name="PanelListContent" Spacing="6" />
+                                </Expander>
+                            </Grid>
+                        </ScrollViewer>
                         <ScrollViewer x:Name="PresentationEditor" Visibility="Collapsed"
                                       Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" HorizontalScrollBarVisibility="Disabled">
                             <StackPanel Spacing="10" Padding="6">

@@ -133,6 +133,7 @@ impl ProtocolHandler for AgentProtocolHandler {
                 "key_double_tap".to_string(),
                 "presentation_pointer".to_string(),
                 "touchpad_numpad".to_string(),
+                "touchpad_virtual_panel".to_string(),
                 "validate_apply".to_string(),
                 "pause_resume".to_string(),
                 "stats".to_string(),
@@ -419,6 +420,8 @@ fn status_dto(status: &RuntimeStatus) -> StatusResult {
             requested_inputs: status.numpad.requested_inputs,
             inserted_inputs: status.numpad.inserted_inputs,
             last_cancel: status.numpad.last_cancel.map(str::to_owned),
+            active_layout: status.numpad.active_layout.clone(),
+            size_um: status.numpad.size_um,
         }),
         touchpad: Some(inputflow_protocol::TouchpadStatusResult {
             experimental_enabled: status.touchpad.experimental_enabled,

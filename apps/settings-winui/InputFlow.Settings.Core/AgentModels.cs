@@ -60,11 +60,23 @@ public sealed record AgentStatus(
 
 public sealed record NumpadStatus(string Phase, string Reason, ulong Confirmed, ulong Cancelled, ulong InsertedInputs)
 {
+    public string? ActiveLayout { get; init; }
+    public double? WidthMm { get; init; }
+    public double? HeightMm { get; init; }
     public static NumpadStatus Parse(JsonElement value) => new(
         value.GetProperty("phase").GetString() ?? "unknown",
         value.GetProperty("reason").GetString() ?? "unknown",
         value.GetProperty("confirmed").GetUInt64(), value.GetProperty("cancelled").GetUInt64(),
-        value.GetProperty("inserted_inputs").GetUInt64());
+        value.GetProperty("inserted_inputs").GetUInt64())
+    {
+        ActiveLayout = value.TryGetProperty("active_layout", out JsonElement layout) ? layout.GetString() : null,
+        WidthMm = ReadMillimeters(value, 0),
+        HeightMm = ReadMillimeters(value, 1),
+    };
+
+    private static double? ReadMillimeters(JsonElement value, int axis) =>
+        value.TryGetProperty("size_um", out JsonElement size) && size.ValueKind == JsonValueKind.Array
+        && size.GetArrayLength() == 2 ? size[axis].GetUInt32() / 1000.0 : null;
 }
 
 public sealed record PresentationDisplay(string Id, int Left, int Top, int Width, int Height, bool Primary);
