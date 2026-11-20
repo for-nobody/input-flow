@@ -11,7 +11,12 @@ public readonly record struct PanelEdge(PanelPoint Start, PanelPoint End)
     public double Projection(PanelPoint point) => Dot(point - Start, End - Start) / Dot(End - Start, End - Start);
 }
 
-public sealed record PanelSeam(PanelEdge Edge, string First, string Second);
+public abstract record PanelEdgeHandle(PanelEdge Edge);
+public sealed record PanelSeam(PanelEdge Edge, string First, string Second) : PanelEdgeHandle(Edge);
+public sealed record PanelRectangleEdge(PanelEdge Edge, string RegionId) : PanelEdgeHandle(Edge)
+{
+    public bool IsVertical => Edge.Start.X == Edge.End.X;
+}
 public readonly record struct PanelHit(string? RegionId, bool Gap);
 public sealed record PanelEdit(PanelGeometry? Geometry, string? Error)
 {
@@ -20,7 +25,9 @@ public sealed record PanelEdit(PanelGeometry? Geometry, string? Error)
 
 public sealed class PanelSurface
 {
+    private const double EdgeHitTolerance = .012;
     private readonly PanelGeometry _geometry;
+    private PanelRectangleEdge[]? _rectangleEdges;
     public IReadOnlyList<PanelSeam> Seams { get; }
 
     public PanelSurface(PanelGeometry geometry)
@@ -41,6 +48,32 @@ public sealed class PanelSurface
             }
         }
         Seams = seams;
+    }
+
+    public PanelEdgeHandle? FindEdge(PanelPoint point)
+    {
+        if (!double.IsFinite(point.X) || !double.IsFinite(point.Y)) return null;
+        return Nearest(Seams) ?? Nearest(_rectangleEdges ??= RectangleEdges().ToArray());
+
+        PanelEdgeHandle? Nearest(IEnumerable<PanelEdgeHandle> edges) => edges
+            .Where(handle => handle.Edge.Projection(point) is >= -EdgeHitTolerance and <= 1 + EdgeHitTolerance)
+            .Select(handle => (Handle: handle, Distance: Math.Abs(handle.Edge.Side(point)) / handle.Edge.Length))
+            .Where(match => match.Distance < EdgeHitTolerance)
+            .OrderBy(match => match.Distance).Select(match => match.Handle).FirstOrDefault();
+    }
+
+    private IEnumerable<PanelRectangleEdge> RectangleEdges()
+    {
+        foreach (PanelRegion region in _geometry.Regions)
+        {
+            if (PanelGeometryEditor.RectangleOutline(region) is not { } rectangle) continue;
+            foreach (PanelEdge edge in PanelGeometryEditor.Edges(rectangle))
+            {
+                if (Seams.Any(seam => (seam.First == region.Id || seam.Second == region.Id)
+                    && PanelGeometryEditor.SharedInterval(edge, seam.Edge) is not null)) continue;
+                yield return new PanelRectangleEdge(edge, region.Id);
+            }
+        }
     }
 
     public PanelHit Hit(PanelPoint point)
@@ -106,6 +139,20 @@ public static class PanelGeometryEditor
                 if (1 - cursor > Epsilon) yield return new(edge.At(cursor), edge.End);
             }
         }
+    }
+
+    internal static IReadOnlyList<PanelPoint>? RectangleOutline(PanelRegion region)
+    {
+        PanelEdge[] outline = Outline(region).ToArray();
+        if (outline.Length < 4) return null;
+        double left = outline.Min(edge => edge.Start.X);
+        double right = outline.Max(edge => edge.Start.X);
+        double top = outline.Min(edge => edge.Start.Y);
+        double bottom = outline.Max(edge => edge.Start.Y);
+        bool rectangular = outline.All(edge =>
+            (edge.Start.X == edge.End.X && (edge.Start.X == left || edge.Start.X == right))
+            || (edge.Start.Y == edge.End.Y && (edge.Start.Y == top || edge.Start.Y == bottom)));
+        return rectangular ? Rectangle(left, top, right, bottom) : null;
     }
 
     public static string? Validate(PanelGeometry geometry)
@@ -259,6 +306,22 @@ public static class PanelGeometryEditor
         return Validated(geometry, geometry.Regions.Select(region => region.Id == a.Id
             ? a with { Faces = aOnLeft ? split.Left : split.Right }
             : region.Id == b.Id ? b with { Faces = aOnLeft ? split.Right : split.Left } : region));
+    }
+
+    public static PanelEdit ResizeRectangle(PanelGeometry geometry, PanelRectangleEdge handle, PanelPoint delta)
+    {
+        PanelRegion? region = geometry.Regions.FirstOrDefault(item => item.Id == handle.RegionId);
+        if (region is null || RectangleOutline(region) is not { } rectangle || !Edges(rectangle).Contains(handle.Edge))
+            return new(null, "Panel_InvalidPolygon");
+
+        bool vertical = handle.IsVertical;
+        double offset = vertical ? delta.X : delta.Y;
+        if (Math.Abs(offset) <= Epsilon) return new(null, null);
+        double position = vertical ? handle.Edge.Start.X : handle.Edge.Start.Y;
+        PanelPoint[] face = rectangle.Select(point => vertical
+            ? point.X == position ? point with { X = point.X + offset } : point
+            : point.Y == position ? point with { Y = point.Y + offset } : point).ToArray();
+        return Replace(geometry, region with { Faces = [face] });
     }
 
     public static PanelEdit MoveRegion(PanelGeometry geometry, PanelSurface surface, string sourceId, PanelPoint start, PanelPoint end, string emptyName)

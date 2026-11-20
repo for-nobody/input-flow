@@ -19,14 +19,23 @@ internal sealed class PanelCanvasWindow : Window
 {
     private enum Tool { Select, Rectangle, Line }
 
-    private sealed record Drag(PanelPoint Start, string? Region, PanelSeam? Seam, bool Touch, long Started);
+    private sealed record Drag(PanelPoint Start, string? Region, PanelEdgeHandle? Edge, bool Touch, long Started);
 
     private readonly PanelHistory _history;
     private readonly Func<PanelGeometry, string?> _save;
     private readonly Func<KeyPicker, Task> _capture;
     private readonly Func<Task> _cancelCapture;
     private readonly PanelBoard _board = new(labels: true);
-    private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap };
+    // Keep the board's size and coordinate mapping stable as drag feedback changes.
+    private readonly TextBlock _status = new()
+    {
+        TextWrapping = TextWrapping.Wrap,
+        TextTrimming = TextTrimming.WordEllipsis,
+        LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+        LineHeight = 20,
+        MinHeight = 40,
+        MaxLines = 2,
+    };
     private readonly ComboBox _tools = new();
     private readonly ComboBox _lineScope = new();
     private readonly ListView _regions = new() { SelectionMode = ListViewSelectionMode.Extended, MaxHeight = 115 };
@@ -38,7 +47,7 @@ internal sealed class PanelCanvasWindow : Window
     private readonly AppBarButton _merge;
     private readonly AppBarButton _delete;
     private PanelSurface _surface;
-    private PanelSeam? _hotEdge;
+    private PanelEdgeHandle? _hotEdge;
     private Drag? _drag;
     private PanelEdit? _preview;
     private bool _updatingRegionList;
@@ -103,6 +112,7 @@ internal sealed class PanelCanvasWindow : Window
         _tools.SelectionChanged += (_, _) =>
         {
             CancelDrag();
+            SetHotEdge(null);
             _lineScope.Visibility = CurrentTool == Tool.Line ? Visibility.Visible : Visibility.Collapsed;
             ShowStatus(CurrentTool switch
             {
@@ -175,7 +185,13 @@ internal sealed class PanelCanvasWindow : Window
         UpdateCommands();
     }
 
-    private void ShowStatus(string? key) => _status.Text = key is null ? string.Empty : AppResources.Get(key);
+    private void ShowStatus(string? key)
+    {
+        string? message = key is null ? null : AppResources.Get(key);
+        if (_status.Text == (message ?? string.Empty)) return;
+        _status.Text = message ?? string.Empty;
+        ToolTipService.SetToolTip(_status, message);
+    }
 
     private void Pressed(object sender, PointerRoutedEventArgs args)
     {
@@ -191,10 +207,11 @@ internal sealed class PanelCanvasWindow : Window
         args.Handled = true;
         bool control = (args.KeyModifiers & VirtualKeyModifiers.Control) != 0;
         PanelHit hit = _surface.Hit(point);
-        PanelSeam? edge = null;
+        PanelEdgeHandle? edge = null;
         if (CurrentTool == Tool.Select)
         {
-            edge = !control ? FindEdge(point) : null;
+            edge = !control ? _surface.FindEdge(point) : null;
+            SetHotEdge(edge);
             if (edge is null)
             {
                 if (!control) _selected.Clear();
@@ -217,7 +234,7 @@ internal sealed class PanelCanvasWindow : Window
         }
         if (CurrentTool == Tool.Select)
         {
-            SetHotEdge(FindEdge(point));
+            SetHotEdge(_surface.FindEdge(point));
             PanelRegion? region = FindRegion(_surface.Hit(point).RegionId);
             string? tooltip = region is null ? null : AppResources.Format("Panel_RegionLabel", region.Name, PanelBoard.ActionLabel(region.Action));
             if (!Equals(ToolTipService.GetToolTip(_board), tooltip)) ToolTipService.SetToolTip(_board, tooltip);
@@ -233,7 +250,7 @@ internal sealed class PanelCanvasWindow : Window
         _preview = null;
         _board.ReleasePointerCapture(args.Pointer);
         if (edit is not null) Commit(edit);
-        else _board.Render(Geometry, _selected, _hotEdge);
+        else _board.Render(Geometry, _selected, _hotEdge?.Edge);
         args.Handled = true;
     }
 
@@ -244,7 +261,7 @@ internal sealed class PanelCanvasWindow : Window
             || drag.Touch && CurrentTool == Tool.Select && Stopwatch.GetElapsedTime(drag.Started) < TimeSpan.FromMilliseconds(420))
         {
             _preview = null;
-            _board.Render(Geometry, _selected, _hotEdge);
+            _board.Render(Geometry, _selected, _hotEdge?.Edge);
             return;
         }
 
@@ -255,14 +272,15 @@ internal sealed class PanelCanvasWindow : Window
             Tool.Line when _lineScope.SelectedIndex == 1 && selected is null => new(null, "Panel_SelectOne"),
             Tool.Line => PanelGeometryEditor.CutLine(Geometry, trace, _lineScope.SelectedIndex == 1 ? selected : null, EmptyName),
             Tool.Rectangle => PanelGeometryEditor.CutRectangle(Geometry, drag.Start, trace.End, selected, EmptyName),
-            _ when drag.Seam is { } seam => PanelGeometryEditor.MoveEdge(Geometry, seam, point - drag.Start),
+            _ when drag.Edge is PanelSeam seam => PanelGeometryEditor.MoveEdge(Geometry, seam, point - drag.Start),
+            _ when drag.Edge is PanelRectangleEdge edge => PanelGeometryEditor.ResizeRectangle(Geometry, edge, point - drag.Start),
             _ when drag.Region is { } region => PanelGeometryEditor.MoveRegion(Geometry, _surface, region, drag.Start, point, EmptyName),
             _ => null,
         };
         _preview = edit;
         ShowStatus(edit?.Error ?? (edit?.Changed == true && CurrentTool is Tool.Line or Tool.Rectangle
             ? "Panel_SplitPreview" : null));
-        _board.Render(edit?.Geometry ?? Geometry, _selected, edit?.Changed == true ? null : drag.Seam,
+        _board.Render(edit?.Geometry ?? Geometry, _selected, edit?.Changed == true ? null : drag.Edge?.Edge,
             CurrentTool == Tool.Line ? trace : null, edit?.Changed == true,
             CurrentTool == Tool.Rectangle && edit?.Error is not null ? trace : null);
     }
@@ -275,20 +293,12 @@ internal sealed class PanelCanvasWindow : Window
         return new(Snap(point.X), Snap(point.Y));
     }
 
-    private PanelSeam? FindEdge(PanelPoint point)
-    {
-        if (!double.IsFinite(point.X) || !double.IsFinite(point.Y)) return null;
-        return _surface.Seams.Where(seam => seam.Edge.Projection(point) is >= -.012 and <= 1.012)
-            .Select(seam => (Seam: seam, Distance: Math.Abs(seam.Edge.Side(point)) / seam.Edge.Length))
-            .Where(match => match.Distance < .012).OrderBy(match => match.Distance).Select(match => match.Seam).FirstOrDefault();
-    }
-
-    private void SetHotEdge(PanelSeam? edge)
+    private void SetHotEdge(PanelEdgeHandle? edge)
     {
         if (edge == _hotEdge) return;
         _hotEdge = edge;
-        _board.SetEdgeCursor(edge is not null);
-        _board.Render(Geometry, _selected, edge);
+        _board.SetEdgeCursor(edge);
+        _board.Render(Geometry, _selected, edge?.Edge);
     }
 
     private void CancelDrag()
@@ -298,7 +308,7 @@ internal sealed class PanelCanvasWindow : Window
         _preview = null;
         _board.ReleasePointerCaptures();
         ShowStatus(null);
-        _board.Render(Geometry, _selected, _hotEdge);
+        _board.Render(Geometry, _selected, _hotEdge?.Edge);
     }
 
     private async void CanvasKeyDown(object sender, KeyRoutedEventArgs args)
@@ -361,6 +371,7 @@ internal sealed class PanelCanvasWindow : Window
     private void Refresh()
     {
         _surface = new(Geometry);
+        _board.SetEdgeCursor(_hotEdge);
         _selected.IntersectWith(Geometry.Regions.Select(region => region.Id));
         _updatingRegionList = true;
         _regions.Items.Clear();
@@ -389,7 +400,7 @@ internal sealed class PanelCanvasWindow : Window
         foreach (ListViewItem item in _regions.Items.OfType<ListViewItem>())
             if (item.Tag is string id && _selected.Contains(id)) _regions.SelectedItems.Add(item);
         _updatingRegionList = false;
-        _board.Render(Geometry, _selected, _hotEdge);
+        _board.Render(Geometry, _selected, _hotEdge?.Edge);
         UpdateCommands();
     }
 
@@ -423,7 +434,9 @@ internal sealed class PanelCanvasWindow : Window
 
     private void DeleteSelected()
     {
-        if (!_recording && !_dialogOpen) Commit(PanelGeometryEditor.Delete(Geometry, _selected));
+        if (_recording || _dialogOpen || _selected.Count == 0) return;
+        CancelDrag();
+        Commit(PanelGeometryEditor.Delete(Geometry, _selected));
     }
 
     private async Task MergeSelectedAsync()

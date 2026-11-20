@@ -160,6 +160,72 @@ Run("panel draw, swap, fill, move, merge and history preserve outlines and actio
     Assert(cut.Regions.Count == 2 && PanelGeometryEditor.Validate(cut) is null, "rectangle cut failed to preserve the surrounding region");
 });
 
+Run("each free rectangle edge moves on one axis and keeps the opposite edge and binding", () =>
+{
+    var region = new PanelRegion("a", "A", new PanelKeys([KeyIdentity.Logical("A")]),
+        [PanelGeometryEditor.Rectangle(.20, .25, .45, .65)]);
+    var geometry = new PanelGeometry(new(.005, .005), [region]);
+    var surface = new PanelSurface(geometry);
+    Assert(surface.FindEdge(new(.32, .45)) is null, "dragging from the interior must still move the region");
+    var cases = new (PanelPoint Midpoint, PanelPoint Target, bool Vertical, IReadOnlyList<PanelPoint> Expected)[]
+    {
+        (new(.45, .45), new(.60, .51), true, PanelGeometryEditor.Rectangle(.20, .25, .60, .65)),
+        (new(.20, .45), new(.10, .51), true, PanelGeometryEditor.Rectangle(.10, .25, .45, .65)),
+        (new(.32, .25), new(.39, .15), false, PanelGeometryEditor.Rectangle(.20, .15, .45, .65)),
+        (new(.32, .65), new(.39, .80), false, PanelGeometryEditor.Rectangle(.20, .25, .45, .80)),
+    };
+    foreach (var test in cases)
+    {
+        var handle = surface.FindEdge(test.Midpoint) as PanelRectangleEdge;
+        Assert(handle?.RegionId == region.Id && handle.IsVertical == test.Vertical, $"wrong resize handle at {test.Midpoint}");
+        PanelEdit edit = PanelGeometryEditor.ResizeRectangle(geometry, handle!, test.Target - test.Midpoint);
+        Assert(edit.Geometry is not null, edit.Error ?? "no resized rectangle");
+        PanelRegion result = edit.Geometry!.Regions.Single();
+        Assert(result.Id == region.Id && result.Name == region.Name && PanelGeometryEditor.ActionsEqual(result.Action, region.Action),
+            "resizing must preserve identity and content");
+        Assert(result.Faces.Single().Zip(test.Expected).All(pair => new PanelEdge(pair.First, pair.Second).Length < 1e-9),
+            $"the wrong vertices moved at {test.Midpoint}");
+    }
+
+    var right = (PanelRectangleEdge)surface.FindEdge(new(.45, .45))!;
+    var history = new PanelHistory(geometry);
+    var newlyCovered = new PanelPoint(.52, .45);
+    Assert(surface.Hit(newlyCovered) == default, "sample starts in the background");
+    history.Commit(PanelGeometryEditor.ResizeRectangle(geometry, right, new(.60 - .45, 0)));
+    Assert(new PanelSurface(history.Current).Hit(newlyCovered).RegionId == "a", "right resize did not cover sample");
+    history.Undo();
+    Assert(!history.CanUndo && history.CanRedo && new PanelSurface(history.Current).Hit(newlyCovered) == default,
+        "one undo must restore the original outline and hit");
+    history.Redo();
+    Assert(new PanelSurface(history.Current).Hit(newlyCovered).RegionId == "a", "redo must restore the new hit");
+});
+
+Run("invalid rectangle resize keeps geometry and history, and seams keep their shared handle", () =>
+{
+    var a = new PanelRegion("a", "A", new PanelDigit(1), [PanelGeometryEditor.Rectangle(.20, .25, .45, .65)]);
+    var b = new PanelRegion("b", "B", new PanelDigit(2), [PanelGeometryEditor.Rectangle(.60, .25, .80, .65)]);
+    var geometry = new PanelGeometry(new(.005, .005), [a, b]);
+    var right = (PanelRectangleEdge)new PanelSurface(geometry).FindEdge(new(.45, .45))!;
+    var history = new PanelHistory(geometry);
+    history.Commit(PanelGeometryEditor.ResizeRectangle(geometry, right, new(.10, 0)));
+    history.Undo();
+    foreach (double offset in new[] { 1d, -.30, -.25, .20 })
+    {
+        PanelEdit invalid = PanelGeometryEditor.ResizeRectangle(geometry, right, new(offset, 0));
+        Assert(!invalid.Changed && invalid.Error is not null, $"invalid resize accepted for offset {offset}");
+        history.Commit(invalid);
+        Assert(!history.CanUndo && history.CanRedo && !history.IsDirty, "an invalid drag changed the history");
+    }
+    history.Commit(PanelGeometryEditor.ResizeRectangle(geometry, right, new(0, .2)));
+    Assert(!history.CanUndo && history.CanRedo && !history.IsDirty, "moving parallel to the edge must do nothing");
+
+    var touching = geometry with { Regions = [a, b with { Faces = [PanelGeometryEditor.Rectangle(.45, .35, .80, .55)] }] };
+    var touchingSurface = new PanelSurface(touching);
+    Assert(touchingSurface.FindEdge(new(.45, .45)) is PanelSeam, "a shared edge must keep the existing seam handle");
+    Assert(touchingSurface.FindEdge(new(.45, .30)) is null, "a partly shared side cannot resize as a free side");
+    Assert(touchingSurface.FindEdge(new(.20, .45)) is PanelRectangleEdge, "a separate background-facing side should resize");
+});
+
 Run("numpad v7 edits survive hiding and v6 keeps its wire shape", () =>
 {
     ConfigDocument legacy = ParseFixture(root, "v4-valid.json") with { SchemaVersion = 6 };
@@ -196,6 +262,9 @@ await RunAsync("save validates, applies, and reads back", async () =>
     Assert(gateway.ValidateCalls == 1 && gateway.ApplyCalls == 1, "save did not call validate/apply exactly once");
     Assert(result.ConfirmedFormal?.EnabledRuleCount == 0, "disabled rule was counted as enabled");
 });
+
+await RunAsync("canvas draft survives an in-flight successful formal save", () => CanvasSaveRaceAsync(true));
+await RunAsync("canvas draft survives an in-flight failed formal save", () => CanvasSaveRaceAsync(false));
 
 await RunAsync("external change requires an explicit overwrite decision", async () =>
 {
@@ -441,6 +510,76 @@ async Task RunAsync(string name, Func<Task> test)
     Console.WriteLine($"PASS {name}");
 }
 
+async Task CanvasSaveRaceAsync(bool succeeds)
+{
+    ConfigDocument baseline = ParseFixture(root, "v8-panel-diagonal.json");
+    VirtualPanelDocument panel = baseline.Numpad.Panel!;
+    PanelLayout original = panel.Layouts.Single();
+    PanelLayout other = PanelLayout.Blank("Original name");
+    baseline = baseline with { Numpad = baseline.Numpad with { Panel = panel.Add(other) } };
+    var draft = new DraftSession();
+    draft.Load(baseline);
+    draft.SetNumpad(baseline.Numpad with { Panel = baseline.Numpad.Panel!.Replace(other with { Name = "New name" }) });
+    var history = new PanelHistory(original.Geometry);
+    history.Commit(PanelGeometryEditor.MoveEdge(original.Geometry, new PanelSurface(original.Geometry).Seams.Single(), new(.22, -.22)));
+    PanelGeometry moved = history.Current;
+    Assert(history.IsDirty && history.CanUndo, "canvas fixture did not move the boundary");
+
+    var snapshotTaken = new TaskCompletionSource<ConfigDocument>(TaskCreationOptions.RunContinuationsAsynchronously);
+    var completeSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var gateway = new FakeGateway(baseline)
+    {
+        BeforeValidate = async config =>
+        {
+            snapshotTaken.SetResult(config);
+            await completeSave.Task;
+        },
+    };
+    if (!succeeds)
+        gateway.ValidationResponse = Json(new { valid = false, errors = new[] { "controlled failure" } });
+    var service = new ConfigSaveService(gateway);
+    Task<SaveResult> first = service.SaveAsync(draft.Draft, draft.FormalSnapshot, false);
+    ConfigDocument frozen = await snapshotTaken.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    string? duringSave;
+    bool canvasReachedMainDraft;
+    try
+    {
+        duringSave = draft.SavePanelCanvas(original, moved, isBusy: true);
+        canvasReachedMainDraft = PanelGeometryEditor.ContentEquals(draft.Draft.Numpad.Panel!.Layouts[0].Geometry, moved);
+    }
+    finally
+    {
+        completeSave.SetResult();
+    }
+    SaveResult result = await first.WaitAsync(TimeSpan.FromSeconds(5));
+    if (result.IsApplied) draft.AcceptSaved(result.ConfirmedFormal!);
+    Assert(duringSave == "Panel_SaveBusy" && !canvasReachedMainDraft,
+        $"in-flight canvas submission returned {duringSave ?? "success"} and reached main draft: {canvasReachedMainDraft}");
+    Assert(PanelGeometryEditor.ContentEquals(frozen.Numpad.Panel!.Layouts[0].Geometry, original.Geometry)
+        && frozen.Numpad.Panel.Layouts[1].Name == "New name", "the first snapshot must include only the rename");
+    Assert(PanelGeometryEditor.ContentEquals(history.Current, moved) && history.CanUndo, "the canvas edit or history was lost");
+    Assert(result.Kind == (succeeds ? SaveResultKind.Applied : SaveResultKind.ValidationFailed)
+        && draft.IsDirty == !succeeds, "the first save did not settle as expected");
+    Assert(PanelGeometryEditor.ContentEquals(gateway.Formal.Numpad.Panel!.Layouts[0].Geometry, original.Geometry)
+        && gateway.Formal.Numpad.Panel.Layouts[1].Name == (succeeds ? "New name" : other.Name),
+        "the first save applied the wrong configuration");
+
+    Assert(draft.SavePanelCanvas(original, moved, isBusy: false) is null && draft.IsDirty,
+        "the canvas could not be retried once the main window settled");
+    Assert(draft.SavePanelCanvas(original, moved, isBusy: false) == "Panel_LayoutConflict",
+        "an older canvas must report a geometry conflict");
+    Assert(draft.SavePanelCanvas(other with { Id = "removed" }, moved, isBusy: false) == "Panel_LayoutRemoved",
+        "a deleted canvas target must be reported");
+    gateway.BeforeValidate = null;
+    gateway.ValidationResponse = Json(new { valid = true });
+    result = await service.SaveAsync(draft.Draft, draft.FormalSnapshot, false);
+    Assert(result.IsApplied, result.Message);
+    draft.AcceptSaved(result.ConfirmedFormal!);
+    PanelLayout[] reopened = draft.Draft.Numpad.Panel!.Layouts.ToArray();
+    Assert(!draft.IsDirty && reopened[0].Id == original.Id && reopened[1].Name == "New name"
+        && PanelGeometryEditor.ContentEquals(reopened[0].Geometry, moved), "the second save did not preserve both edits");
+}
+
 static ConfigDocument ParseFixture(string repositoryRoot, string name)
 {
     using JsonDocument document = JsonDocument.Parse(File.ReadAllBytes(
@@ -525,6 +664,8 @@ sealed class FakeGateway : IAgentGateway
 
     public JsonElement? ApplyResponse { get; set; }
 
+    public Func<ConfigDocument, Task>? BeforeValidate { get; set; }
+
     public Exception? ApplyException { get; set; }
 
     public Action<FakeGateway>? ReconnectAction { get; set; }
@@ -541,12 +682,13 @@ sealed class FakeGateway : IAgentGateway
     public Task<AgentStatus> GetStatusAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult(Status);
 
-    public Task<JsonElement> ValidateConfigAsync(
+    public async Task<JsonElement> ValidateConfigAsync(
         ConfigDocument config,
         CancellationToken cancellationToken = default)
     {
         ValidateCalls++;
-        return Task.FromResult(ValidationResponse);
+        if (BeforeValidate is { } before) await before(config);
+        return ValidationResponse;
     }
 
     public Task<JsonElement> ApplyConfigAsync(

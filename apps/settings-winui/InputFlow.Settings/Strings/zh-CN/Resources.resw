@@ -565,7 +565,7 @@
   <data name="Panel_LineScope" xml:space="preserve"><value>直线分割范围</value></data>
   <data name="Panel_LineHelp" xml:space="preserve"><value>拖动设置切线。切线一侧保留原动作。</value></data>
   <data name="Panel_RectangleHelp" xml:space="preserve"><value>拖出矩形对角点。切割选区时，矩形外保留原动作。</value></data>
-  <data name="Panel_SelectHelp" xml:space="preserve"><value>单击选择，Ctrl+单击增减选区。拖动公共边或区域内部可调整位置。</value></data>
+  <data name="Panel_SelectHelp" xml:space="preserve"><value>Ctrl+单击增减选区。拖动公共边或矩形外边可调整大小，拖动区域内部可移动。</value></data>
   <data name="Panel_EmptyRegion" xml:space="preserve"><value>未绑定区域</value></data>
   <data name="Panel_SelectOne" xml:space="preserve"><value>请先选中一个区域。</value></data>
   <data name="Panel_SplitPreview" xml:space="preserve"><value>新分区保留轮廓，动作留空。</value></data>
@@ -598,6 +598,7 @@
   <data name="Panel_InvalidEdgeMove" xml:space="preserve"><value>移动后相邻轮廓将无法保持有效。</value></data>
   <data name="Panel_LayoutRemoved" xml:space="preserve"><value>此预设已从主草稿删除。本窗口保留了您的编辑。</value></data>
   <data name="Panel_LayoutConflict" xml:space="preserve"><value>主草稿中的同一布局已有改动。本窗口保留了您的编辑。</value></data>
+  <data name="Panel_SaveBusy" xml:space="preserve"><value>画布已保留您的编辑。请等待主窗口完成当前操作，再保存到草稿。</value></data>
   <data name="Panel_Active" xml:space="preserve"><value>操作面板运行中。使用退出快捷键或 Esc 结束。</value></data>
   <data name="Panel_Ready" xml:space="preserve"><value>操作面板已就绪。用进入快捷键启动。</value></data>
   <data name="Panel_NativeTap" xml:space="preserve"><value>请先关闭 Windows 单指轻点以单击，再使用面板输出。</value></data>

@@ -104,3 +104,66 @@ Windows x64 build `26200.9974`，同一台可解码 Precision Touchpad 的 HID �
 
 待实机复验使用任务卡给出的各编号操作，优先在同一笔记本隔离配置中按顺序完成 K1、O1、S1，
 再用有播放列表和非首尾页面的目标执行 O2。S2 的多设备、断连、锁屏和睡眠分别取证。
+
+## 2026-11-21（Australia/Brisbane）· 面板修复与复验
+
+以本地 `main` 的 `a558d7b` 为基线，当时与本地 `origin/main` 一致。开工时已有 Stage 5 任务卡状态改动和未跟踪的 [Stage 6 补充任务卡](../tasks/TOUCHPAD_STAGE_6_PANEL_FIXES_AND_ACCEPTANCE.md)。验证环境为 Windows x64 build `26200.9974`、Rust 1.98.1 MSVC x64、.NET SDK 10.0.404。联合构建在 `target/stage6-followup/verification` 的源码副本执行。桌面试验使用独立编译的 WinUI 画布和测试布局，日常 Agent 和 Settings 未参与写入测试配置。
+
+### 1 · 正式保存期间的画布草稿
+
+- 修复前，Settings Core 回归用异步信号让 `ConfigSaveService.SaveAsync` 冻结包含预设 B 改名的草稿，再暂停于 `ValidateConfigAsync`。此时 A 的边界提交返回成功并进入主草稿。第一次保存返回后，`AcceptSaved` 以只含 B 改名的配置重载主草稿。回归在「提交应被阻止」断言失败，日志为 `target/stage6-followup/before-save-guard.log`，运行退出 `-532462766`。
+- `DraftSession.SavePanelCanvas` 现在接受主窗口已有的忙碌状态。在忙碌期间返回 `Panel_SaveBusy`，继续保留按预设 ID 定位、目标已删除和同布局几何冲突检查。`MainPage.Panel.cs` 的公共写回入口服务画布左上角和关窗对话框。`TrySave` 收到错误后显示双语提示，画布和历史仍在。`MainPage.xaml.cs` 在外部变更对话框选择重新加载时，将忙碌状态保持到正式读回完成。
+- 修复后，受控成功场景的第一次正式读回仅有 B 的新名称。受控校验失败场景保留旧正式配置和 B 的主草稿改动。两条路径均保留 A 的编辑及撤销，空闲后 A 能提交到主草稿，第二次保存读回同时包含两项改动。两个回归连同既有 19 项 Core 契约共 21 项通过，退出 `0`，见 `target/stage6-followup/after-save-guard.log`。Agent 在本项自动测试中由 `FakeGateway` 代替。
+- 待实机：以隔离配置从正式 Settings 主窗口复做一次受控保存，分别操作画布按钮和关窗对话框，核对小图、画布状态、实际 Agent 读回与磁盘两次保存结果。
+
+### 2 · 拖动中删除
+
+在 Windows 桌面以自动化指针拖动已绑定 A 的区域。测试夹具在出现首个有效移动预览后调用实际键盘、工具栏和菜单共用的 `DeleteSelected`，随后由桌面输入继续移动并释放鼠标。修复前，删除之后仍为 `drag=True preview=True`，松手经 `Released` → `UpdateDrag` → `MoveRegion` 抛出 `Sequence contains no matching element`。修复后，`PanelCanvasWindow.cs` 先以 `CancelDrag` 清空拖动和预览并释放捕获，再提交删除。捕获丢失时日志仍有原区域，删除完成及松手后均为空板，拖动与预览均为 `False`。实际按 `Ctrl+Z` 一次恢复原坐标、名称 A 和绑定 A，按 `Ctrl+Y` 一次再次删除。前后日志在 `target/stage6-followup/results/delete-baseline.log`、`delete-fixed.log`。
+
+待实机：从正式画布在按住鼠标时用物理 `Delete` 重做同一序列，补测区域名称输入框和快捷键录制期间的 `Delete`。桌面夹具在拖动期间直接触发公共删除入口，撤销与恢复通过真实键盘路由验证。
+
+### 3 · 独立矩形四边缩放
+
+`PanelGeometryEditor.cs` 识别矩形外边，保留共享边优先命中。`PanelCanvasWindow.cs` 对选择工具的外边拖动走单边缩放，复用校验、预览和撤销历史。`PanelBoard.cs` 根据外边方向显示水平或垂直缩放指针。反馈区保留固定高度，避免拖动时显示或清空反馈导致板面坐标变化。
+
+Settings Core 覆盖四边分别拖动、正交轴移动、标识与动作保留、越界、跨过对边、压零和重叠拒绝、平行拖动无改动、共享边优先，以及无效操作保留恢复分支。指定样例确认右边从 `x=0.45` 到 `x=0.60`，左边仍为 `x=0.20`，点 `(0.52, 0.45)` 从背景变为 A，一次撤销恢复为背景。既有交换、填入未绑定分区、平移和公共斜边用例通过。新增几何用例后共 23 项 Settings Core 契约通过，退出 `0`，见 `target/stage6-followup/after-geometry.log`。
+
+最终 Release 的隔离 WinUI 画布通过桌面拖动验证四边。按右、左、上、下顺序实际读回所拖边为 `x=0.5997`、`x=0.1071`、`y=0.1466`、`y=0.8052`。每步只改变该边，预览和提交的坐标相符，区域仍绑定 A。撤销底边后，尝试把左边拖过右边，界面显示无效反馈，几何和可恢复状态保持。`Ctrl+Y` 恢复底边。随后从区域内部拖入背景，整块平移，原位置释放。撤销平移后点「保存到草稿」，测试回调读到四边缩放后坐标，画布关闭。首次桌面试拖时反馈区高度变化影响落点，稳定反馈区高度后，所见板框在缩放和无效反馈时保持位置。见 `target/stage6-followup/results/resize-final.log`。
+
+待实机：在正式入口复做拖动中按 `Esc`，并核对两级保存后主窗口小图、正式文件与重开的画布。桌面夹具的保存回调只读取提交几何。
+
+### 4 · G1 单触单次交付（待实机）
+
+本轮桌面自动化可操作画布，当前会话无法执行实体触板接触。三次目标文本和计数均待采集。历史中途 `abaa` 属于未按次归因的既有样本，原因仍待确认。
+
+| 试次 | 布局版本与触点定位 | 目标文本前 → 后 | `confirmed` 增量 | `requested_inputs` 增量 | `inserted_inputs` 增量 | 状态 |
+|---|---|---|---|---|---|---|
+| 原 A 点 | 待采集原版配置哈希和 A 点位置 | 待采集 | 待采集 | 待采集 | 待采集 | 待实机 |
+| 原 B 点 | 待采集原版配置哈希和 B 点定位方法 | 待采集 | 待采集 | 待采集 | 待采集 | 待实机 |
+| 移边后原 B 点 | 待采集新版配置哈希，按上次定位方式复触 | 待采集 | 待采集 | 待采集 | 待采集 | 待实机 |
+
+最短复验：使用同一 Release Agent、隔离配置和英文记事本，记录设备、进程会话和两版配置的哈希。远离窄缝选 A、B 点，各轻触一次，每次单独读取触碰前后的文本和 `get_status` 的 `result.numpad`。移动斜边、两级保存并关闭 Settings，再在原 B 点轻触一次。采样与切换模式放在触碰区间之外，被动读记事本文本时保留它的焦点。文本每次应分别增加 `a`、`b`、`a`，三项增量每次应为 `+1/+2/+2`。若再出现额外字符，保留原试次读数并沿触点、识别、排队、注入、目标文本逐层复核。
+
+### 5 · O1 数字与四则运算（待实机）
+
+本轮无实体触板试次，未取得键盘布局、Num Lock 前后值、目标读数或 Agent 分次增量。联合构建通过顶排扫描码回归，普通规则的真实小键盘键仍使用既有输出路径。
+
+| 目标 | Num Lock 关闭 | Num Lock 开启 | 每组须核对的实际结果 |
+|---|---|---|---|
+| 记事本 | 待实机 | 待实机 | 分别得到 `2468`、`505`、`55` |
+| Windows 计算器标准模式 | 待实机 | 待实机 | 三串数字正常进入显示框。依次清零并复测 `8+2`、`8−2`、`8×2`、`8÷2` 与面板 Enter，结果为 10、6、16、4 |
+| 电子表格 | 待实机 | 待实机 | 活动单元格输入 2 后按面板 Enter，提交一次数值 2 |
+
+最短复验：每组开始前设定 Num Lock，记录布局和锁定状态，再聚焦目标并进入面板。每触分别记录目标文本、显示值或单元格前后值和三项计数增量。每组在切层、输出和退出后核对 Num Lock，保留任何焦点、数值或计数异常。
+
+### 本轮构建结果
+
+| 命令与环境 | 退出码 | 结果 |
+|---|---:|---|
+| `dotnet restore apps/settings-winui/InputFlow.Settings.slnx -p:Configuration=Debug`，另执行 Release；采用缓存包的 NuGet 配置 | `0` | 联合构建源码副本依赖就绪 |
+| `dotnet run --project apps/settings-winui/InputFlow.Settings.Core.Tests/InputFlow.Settings.Core.Tests.csproj --no-restore -c Debug` | `0` | 两项保存时序与两项缩放回归通过，共 23 项 |
+| `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -SkipRestore` | `0` | Rust 209 项通过，1 项交互覆盖层测试按默认设置略过。格式、严格 Clippy、探针构建、Release Agent 构建通过。C# 协议 7 项、Settings Core 23 项通过。WinUI Debug／Release 均 0 警告、0 错误。531 个双语资源键、134 个 `x:Uid` 和四组本地化启动冒烟通过 |
+| 隔离 WinUI 试验构建 `dotnet build apps/settings-winui/InputFlow.Settings/InputFlow.Settings.csproj -c Release --no-restore` | `0` | 基线和修复后试验程序均为 0 警告、0 错误。前后指针事件结果见第 2、3 项日志 |
+| `git diff --check` | `0` | 未报告空白错误 |
+
+初次启动联合构建时，VS 开发命令调用的 `vswhere.exe` 未在进程 `PATH` 中找到，外层 PowerShell 以 `1` 结束。将现有 Visual Studio Installer 目录加入测试进程的 `PATH` 后重试通过，最终完整日志为 `target/stage6-followup/verify-final.log`。

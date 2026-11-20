@@ -126,6 +126,19 @@ public sealed class DraftSession
         }
     }
 
+    public string? SavePanelCanvas(PanelLayout original, PanelGeometry geometry, bool isBusy)
+    {
+        if (isBusy) return "Panel_SaveBusy";
+        if (PanelGeometryEditor.Validate(geometry) is { } error) return error;
+        if (_draft is not { SchemaVersion: >= 8, Numpad.Panel: { } panel }
+            || panel.Layouts.FirstOrDefault(layout => layout.Id == original.Id) is not { } target)
+            return "Panel_LayoutRemoved";
+        if (!PanelGeometryEditor.ContentEquals(original.Geometry, target.Geometry)) return "Panel_LayoutConflict";
+        if (!PanelGeometryEditor.ContentEquals(target.Geometry, geometry))
+            SetNumpad(_draft.Numpad with { Panel = panel.Replace(target with { Geometry = geometry }) });
+        return null;
+    }
+
     private void EnsureLoaded()
     {
         if (!IsLoaded)

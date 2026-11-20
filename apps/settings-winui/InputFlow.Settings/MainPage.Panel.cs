@@ -282,13 +282,9 @@ public sealed partial class MainPage
 
     private string? SavePanelCanvas(PanelLayout original, PanelGeometry geometry)
     {
-        if (PanelGeometryEditor.Validate(geometry) is { } error) return error;
-        if (CurrentPanel is not { } panel || panel.Layouts.FirstOrDefault(layout => layout.Id == original.Id) is not { } target)
-            return "Panel_LayoutRemoved";
-        if (!PanelGeometryEditor.ContentEquals(original.Geometry, target.Geometry)) return "Panel_LayoutConflict";
-        if (!PanelGeometryEditor.ContentEquals(target.Geometry, geometry))
-            SetPanel(panel.Replace(target with { Geometry = geometry }));
-        return null;
+        string? error = _draft.SavePanelCanvas(original, geometry, _busy);
+        if (error is null) RefreshPanelManagement();
+        return error;
     }
 
     private bool _closingPanelEditors;

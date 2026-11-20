@@ -565,7 +565,7 @@
   <data name="Panel_LineScope" xml:space="preserve"><value>Line split scope</value></data>
   <data name="Panel_LineHelp" xml:space="preserve"><value>Drag to place the dividing line. The first side keeps the original action.</value></data>
   <data name="Panel_RectangleHelp" xml:space="preserve"><value>Drag between opposite corners. In a selected region, the outside keeps the original action.</value></data>
-  <data name="Panel_SelectHelp" xml:space="preserve"><value>Click to select, Ctrl+click to extend selection. Drag a shared edge or a region interior to edit its position.</value></data>
+  <data name="Panel_SelectHelp" xml:space="preserve"><value>Ctrl+click to extend selection. Drag a shared or free rectangle edge to resize, or drag inside a region to move it.</value></data>
   <data name="Panel_EmptyRegion" xml:space="preserve"><value>Unbound region</value></data>
   <data name="Panel_SelectOne" xml:space="preserve"><value>Select one region first.</value></data>
   <data name="Panel_SplitPreview" xml:space="preserve"><value>The new outlined region starts unbound.</value></data>
@@ -598,6 +598,7 @@
   <data name="Panel_InvalidEdgeMove" xml:space="preserve"><value>This edge movement cannot keep both adjoining outlines valid.</value></data>
   <data name="Panel_LayoutRemoved" xml:space="preserve"><value>This preset was deleted in the main draft. The canvas still holds your edits.</value></data>
   <data name="Panel_LayoutConflict" xml:space="preserve"><value>The same layout changed in the main draft. The canvas still holds your edits.</value></data>
+  <data name="Panel_SaveBusy" xml:space="preserve"><value>Your canvas edits are still here. Save to draft again when the main window finishes its operation.</value></data>
   <data name="Panel_Active" xml:space="preserve"><value>Panel active. Use the exit shortcut or Esc to stop.</value></data>
   <data name="Panel_Ready" xml:space="preserve"><value>Panel ready. Use the entry shortcut to start.</value></data>
   <data name="Panel_NativeTap" xml:space="preserve"><value>Turn off Windows single-finger tap-to-click before using panel output.</value></data>

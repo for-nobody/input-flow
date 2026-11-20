@@ -510,9 +510,9 @@ public sealed partial class MainPage : Page
                     DefaultButton = ContentDialogButton.Close,
                 };
                 ContentDialogResult decision = await dialog.ShowAsync();
-                SetBusy(false);
                 if (decision == ContentDialogResult.Primary)
                 {
+                    SetBusy(false);
                     return await SaveDraftAsync(overwriteExternalChanges: true);
                 }
 

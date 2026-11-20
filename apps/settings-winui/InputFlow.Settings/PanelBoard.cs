@@ -24,7 +24,7 @@ internal sealed class PanelBoard : UserControl
     private readonly bool _labels;
     private PanelGeometry? _geometry;
     private IReadOnlySet<string> _selected = new HashSet<string>();
-    private PanelSeam? _edge;
+    private PanelEdge? _edge;
     private PanelEdge? _line;
     private PanelEdge? _invalidRectangle;
     private bool _preview;
@@ -63,10 +63,15 @@ internal sealed class PanelBoard : UserControl
     public static string DimensionsText(double? width, double? height) =>
         width is > 0 && height is > 0 ? AppResources.Format("Panel_Dimensions", width, height) : AppResources.Get("Panel_Schematic");
 
-    public void SetEdgeCursor(bool edge) => ProtectedCursor = edge
-        ? InputSystemCursor.Create(InputSystemCursorShape.SizeAll) : null;
+    public void SetEdgeCursor(PanelEdgeHandle? edge) => ProtectedCursor = edge switch
+    {
+        PanelRectangleEdge { IsVertical: true } => InputSystemCursor.Create(InputSystemCursorShape.SizeWestEast),
+        PanelRectangleEdge => InputSystemCursor.Create(InputSystemCursorShape.SizeNorthSouth),
+        PanelSeam => InputSystemCursor.Create(InputSystemCursorShape.SizeAll),
+        _ => null,
+    };
 
-    public void Render(PanelGeometry geometry, IReadOnlySet<string>? selected = null, PanelSeam? edge = null,
+    public void Render(PanelGeometry geometry, IReadOnlySet<string>? selected = null, PanelEdge? edge = null,
         PanelEdge? line = null, bool preview = false, PanelEdge? invalidRectangle = null)
     {
         _geometry = geometry;
@@ -111,7 +116,7 @@ internal sealed class PanelBoard : UserControl
             DrawLine(start, end, BoardFill, Math.Max(1, width));
             DrawLine(start, end, Outline, 1);
         }
-        if (_edge is { } highlighted) DrawLine(Pixel(highlighted.Edge.Start), Pixel(highlighted.Edge.End), ActiveEdge, 3);
+        if (_edge is { } highlighted) DrawLine(Pixel(highlighted.Start), Pixel(highlighted.End), ActiveEdge, 3);
         if (_line is { } trace) DrawLine(Pixel(trace.Start), Pixel(trace.End), ActiveEdge, 2, true);
         if (_invalidRectangle is { } corners)
         {
