@@ -1876,23 +1876,19 @@ pub(super) fn send_touchpad_digit(
     digit: u8,
     still_allowed: impl FnOnce() -> bool,
 ) -> Option<inputflow_touchpad::output::InsertResult> {
-    let key = [
-        Key::Numpad0,
-        Key::Numpad1,
-        Key::Numpad2,
-        Key::Numpad3,
-        Key::Numpad4,
-        Key::Numpad5,
-        Key::Numpad6,
-        Key::Numpad7,
-        Key::Numpad8,
-        Key::Numpad9,
-    ][usize::from(digit)];
-    send_touchpad_pair(
-        make_logical_key_input(key, false),
-        make_logical_key_input(key, true),
-        still_allowed,
-    )
+    let [down, up] = touchpad_digit_inputs(digit)?;
+    send_touchpad_pair(down, up, still_allowed)
+}
+
+fn touchpad_digit_inputs(digit: u8) -> Option<[INPUT; 2]> {
+    // Keyboard top-row scan codes ordered by digit, independent of Num Lock.
+    const TOP_ROW_SCAN_CODES: [u16; 10] =
+        [0x0b, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a];
+    let &scan_code = TOP_ROW_SCAN_CODES.get(usize::from(digit))?;
+    Some([
+        make_scan_key_input(scan_code, false, false),
+        make_scan_key_input(scan_code, false, true),
+    ])
 }
 
 fn send_touchpad_pair(
@@ -2689,6 +2685,36 @@ mod tests {
             physical_ki.dwFlags,
             KEYEVENTF_SCANCODE | KEYEVENTF_EXTENDEDKEY
         );
+    }
+
+    #[test]
+    fn touchpad_digits_send_tagged_top_row_scan_code_pairs() {
+        for (digit, expected_scan) in [
+            (0, 0x0b),
+            (1, 0x02),
+            (2, 0x03),
+            (3, 0x04),
+            (4, 0x05),
+            (5, 0x06),
+            (6, 0x07),
+            (7, 0x08),
+            (8, 0x09),
+            (9, 0x0a),
+        ] {
+            let [down, up] = touchpad_digit_inputs(digit).unwrap();
+            for (input, flags) in [
+                (down, KEYEVENTF_SCANCODE),
+                (up, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP),
+            ] {
+                assert_eq!(input.r#type, INPUT_KEYBOARD);
+                // SAFETY: touchpad_digit_inputs builds keyboard INPUTs only.
+                let key = unsafe { input.Anonymous.ki };
+                assert_eq!((key.wVk, key.wScan), (0, expected_scan), "digit {digit}");
+                assert_eq!(key.dwFlags, flags, "digit {digit}");
+                assert_eq!(key.dwExtraInfo, SELF_EXTRA_INFO_TAG);
+            }
+        }
+        assert!(touchpad_digit_inputs(10).is_none());
     }
 
     #[test]
