@@ -52,13 +52,13 @@ public partial class App : Application
         _instance = SettingsInstance.TryAcquire();
         if (_instance is null)
         {
-            SettingsInstance.ActivateExistingWindow(AppResources.Get("Window_Title"));
-            Environment.Exit(0);
+            Environment.Exit(SettingsInstance.ActivateExistingWindow());
             return;
         }
 
         var coordinator = new AgentConnectionCoordinator();
         _window = new MainWindow(coordinator, ReleaseInstance);
+        SettingsInstance.RegisterWindow(WinRT.Interop.WindowNative.GetWindowHandle(_window));
         _window.Activate();
     }
 

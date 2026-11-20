@@ -90,6 +90,7 @@ public sealed partial class MainPage
         _selectedPresentationPreset = draft.DefaultPreset;
         _renderedPresentation = null;
         PresentationEditor.Visibility = Visibility.Visible;
+        RulesList.Visibility = Visibility.Collapsed;
         RefreshPresentationControls();
         PresentationEditor.Focus(FocusState.Programmatic);
     }
@@ -98,6 +99,7 @@ public sealed partial class MainPage
     {
         if (PresentationEditor.Visibility != Visibility.Visible) return;
         PresentationEditor.Visibility = Visibility.Collapsed;
+        RulesList.Visibility = Visibility.Visible;
         _presentationBeforeEdit = null;
         _renderedPresentation = null;
         if (_presentationBinding is not null)

@@ -8,13 +8,14 @@ use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use inputflow_runtime::{ApplyOutcome, CaptureOutcome, Runtime, RuntimeOptions, default_data_dir};
 use inputflow_windows::platform::shell::{
-    SingleInstance, SingleInstanceGuard, TrayEvent, TrayHandle,
+    SingleInstance, SingleInstanceGuard, TrayEvent, TrayHandle, allow_settings_foreground,
+    notify_settings_error, show_settings_error,
 };
 
 use crate::ipc::AgentIpc;
@@ -115,6 +116,7 @@ fn main() {
         let settings = resolve_settings_path(args.settings_path.as_deref());
         if let Err(error) = launch_settings(&settings, &log) {
             log.write("ERROR", &format!("second_instance: {error}"));
+            show_settings_error(&error);
             std::process::exit(3);
         }
         log.write("INFO", "second_instance: settings launch requested");
@@ -249,14 +251,24 @@ fn run_tray_loop(
     log: &AgentLog,
 ) -> Result<(), String> {
     let deadline = run_for.map(|duration| Instant::now() + duration);
+    let mut settings_start: Vec<SettingsStart> = Vec::new();
     loop {
-        let event = if let Some(deadline) = deadline {
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                break;
-            };
-            match tray.recv_timeout(remaining) {
+        settings_start.retain_mut(|start| !start.finished(log));
+        let now = Instant::now();
+        if deadline.is_some_and(|deadline| now >= deadline) {
+            break;
+        }
+        let wait = deadline.map(|deadline| deadline - now);
+        let wait = if !settings_start.is_empty() {
+            let poll = Duration::from_millis(100);
+            Some(wait.map_or(poll, |remaining| remaining.min(poll)))
+        } else {
+            wait
+        };
+        let event = if let Some(wait) = wait {
+            match tray.recv_timeout(wait) {
                 Ok(event) => event,
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                     return Err("tray event channel disconnected".to_string());
                 }
@@ -268,8 +280,19 @@ fn run_tray_loop(
 
         match event {
             TrayEvent::OpenSettings => {
-                if let Err(error) = launch_settings(settings_path, log) {
-                    log.write("ERROR", &format!("open_settings: {error}"));
+                if settings_start.len() >= 4 {
+                    log.write(
+                        "INFO",
+                        "open_settings: four recent Settings launches are still being checked",
+                    );
+                    continue;
+                }
+                match launch_settings(settings_path, log) {
+                    Ok(child) => settings_start.push(SettingsStart {
+                        child,
+                        at: Instant::now(),
+                    }),
+                    Err(error) => report_settings_error(error, log),
                 }
             }
             TrayEvent::TogglePause => {
@@ -303,18 +326,77 @@ fn resolve_settings_path(explicit: Option<&Path>) -> PathBuf {
     })
 }
 
-fn launch_settings(path: &Path, log: &AgentLog) -> Result<(), String> {
+fn launch_settings(path: &Path, log: &AgentLog) -> Result<Child, String> {
+    let path = std::path::absolute(path).map_err(|error| {
+        format!(
+            "failed to resolve Settings path `{}`: {error}",
+            path.display()
+        )
+    })?;
     if !path.is_file() {
         return Err(format!(
             "settings executable is unavailable at `{}`; pass --settings PATH",
             path.display()
         ));
     }
-    Command::new(path)
+    let directory = path
+        .parent()
+        .ok_or_else(|| format!("Settings path has no parent: `{}`", path.display()))?;
+    let child = Command::new(&path)
+        .current_dir(directory)
         .spawn()
-        .map_err(|error| format!("failed to launch settings: {error}"))?;
-    log.write("INFO", "settings launch requested");
-    Ok(())
+        .map_err(|error| format!("failed to launch settings at `{}`: {error}", path.display()))?;
+    allow_settings_foreground(child.id());
+    log.write(
+        "INFO",
+        &format!(
+            "settings launch requested: pid={} path=`{}` working_directory=`{}`",
+            child.id(),
+            path.display(),
+            directory.display()
+        ),
+    );
+    Ok(child)
+}
+
+fn report_settings_error(error: String, log: &AgentLog) {
+    log.write("ERROR", &format!("open_settings: {error}"));
+    if let Err(error) = notify_settings_error(error) {
+        log.write(
+            "ERROR",
+            &format!("open_settings: failed to display error: {error}"),
+        );
+    }
+}
+
+struct SettingsStart {
+    child: Child,
+    at: Instant,
+}
+
+impl SettingsStart {
+    fn finished(&mut self, log: &AgentLog) -> bool {
+        let pid = self.child.id();
+        match self.child.try_wait() {
+            Ok(Some(exit)) => {
+                match exit.code() {
+                    Some(0) => log.write("INFO", &format!("open_settings: Settings pid={pid} exited during launch check with code 0")),
+                    Some(10) => report_settings_error(format!("Settings pid={pid} could not find the existing Settings window (exit 10)."), log),
+                    Some(11) => log.write("WARN", &format!("open_settings: Windows did not foreground the existing Settings window (pid={pid}, exit 11). The window requested a taskbar flash.")),
+                    _ => report_settings_error(format!("Settings pid={pid} exited during startup ({exit}). See the Windows Application event log for crash details."), log),
+                }
+                true
+            }
+            Ok(None) => self.at.elapsed() >= Duration::from_secs(3),
+            Err(error) => {
+                log.write(
+                    "WARN",
+                    &format!("open_settings: could not check Settings pid={pid}: {error}"),
+                );
+                true
+            }
+        }
+    }
 }
 
 fn parse_args(arguments: impl IntoIterator<Item = String>) -> Result<ParseResult, String> {

@@ -11,7 +11,7 @@
 
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, sync_channel};
 use std::sync::{Mutex, OnceLock};
 use std::thread::JoinHandle;
@@ -27,9 +27,10 @@ use windows_sys::Win32::UI::Shell::{
     Shell_NotifyIconW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CS_HREDRAW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu,
-    DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, IDI_APPLICATION, LoadIconW,
-    MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG, PostThreadMessageW, RegisterClassW,
+    AllowSetForegroundWindow, AppendMenuW, CS_HREDRAW, CreatePopupMenu, CreateWindowExW,
+    DefWindowProcW, DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW,
+    IDI_APPLICATION, LoadIconW, MB_ICONERROR, MB_OK, MB_SETFOREGROUND, MB_TOPMOST, MF_GRAYED,
+    MF_SEPARATOR, MF_STRING, MSG, MessageBoxW, PostThreadMessageW, RegisterClassW,
     RegisterWindowMessageW, SetForegroundWindow, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON,
     TrackPopupMenu, TranslateMessage, UnregisterClassW, WM_APP, WM_CONTEXTMENU, WM_LBUTTONDBLCLK,
     WM_NULL, WM_QUIT, WM_RBUTTONUP, WNDCLASSW,
@@ -47,6 +48,45 @@ const EVENT_QUEUE_CAPACITY: usize = 16;
 static TRAY_EVENTS: OnceLock<Mutex<Option<SyncSender<TrayEvent>>>> = OnceLock::new();
 static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
 static TRAY_THREAD_ID: AtomicU32 = AtomicU32::new(0);
+static SETTINGS_ERROR_OPEN: AtomicBool = AtomicBool::new(false);
+
+pub fn allow_settings_foreground(process_id: u32) {
+    // SAFETY: The child PID came from a successful spawn. Windows applies its normal foreground rules.
+    unsafe { AllowSetForegroundWindow(process_id) };
+}
+
+pub fn notify_settings_error(message: String) -> Result<(), std::io::Error> {
+    if SETTINGS_ERROR_OPEN.swap(true, Ordering::AcqRel) {
+        return Ok(());
+    }
+    if let Err(error) = std::thread::Builder::new()
+        .name("settings-launch-error".into())
+        .spawn(move || {
+            show_settings_error(&message);
+            SETTINGS_ERROR_OPEN.store(false, Ordering::Release);
+        })
+    {
+        SETTINGS_ERROR_OPEN.store(false, Ordering::Release);
+        return Err(error);
+    }
+    Ok(())
+}
+
+pub fn show_settings_error(message: &str) {
+    let message = wide(&format!(
+        "{message}\n\nFor a development build, use scripts\\run-windows.ps1 or pass --settings with the Settings executable path. For a portable build, extract the complete archive into one folder."
+    ));
+    let title = wide("InputFlow - Open Settings");
+    // SAFETY: Both strings are NUL-terminated and live for the duration of the call.
+    unsafe {
+        MessageBoxW(
+            std::ptr::null_mut(),
+            message.as_ptr(),
+            title.as_ptr(),
+            MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST,
+        );
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SingleInstance {

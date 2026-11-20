@@ -161,12 +161,20 @@ Phase C 自动 smoke 示例（不含物理输入）：
 
 ## 7. 联合开发运行顺序（Phase E 已接线）
 
-1. 构建并启动 `inputflow-agent.exe`；Phase D IPC 启动返回前先创建当前会话、当前进程用户可访问的版本化 Named Pipe instance。
-2. C# 客户端连接后先完成 v1 handshake，再使用 status/config/validate/apply/pause/resume/stats/capture/events contract。
-3. 单独启动 `InputFlow.Settings.exe`。
-4. 设置程序 handshake，显示 agent 的权威状态；连接失败时只显示离线，不自行启动第二套 Hook。
-5. 关闭设置窗口，确认设置进程退出；agent、托盘和规则继续运行。
-6. 从托盘再次打开设置，确认单实例/激活现有窗口语义。
+在已配置 Rust 和 .NET 的开发终端运行联合构建，然后用联合启动入口启动首个 Agent。
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-windows.ps1
+```
+
+`run-windows.ps1` 通过 MSBuild 取得本次 Settings 的绝对路径并传给 `--settings`。默认搭配 Release Settings，可用 `-SettingsConfiguration Debug`，测试数据可用 `-ConfigPath .\target\test\config.json`。如果已有 Agent 在同一会话运行，先保存或处理 Settings 中的草稿，再从托盘退出原 Agent。
+
+开发目录中的 Agent 和 Settings 分别位于 Rust 和 WinUI 构建输出。便携包内两个程序位于同一目录，直接运行包内 Agent 即可。Agent 以 Settings 自己的目录作为启动工作目录。
+
+1. 在 Agent 托盘菜单点 **Open Settings**。Settings 通过当前会话的 Named Pipe 完成 v1 handshake，显示 Agent 的权威状态。
+2. 关闭 Settings 后，Agent、托盘和规则继续运行。
+3. 再次点击菜单或双击图标，可恢复现有窗口或打开新窗口。目标缺失、进程无法启动或在启动检查期间异常退出时，Agent 显示错误并记录到 `%LOCALAPPDATA%\InputFlow\agent.log`。
 
 第 1–2 步的 agent、Named Pipe 和 C# client contract 属于 Phase D；正式页面绑定、关闭/重开、UIA、物理键录制、高对比度/缩放和长稳态资源均已完成 Phase E 验收。中文 Narrator 实际语音因本机语音环境不足保持限制，但应用侧 UIA 名称已逐项核验。
 

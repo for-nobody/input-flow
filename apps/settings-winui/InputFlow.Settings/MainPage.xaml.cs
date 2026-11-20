@@ -24,6 +24,7 @@ public sealed partial class MainPage : Page
     private readonly CaptureUiIntentTracker _captureIntent = new();
     private AgentConnectionCoordinator? _coordinator;
     private ConfigSaveService? _saveService;
+    private string _connectionMessage = string.Empty;
     private string? _editingOriginalId;
     private bool _refreshingRules;
     private bool _busy;
@@ -204,7 +205,7 @@ public sealed partial class MainPage : Page
         ConnectionBar.Title = snapshot.Kind == AgentConnectionKind.Online
             ? AppResources.Get("Connection_OnlineTitle")
             : AppResources.Get("Connection_StatusTitle");
-        ConnectionBar.Message = ConnectionMessage(snapshot.Kind);
+        _connectionMessage = ConnectionMessage(snapshot.Kind);
         ConnectionBar.Severity = snapshot.Kind switch
         {
             AgentConnectionKind.Online => InfoBarSeverity.Success,
@@ -213,6 +214,7 @@ public sealed partial class MainPage : Page
         };
         SaveButton.IsEnabled = snapshot.ControlConnected && !_busy;
         PauseButton.IsEnabled = snapshot.ControlConnected && !_busy;
+        UpdateShortWindowLayout();
         RefreshTouchpadControls();
     }
 
@@ -266,12 +268,13 @@ public sealed partial class MainPage : Page
             {
                 ConnectionBar.IsOpen = true;
                 ConnectionBar.Title = AppResources.Get("Connection_OnlineTitle");
-                ConnectionBar.Message = status.LastError is null
+                _connectionMessage = status.LastError is null
                     ? statusSummary
                     : AppResources.Format("Status_WithLastErrorFormat", statusSummary, status.LastError);
                 ConnectionBar.Severity = status.ApplyReconciliation == "recovery_required" || status.LastError is not null
                     ? InfoBarSeverity.Warning
                     : InfoBarSeverity.Success;
+                UpdateShortWindowLayout();
             }
         }
         RefreshTouchpadControls();
@@ -1400,7 +1403,20 @@ public sealed partial class MainPage : Page
             .First(item => string.Equals(item.Tag as string, type, StringComparison.Ordinal));
     }
 
-    private void MainPage_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateResponsiveEditor();
+    private void MainPage_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        UpdateShortWindowLayout();
+        UpdateResponsiveEditor();
+    }
+
+    private void UpdateShortWindowLayout()
+    {
+        bool shortWindow = ActualHeight < 350;
+        RulesDescription.Visibility = shortWindow ? Visibility.Collapsed : Visibility.Visible;
+        bool compactConnection = shortWindow && ConnectionBar.Severity == InfoBarSeverity.Success;
+        RetryConnectionButton.Visibility = compactConnection ? Visibility.Collapsed : Visibility.Visible;
+        ConnectionBar.Message = compactConnection ? string.Empty : _connectionMessage;
+    }
 
     private void UpdateResponsiveEditor()
     {

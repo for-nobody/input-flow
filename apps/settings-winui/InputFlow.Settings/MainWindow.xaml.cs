@@ -21,7 +21,7 @@ public sealed partial class MainWindow : Window
         AppTitleBar.Title = Title;
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
-        AppWindow.SetIcon("Assets/AppIcon.ico");
+        AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         AppWindow.Resize(new SizeInt32(1100, 720));
         AppWindow.Closing += AppWindow_Closing;
         Closed += MainWindow_Closed;
@@ -48,6 +48,7 @@ public sealed partial class MainWindow : Window
             if (close)
             {
                 _allowClose = true;
+                SettingsInstance.UnregisterWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
                 Close();
             }
         }

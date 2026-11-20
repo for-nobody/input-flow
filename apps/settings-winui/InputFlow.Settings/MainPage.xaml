@@ -50,7 +50,7 @@
                 IsOpen="True"
                 Severity="Informational"
                 x:Uid="ConnectionBar">
-                <InfoBar.ActionButton><Button x:Uid="RetryConnectionButton" Click="RetryConnection_Click" /></InfoBar.ActionButton>
+                <InfoBar.ActionButton><Button x:Name="RetryConnectionButton" x:Uid="RetryConnectionButton" Click="RetryConnection_Click" /></InfoBar.ActionButton>
             </InfoBar>
             <InfoBar
                 x:Name="CaptureBar"
@@ -82,7 +82,7 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel Spacing="2">
                         <TextBlock x:Uid="RulesPageTitle" FontSize="24" FontWeight="SemiBold" />
-                        <TextBlock x:Uid="RulesPageDescription" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="RulesDescription" x:Uid="RulesPageDescription" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
                     </StackPanel>
                     <TextBlock x:Name="DirtyText" x:Uid="DirtyText" Grid.Column="1" VerticalAlignment="Center" AutomationProperties.LiveSetting="Polite" Foreground="{ThemeResource SystemFillColorCautionBrush}" Visibility="Collapsed" />
                 </Grid>
@@ -103,60 +103,61 @@
                         <ColumnDefinition x:Name="EditorColumn" Width="0" />
                     </Grid.ColumnDefinitions>
                     <Grid x:Name="RulesListPane">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="*" />
-                        </Grid.RowDefinitions>
-                        <Border x:Name="TouchClickSection" Padding="12" Margin="0,0,0,8" Visibility="Collapsed" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="6">
-                            <StackPanel Spacing="6">
-                                <TextBlock x:Uid="TouchClickTitle" FontSize="18" FontWeight="SemiBold" />
-                                <ToggleSwitch x:Name="TouchClickEnabled" x:Uid="TouchClickEnabled" Toggled="TouchClickEnabled_Toggled" />
-                                <Grid ColumnSpacing="8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <NumberBox x:Name="TouchShort" x:Uid="TouchShort" Minimum="1" Maximum="60000" ValueChanged="TouchParameter_Changed" />
-                                    <NumberBox x:Name="TouchHold" x:Uid="TouchHold" Grid.Column="1" Minimum="1" Maximum="60000" ValueChanged="TouchParameter_Changed" />
-                                    <NumberBox x:Name="TouchMovement" x:Uid="TouchMovement" Grid.Column="2" SmallChange="0.1" ValueChanged="TouchParameter_Changed" />
-                                </Grid>
-                                <TextBlock x:Name="TouchClickStatus" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
-                            </StackPanel>
-                        </Border>
-                        <Border x:Name="PresentationCard" Grid.Row="1" Visibility="Collapsed" Padding="12" Margin="0,0,0,8"
+                        <ListView x:Name="RulesList" x:Uid="RulesList" IsItemClickEnabled="False" SelectionMode="None"
+                                  TabFocusNavigation="Local" ScrollViewer.VerticalScrollBarVisibility="Auto">
+                            <ListView.Header>
+                                <StackPanel>
+                                    <Border x:Name="TouchClickSection" Padding="12" Margin="0,0,0,8" Visibility="Collapsed" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="6">
+                                        <StackPanel Spacing="6">
+                                            <TextBlock x:Uid="TouchClickTitle" FontSize="18" FontWeight="SemiBold" />
+                                            <ToggleSwitch x:Name="TouchClickEnabled" x:Uid="TouchClickEnabled" Toggled="TouchClickEnabled_Toggled" />
+                                            <Grid ColumnSpacing="8">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <NumberBox x:Name="TouchShort" x:Uid="TouchShort" Minimum="1" Maximum="60000" ValueChanged="TouchParameter_Changed" />
+                                                <NumberBox x:Name="TouchHold" x:Uid="TouchHold" Grid.Column="1" Minimum="1" Maximum="60000" ValueChanged="TouchParameter_Changed" />
+                                                <NumberBox x:Name="TouchMovement" x:Uid="TouchMovement" Grid.Column="2" SmallChange="0.1" ValueChanged="TouchParameter_Changed" />
+                                            </Grid>
+                                            <TextBlock x:Name="TouchClickStatus" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border x:Name="PresentationCard" Visibility="Collapsed" Padding="12" Margin="0,0,0,8"
                                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6">
-                            <Grid ColumnSpacing="12">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                <StackPanel Spacing="3">
-                                    <TextBlock x:Uid="PresentationTitle" FontWeight="SemiBold" />
-                                    <TextBlock x:Name="PresentationSummary" TextWrapping="Wrap" />
-                                    <TextBlock x:Name="PresentationState" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
-                                </StackPanel>
-                                <Button x:Uid="PresentationEditButton" Grid.Column="1" Click="PresentationEdit_Click" />
-                            </Grid>
-                        </Border>
-                        <Border x:Name="NumpadCard" Grid.Row="2" Visibility="Collapsed" Padding="12" Margin="0,0,0,8"
+                                        <Grid ColumnSpacing="12">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <StackPanel Spacing="3">
+                                                <TextBlock x:Uid="PresentationTitle" FontWeight="SemiBold" />
+                                                <TextBlock x:Name="PresentationSummary" TextWrapping="Wrap" />
+                                                <TextBlock x:Name="PresentationState" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+                                            </StackPanel>
+                                            <Button x:Uid="PresentationEditButton" Grid.Column="1" Click="PresentationEdit_Click" />
+                                        </Grid>
+                                    </Border>
+                                    <Border x:Name="NumpadCard" Visibility="Collapsed" Padding="12" Margin="0,0,0,8"
                                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6">
-                            <StackPanel Spacing="6">
-                                <TextBlock x:Uid="NumpadTitle" FontWeight="SemiBold" />
-                                <TextBlock x:Name="NumpadState" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
-                                <TextBlock x:Name="NumpadCounts" TextWrapping="Wrap" />
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <Button x:Name="NumpadStart" Click="NumpadBinding_Click" />
-                                    <Button x:Name="NumpadStop" Click="NumpadBinding_Click" />
+                                        <StackPanel Spacing="6">
+                                            <TextBlock x:Uid="NumpadTitle" FontWeight="SemiBold" />
+                                            <TextBlock x:Name="NumpadState" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+                                            <TextBlock x:Name="NumpadCounts" TextWrapping="Wrap" />
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <Button x:Name="NumpadStart" Click="NumpadBinding_Click" />
+                                                <Button x:Name="NumpadStop" Click="NumpadBinding_Click" />
+                                            </StackPanel>
+                                            <ComboBox x:Name="NumpadGuideChoice" x:Uid="NumpadGuideChoice" SelectionChanged="NumpadGuide_Changed">
+                                                <ComboBoxItem x:Uid="NumpadGuideAlways" />
+                                                <ComboBoxItem x:Uid="NumpadGuideTwoSeconds" />
+                                                <ComboBoxItem x:Uid="NumpadGuideFirstInput" />
+                                                <ComboBoxItem x:Uid="NumpadGuideNever" />
+                                            </ComboBox>
+                                        </StackPanel>
+                                    </Border>
+                                    <TextBlock x:Name="EmptyRulesText" x:Uid="EmptyRulesText" Margin="0,12" HorizontalAlignment="Center"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="Collapsed" />
                                 </StackPanel>
-                                <ComboBox x:Name="NumpadGuideChoice" x:Uid="NumpadGuideChoice" SelectionChanged="NumpadGuide_Changed">
-                                    <ComboBoxItem x:Uid="NumpadGuideAlways" />
-                                    <ComboBoxItem x:Uid="NumpadGuideTwoSeconds" />
-                                    <ComboBoxItem x:Uid="NumpadGuideFirstInput" />
-                                    <ComboBoxItem x:Uid="NumpadGuideNever" />
-                                </ComboBox>
-                            </StackPanel>
-                        </Border>
-                        <ListView x:Name="RulesList" x:Uid="RulesList" Grid.Row="3" IsItemClickEnabled="False" SelectionMode="None">
+                            </ListView.Header>
                             <ListView.ItemTemplate>
                                 <DataTemplate>
                                     <Border Margin="0,0,0,8" Padding="12" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6">
@@ -183,8 +184,7 @@
                                 </DataTemplate>
                             </ListView.ItemTemplate>
                         </ListView>
-                        <TextBlock x:Name="EmptyRulesText" x:Uid="EmptyRulesText" Grid.Row="3" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="Collapsed" />
-                        <ScrollViewer x:Name="PresentationEditor" Grid.RowSpan="4" Visibility="Collapsed"
+                        <ScrollViewer x:Name="PresentationEditor" Visibility="Collapsed"
                                       Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" HorizontalScrollBarVisibility="Disabled">
                             <StackPanel Spacing="10" Padding="6">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
