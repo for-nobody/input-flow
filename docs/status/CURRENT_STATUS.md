@@ -2,9 +2,9 @@
 
 > 文档类型：当前进度唯一权威
 >
-> 最后更新：2026-11-20（Australia/Brisbane）
+> 最后更新：2026-11-21（Australia/Brisbane）
 >
-> 代码基线：`main`（`d2dfed9`）及 Stage 6 开发工作树。`v0.9.0` 已作为 GitHub Pre-release 发布，tag 指向 `c18a0a8...`
+> 代码基线：`main`（`df2d1a2`）。`v0.9.0` 已作为 GitHub Pre-release 发布，tag 指向 `c18a0a8...`
 
 ## 当前结论
 
@@ -55,9 +55,11 @@ Stage 5 已接入实验性触控板数字键盘、Schema v7 和 Settings 双语�
 触控板数字改用键盘顶排扫描码。Num Lock 开启和关闭时，板面 2 均已在 Windows 计算器和记事本中实测送达 `2`。
 进度、自动测试和实际目标送达范围见[Stage 5 记录](../records/TOUCHPAD_STAGE_5_NUMPAD.md)。
 
-Stage 6 开发工作树已将数字键盘并入实验性触控板虚拟操作面板。Schema v8 保存多套布局和区域，
+Stage 6 将数字键盘并入实验性触控板虚拟操作面板。Schema v8 保存多套布局和区域，
 v7 数字键盘迁移为经典布局。WinUI 已接入预设管理和独立画布，Agent 可执行区域动作。
-主流程的两级保存和实体触碰证据，以及仍待补齐的应用与设备矩阵见
+现场复验覆盖双向互斥、媒体六键、PowerPoint 翻页、双框切焦点和切层时的旧接触取消。
+G1 移动斜边前后逐触核对，三次各输出一个字符，记事本得到 `aba`。
+两次锁屏后复现解锁不能立即用 `F9` 重开面板。操作者决定暂缓结项。证据与剩余矩阵见
 [Stage 6 执行记录](../records/TOUCHPAD_STAGE_6_VIRTUAL_PANEL.md)。
 
 ## 阶段状态
@@ -198,8 +200,8 @@ H 本机分发结果：
 
 ## 下一步
 
-开发工作树按[触控板 Stage 6 任务](../tasks/TOUCHPAD_STAGE_6_VIRTUAL_PANEL.md)复验数字与运算、媒体、
-翻页、模式切换及设备生命周期。
+Stage 6 结项前处理并复验解锁后双击 `F9` 未重新进入面板的问题。
+其他现场覆盖仍按[触控板 Stage 6 任务](../tasks/TOUCHPAD_STAGE_6_VIRTUAL_PANEL.md)与执行记录的总矩阵核对。
 
 保持已发布 tag 和附件不变，按 [`../tasks/POST_RELEASE_SOAK.md`](../tasks/POST_RELEASE_SOAK.md) 执行
 当前活动任务 G-POST。先准备可跨进程重启、睡眠和多 session 的低频采样工具，再使用真正发布的 ZIP

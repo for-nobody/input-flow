@@ -1,6 +1,6 @@
 # InputFlow · Stage 6 触控板虚拟操作面板
 
-**Codex 开发任务卡** · 放置于 `docs/tasks/TOUCHPAD_STAGE_6_VIRTUAL_PANEL.md` · 状态为待执行
+**Codex 开发任务卡** · 阶段状态见[当前状态](../status/CURRENT_STATUS.md)，现场证据见[执行记录](../records/TOUCHPAD_STAGE_6_VIRTUAL_PANEL.md)
 
 将 Stage 5 数字键盘并入一个「触控板虚拟操作面板」。用户可以直接使用数字、媒体、演示控制预设，也可以在自己触控板的等比例示意图上画区域、绑定动作、保存多套布局。Windows Agent 在 Settings 关闭后仍应独立工作。
 
