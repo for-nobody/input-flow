@@ -106,11 +106,42 @@ internal static class LocalizationSmoke
                 string.Equals(page.LocalizationSmokeTouchpadName, expectedTouchpad, StringComparison.Ordinal) &&
                 string.Equals(page.LocalizationSmokeTouchClickOff, expectedTouchClickOff, StringComparison.Ordinal) &&
                 string.Equals(page.LocalizationSmokePresentationName, expectedPresentation, StringComparison.Ordinal);
-            return passed ? 0 : 1;
+            return passed && RoundTripLanguagePreferences() ? 0 : 1;
         }
         catch
         {
             return 1;
+        }
+    }
+
+    private static bool RoundTripLanguagePreferences()
+    {
+        DirectoryInfo directory = Directory.CreateTempSubdirectory("InputFlow-language-smoke-");
+        string path = Path.Combine(directory.FullName, "ui-preferences.json");
+        try
+        {
+            var store = new UiLanguagePreferenceStore(path);
+            string[] preferences =
+            [
+                UiLanguagePreference.ChineseSimplified,
+                UiLanguagePreference.EnglishUnitedStates,
+                UiLanguagePreference.System,
+            ];
+            foreach (string preference in preferences)
+            {
+                store.Save(preference);
+                UiLanguagePreferenceLoadResult loaded = store.Load();
+                if (loaded.UsedFallback || loaded.Language != preference)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+        finally
+        {
+            File.Delete(path);
+            directory.Delete();
         }
     }
 

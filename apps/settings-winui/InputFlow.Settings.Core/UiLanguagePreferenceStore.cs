@@ -82,9 +82,6 @@ public sealed class UiLanguagePreferenceStore
         string temporaryPath = Path.Combine(directory, $".{Path.GetFileName(_path)}.{Guid.NewGuid():N}.tmp");
         try
         {
-            byte[] payload = JsonSerializer.SerializeToUtf8Bytes(
-                new UiPreferences(language),
-                new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower, WriteIndented = true });
             using (var stream = new FileStream(
                 temporaryPath,
                 FileMode.CreateNew,
@@ -93,7 +90,13 @@ public sealed class UiLanguagePreferenceStore
                 4096,
                 FileOptions.WriteThrough))
             {
-                stream.Write(payload);
+                // Release Settings disables reflection-based JSON serialization.
+                using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("language", language);
+                    writer.WriteEndObject();
+                }
                 stream.WriteByte((byte)'\n');
                 stream.Flush(flushToDisk: true);
             }
@@ -114,6 +117,4 @@ public sealed class UiLanguagePreferenceStore
             }
         }
     }
-
-    private sealed record UiPreferences(string Language);
 }
